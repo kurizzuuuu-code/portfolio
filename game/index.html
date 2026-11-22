@@ -154,6 +154,12 @@
   .mp-input { width: 100%; min-height: 46px; margin: 0 0 10px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(197, 176, 224, 0.3); background: rgba(20, 8, 32, 0.7); color: #f1e8ff; font: 700 15px Arial, sans-serif; letter-spacing: 2px; text-transform: uppercase; box-sizing: border-box; outline: none; }
   .mp-input:focus { border-color: var(--mint); box-shadow: 0 0 0 3px rgba(214, 183, 240, 0.14); }
   .mp-input.plain { text-transform: none; letter-spacing: 0.5px; font-size: 13px; }
+  .mp-char-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 12px; }
+  .mp-char-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 8px; border-radius: 12px; border: 1.5px solid rgba(197, 176, 224, 0.28); background: rgba(20, 8, 32, 0.65); color: #e2d4f5; cursor: pointer; font: 700 13px Arial, sans-serif; letter-spacing: 1.2px; transition: border-color 0.15s, background 0.15s, transform 0.12s; }
+  .mp-char-btn small { font-size: 10px; font-weight: 600; letter-spacing: 0.4px; opacity: 0.72; }
+  .mp-char-btn:hover { border-color: rgba(230, 195, 255, 0.65); transform: translateY(-1px); }
+  .mp-char-btn.active { border-color: var(--gold); background: rgba(255, 214, 102, 0.14); color: #fff; box-shadow: 0 0 14px rgba(255, 214, 102, 0.2); }
+  .mp-char-btn.active small { color: var(--gold); opacity: 1; }
   #mpAdv { margin: 0 0 12px; color: #c7b3dc; font-size: 12px; } #mpAdv summary { cursor: pointer; margin-bottom: 8px; letter-spacing: 1px; }
   #mpStatus { min-height: 18px; margin: 10px 0 0; color: #ffb2e8; font-size: 12px; letter-spacing: 1px; text-align: center; }
   #mpCode { font-family: "Arial Black", Arial, sans-serif; font-size: 40px; letter-spacing: 8px; color: var(--gold); text-align: center; margin: 4px 0 14px; user-select: all; }
@@ -453,6 +459,13 @@
       <div class="card compact">
         <div class="eyebrow">PHASE 4 · MULTIPLAYER</div>
         <h2 class="screen-title">LOST TOGETHER</h2>
+        <div id="mpCharPicker">
+          <div style="font-size: 11px; letter-spacing: 1.8px; color: #c7b3dc; font-weight: 700; text-align: center; margin-bottom: 6px;">CHARACTER</div>
+          <div class="mp-char-grid">
+            <button type="button" class="mp-char-btn active" data-mp-char="kurizu">KURIZU<small>Default Runner</small></button>
+            <button type="button" class="mp-char-btn" data-mp-char="reiru">REIRU<small>Phase 4 MP</small></button>
+          </div>
+        </div>
         <div id="mpJoinBox">
           <p class="screen-subtitle">Same forest, same creature, one door. First one through it wins. Share a room code with your friends.</p>
           <input id="mpName" class="mp-input" placeholder="YOUR NAME" maxlength="12" autocomplete="off" spellcheck="false">
@@ -4607,9 +4620,19 @@
   }
 
   /* ---------- lobby / connection ---------- */
+  function mpSetChar(ch) {
+    mp.char = ch === "reiru" ? "reiru" : "kurizu";
+    mpStore.set("dns_mp_char", mp.char);
+    document.querySelectorAll("[data-mp-char]").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.mpChar === mp.char);
+    });
+    if (mp.active && !mp.inRound) mpSend({ t: "char", char: mp.char });
+    if (mp.char === "reiru") getReiruArrayBuffer(() => {}); // preload Reiru in background
+  }
   function mpOpenLobby() {
     showScreen("mp");
     $("mpName").value = mpStore.get("dns_mp_name");
+    mpSetChar(mpStore.get("dns_mp_char") || mp.char || "kurizu");
     const hash = (location.hash.match(/room=([A-Za-z0-9]+)/) || [])[1];
     if (hash && !$("mpRoom").value) $("mpRoom").value = hash.toUpperCase();
     const def = mpDefaultServer();
@@ -4640,7 +4663,7 @@
     try { ws = new WebSocket(url); } catch (e) { mpStatus("That server address doesn't look right."); return; }
     mp.ws = ws;
     mp.connTimer = setTimeout(() => { if (mp.ws === ws && !mp.active) mpStatus("Waking the server up… free hosts can take ~30 seconds."); }, 5000);
-    ws.onopen = () => ws.send(JSON.stringify({ t: "join", room, name }));
+    ws.onopen = () => ws.send(JSON.stringify({ t: "join", room, name, char: mp.char || "kurizu" }));
     ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } mpHandle(m); };
     ws.onerror = () => { if (mp.ws === ws && !mp.active) mpStatus("Couldn't reach the server. Check the address."); };
     ws.onclose = () => { if (mp.ws === ws) mpDisconnected(); };
@@ -4654,6 +4677,7 @@
     mp.players.clear();
   }
   function mpLeave() {
+    mpEndJumpscare();
     mpClose();
     mpClearPlayers();
     mp.active = false; mp.inRound = false; mp.dead = false; mp.spectating = false; mp.specId = null; mp.proxy = null; mp.isHost = false; mp.loser = false; mp.winSent = false;
@@ -4662,6 +4686,7 @@
     const sh = $("mpSpecHud"); if (sh) sh.classList.add("hidden");
     playerVisual.rotation.z = 0; playerY = 0;
     const wr = $("winResults"); if (wr) wr.classList.remove("hidden");
+    applyLocalCharacter("kurizu");
   }
   function mpDisconnected() {
     const wasActive = mp.active;
@@ -4680,7 +4705,8 @@
       const dot = document.createElement("i");
       dot.style.color = "#" + MP_COLORS[pl.color % MP_COLORS.length].toString(16).padStart(6, "0");
       const nm = document.createElement("span");
-      nm.textContent = pl.name + (pl.id === mp.id ? " (YOU)" : "");
+      const chLabel = (pl.char || "kurizu").toUpperCase();
+      nm.textContent = pl.name + (pl.id === mp.id ? " (YOU)" : "") + ` · ${chLabel}`;
       li.appendChild(dot); li.appendChild(nm);
       if (pl.id === mp.hostId) { const h = document.createElement("small"); h.textContent = "HOST"; li.appendChild(h); }
       ul.appendChild(li);
@@ -4710,8 +4736,10 @@
     for (const [id, pl] of mp.players) if (!ids.has(id)) { mpDropAvatar(pl); mp.players.delete(id); }
     for (const p of m.players) {
       let pl = mp.players.get(p.id);
-      if (!pl) { pl = { id: p.id, seen: false, dead: false, inv: 0, deadUntil: 0, tx: 0, tz: 0, ty: 0, sp: 0, cr: 0, px: 0, pz: 0, avatar: null }; mp.players.set(p.id, pl); }
-      pl.name = p.name; pl.color = p.color;
+      if (!pl) { pl = { id: p.id, seen: false, dead: false, inv: 0, deadUntil: 0, tx: 0, tz: 0, ty: 0, sp: 0, cr: 0, px: 0, pz: 0, char: p.char || "kurizu", avatar: null }; mp.players.set(p.id, pl); }
+      const nextChar = p.char || "kurizu";
+      if (pl.char !== nextChar && pl.avatar) mpDropAvatar(pl);
+      pl.name = p.name; pl.color = p.color; pl.char = nextChar;
     }
     const wasHost = mp.isHost;
     mp.hostId = m.hostId;
@@ -4796,6 +4824,7 @@
     mp.isHost = mp.hostId === mp.id;
     for (const pl of mp.players.values()) { pl.dead = false; pl.deadUntil = 0; pl.inv = 1; pl.seen = false; if (pl.avatar) pl.avatar.group.visible = false; }
     const wr = $("winResults"); if (wr) wr.classList.add("hidden");
+    applyLocalCharacter(mp.char || "kurizu");
     startPhase4Direct();
     playerX = (idx - (order.length - 1) / 2) * 2.4; playerZ = 8;
     mp.spawnX = playerX;
@@ -4859,8 +4888,12 @@
     showToast("YOU NOW CONTROL THE CREATURE'S MIND", "gold");
   }
 
-  /* ---------- other players' bodies (Kurizu 3D character) ---------- */
+  /* ---------- other players' bodies & custom Phase 4 MP characters (Kurizu / Reiru) ---------- */
   let cachedPlayerArrayBuffer = null;
+  let cachedReiruArrayBuffer = null;
+  let reiruLoadCallbacks = null;
+  let activeLocalChar = "kurizu";
+
   function getPlayerArrayBuffer() {
     if (cachedPlayerArrayBuffer) return cachedPlayerArrayBuffer;
     const b64 = (typeof window !== "undefined" && window.PLAYER_MODEL_BASE64) ? window.PLAYER_MODEL_BASE64 : null;
@@ -4873,6 +4906,49 @@
       }
     }
     return null;
+  }
+
+  function getReiruArrayBuffer(cb) {
+    if (cachedReiruArrayBuffer) { cb(cachedReiruArrayBuffer); return; }
+    if (reiruLoadCallbacks) { reiruLoadCallbacks.push(cb); return; }
+    reiruLoadCallbacks = [cb];
+    fetch("rigged-reiru.glb")
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
+      .then(buf => {
+        cachedReiruArrayBuffer = buf;
+        const list = reiruLoadCallbacks; reiruLoadCallbacks = null;
+        for (const fn of list) fn(buf);
+      })
+      .catch(err => {
+        console.warn("[reiru] failed to fetch rigged-reiru.glb:", err);
+        const list = reiruLoadCallbacks; reiruLoadCallbacks = null;
+        for (const fn of list) fn(null);
+      });
+  }
+
+  function applyLocalCharacter(charId) {
+    const want = charId === "reiru" ? "reiru" : "kurizu";
+    if (activeLocalChar === want && playerModel) return;
+    if (typeof THREE.GLTFLoader === "undefined") return;
+    activeLocalChar = want;
+    const loader = new THREE.GLTFLoader();
+    const swap = gltf => {
+      if (activeLocalChar !== want) return; // superseded
+      if (playerModel && playerModel.parent) playerModel.parent.remove(playerModel);
+      if (playerMixer) { try { playerMixer.stopAllAction(); } catch (e) {} }
+      playerModel = null;
+      setupPlayerModel(gltf);
+    };
+    if (want === "reiru") {
+      getReiruArrayBuffer(buf => {
+        if (buf) loader.parse(buf.slice(0), "", swap, () => loader.load("rigged-reiru.glb", swap));
+        else loader.load("rigged-reiru.glb", swap);
+      });
+    } else {
+      const buf = getPlayerArrayBuffer();
+      if (buf) loader.parse(buf.slice(0), "", swap, () => loader.load("rigged-modelkurizu.glb", swap));
+      else loader.load("rigged-modelkurizu.glb", swap);
+    }
   }
 
   function mpMakeAvatar(pl) {
@@ -5012,7 +5088,19 @@
       }
     };
 
-    if (buf) {
+    if (pl && pl.char === "reiru") {
+      getReiruArrayBuffer(rbuf => {
+        if (rbuf) {
+          try {
+            loader.parse(rbuf.slice(0), "", onGltf, () => loader.load("rigged-reiru.glb", onGltf));
+          } catch (e) {
+            loader.load("rigged-reiru.glb", onGltf);
+          }
+        } else {
+          loader.load("rigged-reiru.glb", onGltf);
+        }
+      });
+    } else if (buf) {
       try {
         loader.parse(buf.slice(0), "", onGltf, () => {
           loader.load("rigged-modelkurizu.glb", onGltf);
@@ -5424,6 +5512,9 @@
     on("mpBackBtn", () => { mpLeave(); showScreen("start"); });
     on("mpSpecPrev", () => { mpSpecNext(-1); blurButton(); });
     on("mpSpecNext", () => { mpSpecNext(1); blurButton(); });
+    document.querySelectorAll("[data-mp-char]").forEach(btn => {
+      btn.addEventListener("click", () => { mpSetChar(btn.dataset.mpChar); blurButton(); });
+    });
     for (const id of ["mpName", "mpRoom", "mpServer"]) {
       const el = $(id);
       if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); mpJoin(); } });

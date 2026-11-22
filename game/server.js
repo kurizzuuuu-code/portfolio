@@ -102,12 +102,13 @@ let nextId = 1;
 
 function cleanName(s) { return String(s || "").replace(/[^\w \-]/g, "").trim().slice(0, 12) || "RUNNER"; }
 function cleanRoom(s) { return String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8); }
+function cleanChar(s) { return s === "reiru" ? "reiru" : "kurizu"; }
 function randomCode() {
   const L = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   for (;;) { let s = ""; for (let i = 0; i < 4; i++) s += L[(Math.random() * L.length) | 0]; if (!rooms.has(s)) return s; }
 }
 function roster(room) {
-  return { players: [...room.players.values()].map(p => ({ id: p.id, name: p.name, color: p.color })), hostId: room.hostId };
+  return { players: [...room.players.values()].map(p => ({ id: p.id, name: p.name, color: p.color, char: p.char || "kurizu" })), hostId: room.hostId };
 }
 function broadcast(room, obj, exceptId) {
   const buf = frame(JSON.stringify(obj), 1);
@@ -136,6 +137,7 @@ function join(c, msg) {
   if (room.players.size >= MAX_PLAYERS) { send(c, { t: "err", msg: "Room is full (" + MAX_PLAYERS + " max)." }); return; }
   c.id = nextId++;
   c.name = cleanName(msg.name);
+  c.char = cleanChar(msg.char);
   c.dead = false;
   const used = new Set([...room.players.values()].map(p => p.color));
   c.color = 0; while (used.has(c.color)) c.color++;
@@ -188,6 +190,12 @@ function onMessage(c, text) {
   const isHost = room.hostId === c.id;
   switch (m.t) {
     case "ping": send(c, { t: "pong" }); break;
+    case "char":
+      if (room.phase === "lobby") {
+        c.char = cleanChar(m.char);
+        broadcast(room, Object.assign({ t: "roster" }, roster(room)));
+      }
+      break;
     case "start": if (isHost && room.phase === "lobby") startRound(room); break;
     case "p": m.id = c.id; broadcast(room, m, c.id); break;                       // player state
     case "c": if (isHost) broadcast(room, m, c.id); break;                         // creature state (host only)
