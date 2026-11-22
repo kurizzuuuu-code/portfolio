@@ -1,0 +1,9 @@
+{
+  "name": "do-not-stop-phase4-multiplayer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static file + WebSocket server for the Phase 4 multiplayer mode (no dependencies)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" }
+}

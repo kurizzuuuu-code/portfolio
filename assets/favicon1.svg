@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9aef7"/>
+      <stop offset="1" stop-color="#8b4fd0"/>
+    </linearGradient>
+    <linearGradient id="heart" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd9ef"/>
+      <stop offset="1" stop-color="#ff5aa8"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" stroke="#2f0a44" stroke-width="4"/>
+  <path d="M17 26h6v4h4v4h4v4h2v-4h4v-4h4v-4h6v-4h2v10h-2v4h-4v4h-4v4h-6v4h-4v-4h-6v-4h-4v-4h-2v-4h-2v-10h2z" fill="#2f0a44" transform="translate(3 3)"/>
+  <path d="M17 24h6v4h4v4h4v4h2v-4h4v-4h4v-4h6v14h-2v4h-4v4h-4v4h-6v4h-4v-4h-6v-4h-4v-4h-2v-4h-2z" fill="url(#heart)" stroke="#2f0a44" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="44" y="12" width="4" height="4" fill="#c8ff64" stroke="#2f0a44" stroke-width="2"/>
+  <rect x="14" y="44" width="4" height="4" fill="#ffd84d" stroke="#2f0a44" stroke-width="2"/>
+</svg>

@@ -1,0 +1,985 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>kurizu — developer, designer &amp; pixel collector</title>
+  <meta name="description" content="Kurizu is a self-taught developer and designer from the Philippines making websites, desktop apps, pixel games and weird little tools — plus a playable browser arcade. Usually purple, always with personality.">
+  <meta name="author" content="Kurizu">
+  <meta name="theme-color" content="#6d3aa8">
+  <meta property="og:site_name" content="kurizu.exe">
+  <meta property="og:title" content="kurizu — developer, designer & pixel collector">
+  <meta property="og:description" content="Websites, desktop apps, pixel games, a playable browser arcade and weird little tools. Welcome to my corner of the internet.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="kurizu — developer, designer & pixel collector">
+  <meta name="twitter:description" content="Websites, desktop apps, pixel games, a playable browser arcade and weird little tools. Welcome to my corner of the internet.">
+  <meta name="twitter:image" content="assets/og.png">
+  <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/style.css?v=interactive2">
+</head>
+<body>
+  <a class="skip-link" href="#main">skip to content</a>
+
+  <!-- ============ icon sprite ============ -->
+  <svg class="svg-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-heart" viewBox="0 0 12 11"><path d="M1 1h3v1h1v1h2V2h1V1h3v1h1v1h1v3h-1v1h-1v1h-1v1H9v1H8v1H5V9H4V8H3V7H2V6H1V5H0V2h1z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 10 10"><path d="M4 0h2v4h4v2H6v4H4V6H0V4h4z"/></symbol>
+    <symbol id="i-kofi" viewBox="0 0 24 24"><path d="M3.6 8.6h11.9v9.8a3.6 3.6 0 0 1-3.6 3.6H7.2a3.6 3.6 0 0 1-3.6-3.6V8.6Z"/><path d="M15.9 10.9h1.6a3.5 3.5 0 0 1 0 7h-1.6v-2.1h1.6a1.4 1.4 0 0 0 0-2.8h-1.6v-2.1Z"/><path d="M9.6 7.1C7.9 5.7 5.9 4.6 5.9 3.2 5.9 2.2 6.7 1.4 7.7 1.4c.8 0 1.5.4 1.9 1.1.5-.7 1.2-1.1 2-1.1 1 0 1.8.8 1.8 1.8 0 1.4-2 2.5-3.8 3.9Z"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M10 0h2v8h8v2h-8v8h-2v-8H2V8h8z"/><rect x="17" y="2" width="2" height="2"/><rect x="18" y="1" width="2" height="2"/><rect x="4" y="18" width="2" height="2"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M2 5h7l2 2h11v13H2z"/><path d="M2 10h20" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="1.5"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 3 2.6 15 0 18M12 3c-2.6 3-2.6 15 0 18"/></symbol>
+    <symbol id="i-desktop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="1.5"/><path d="M9 21h6M12 17v4"/></symbol>
+    <symbol id="i-gamepad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10a5 5 0 0 1 4.6 6.9l-1.2 3.2a2.4 2.4 0 0 1-4.1.6L14.6 15H9.4l-1.7 2.7a2.4 2.4 0 0 1-4.1-.6l-1.2-3.2A5 5 0 0 1 7 7Z"/><path d="M7.5 10v4M5.5 12h4M16 11h.01M18.5 13h.01"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 18h4"/></symbol>
+    <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M4 4h6a2 2 0 1 0 4 0h6v6a2 2 0 1 0 0 4v6h-6a2 2 0 1 1-4 0H4v-6a2 2 0 1 0 0-4z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 3.5 21 12 6 20.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="5" y="4" width="5" height="16"/><rect x="14" y="4" width="5" height="16"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 4.5v15L8.5 12z"/><rect x="4.5" y="4.5" width="2.6" height="15"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 4.5v15L15.5 12z"/><rect x="16.9" y="4.5" width="2.6" height="15"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5h4.5v4.5"/><path d="M21 3.5 3.5 21"/><path d="M21 16v4.5h-4.5"/><path d="m14.8 14.8 6.2 5.7"/><path d="m4.6 4.6 4.4 4.1"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2.5 3.5 3.5L17 9.5"/><path d="M3.5 11.5v-1a4 4 0 0 1 4-4h13"/><path d="m7 21.5-3.5-3.5L7 14.5"/><path d="M20.5 12.5v1a4 4 0 0 1-4 4h-13"/></symbol>
+    <symbol id="i-fullscreen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5"/><path d="M20 15v5h-5"/><path d="M15 4h5v5"/><path d="M9 20H4v-5"/></symbol>
+    <symbol id="i-arrow-ur" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+    <symbol id="i-arrow-r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M13 5l7 7-7 7"/></symbol>
+    <symbol id="i-arrow-l" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H4M11 5l-7 7 7 7"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="3"/><rect x="3" y="10.5" width="18" height="3"/><rect x="3" y="17" width="18" height="3"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a6 6 0 0 1 0 8M19.5 5.5a9.5 9.5 0 0 1 0 13"/></symbol>
+    <symbol id="i-volume-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m17 9 5 6M22 9l-5 6"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .7A11.3 11.3 0 0 0 .7 12c0 5 3.2 9.2 7.7 10.7.6.1.8-.2.8-.6v-2c-3.1.7-3.8-1.3-3.8-1.3-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.3.9.1-.7.4-1.2.7-1.5-2.5-.3-5.1-1.3-5.1-5.6 0-1.2.4-2.2 1.1-3-.1-.3-.5-1.4.1-3 0 0 .9-.3 3.1 1.2a10.7 10.7 0 0 1 5.7 0c2.2-1.5 3.1-1.2 3.1-1.2.6 1.6.2 2.7.1 3 .7.8 1.1 1.8 1.1 3 0 4.3-2.6 5.3-5.1 5.6.4.3.8 1 .8 2.1v3.1c0 .4.2.7.8.6A11.3 11.3 0 0 0 23.3 12 11.3 11.3 0 0 0 12 .7Z"/></symbol>
+    <symbol id="i-youtube" viewBox="0 0 24 24"><path d="M23 7.2a3 3 0 0 0-2.1-2.2C19 4.5 12 4.5 12 4.5s-7 0-8.9.5A3 3 0 0 0 1 7.2 32 32 0 0 0 .5 12 32 32 0 0 0 1 16.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1A32 32 0 0 0 23.5 12 32 32 0 0 0 23 7.2ZM9.8 15.6V8.4L16 12Z"/></symbol>
+    <symbol id="i-instagram" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.4" cy="6.6" r="1.1" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-tiktok" viewBox="0 0 24 24"><path d="M15.7 2c.4 2.5 1.8 4 4.3 4.2v3.1a7.8 7.8 0 0 1-4.3-1.5v6.8a6.6 6.6 0 1 1-5.8-6.5v3.3a3.4 3.4 0 1 0 2.6 3.3V2Z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5.2 5.2L20 6.5"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4 10 14"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><rect x="3" y="4" width="4" height="4"/><rect x="10" y="5" width="11" height="2"/><rect x="3" y="10" width="4" height="4"/><rect x="10" y="11" width="11" height="2"/><rect x="3" y="16" width="4" height="4"/><rect x="10" y="17" width="11" height="2"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="2"/><path d="m3 6 9 7 9-7"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4.5" y="10" width="15" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 6.3M20 4v7h-7"/></symbol>
+    <symbol id="i-mouse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l-2 2V4a2 2 0 0 1 2-2h13a8 8 0 0 1 8 8Z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-run" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="15" cy="4" r="2"/><path d="M13 7l-3 5 4 2 2 6M10 12l-3 4M13 9l4-1 3 3"/></symbol>
+    <symbol id="i-jump" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="3" r="2"/><path d="M12 5v4l-3 3-2 6M12 9l3 2 3-1M9 12l-2 2"/></symbol>
+    <symbol id="i-slide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="6" r="2"/><path d="M9 7l4 2 5-1M7 8l2 4 6 1 3 4M5 16h14"/></symbol>
+    <symbol id="i-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 21h4"/><path d="M8 13a6 6 0 1 1 8 0c-1 1-1.5 2-1.5 3h-5c0-1-.5-2-1.5-3z"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-mesh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6l9-3 9 3-9 3z"/><path d="M3 6v12l9 3 9-3V6"/><path d="M12 9v12M3 12l9 3 9-3"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
+    <symbol id="i-cookie" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/><path d="M8.5 8.5v.01M16 15.5v.01M12 12v.01M11 17v.01M7 14v.01"/></symbol>
+  </svg>
+
+  <div class="crt" aria-hidden="true"></div>
+  <div class="cursor-hearts" id="cursorHearts" aria-hidden="true"></div>
+
+  <!-- animated cursors (pointer.gif / wait.gif), enabled only for fine pointers -->
+  <div class="custom-cursor" id="customCursor" aria-hidden="true">
+    <img class="custom-cursor__img custom-cursor__img--pointer" src="assets/custom cursor/pointer.gif" alt="" width="32" height="32">
+    <img class="custom-cursor__img custom-cursor__img--wait" src="assets/custom cursor/wait.gif" alt="" width="32" height="32">
+  </div>
+
+  <!-- ============ top bar ============ -->
+  <header class="topbar" id="top">
+    <div class="topbar__inner">
+      <a class="brand" href="#home" aria-label="Kurizu — back to top">
+        <span class="brand__mark"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="brand__word">KURIZU<span>.EXE</span></span>
+      </a>
+
+      <nav class="mainnav" aria-label="Primary navigation">
+        <a href="#about"><span>01</span>about</a>
+        <a href="#work"><span>02</span>work</a>
+        <a href="#arcade"><span>03</span>arcade</a>
+        <a href="#media"><span>04</span>media</a>
+        <a href="#contact"><span>05</span>contact</a>
+      </nav>
+
+      <div class="topbar__tools">
+        <form class="search" id="siteSearchForm" role="search" autocomplete="off">
+          <button class="search__submit" type="submit" aria-label="Search">
+            <svg class="icon search__icon" aria-hidden="true"><use href="#i-search"/></svg>
+          </button>
+          <label class="sr-only" for="siteSearch">Search projects and sections</label>
+          <input id="siteSearch" name="q" type="search" placeholder="search my desktop..." aria-autocomplete="list" aria-controls="searchResults" aria-expanded="false">
+          <kbd class="search__kbd" aria-hidden="true">⌘K</kbd>
+          <button type="button" class="search__close" id="searchClose" aria-label="Close search"><svg class="icon"><use href="#i-close"/></svg></button>
+          <div class="search__results" id="searchResults" role="listbox" aria-label="Search results" hidden></div>
+        </form>
+        <button type="button" class="icon-btn sound-btn" data-sound-toggle aria-pressed="false" aria-label="Turn music on" title="Sound">
+          <svg class="icon icon--idle"><use href="#i-volume-off"/></svg>
+          <svg class="icon icon--active"><use href="#i-volume"/></svg>
+        </button>
+        <button type="button" class="menu-toggle" id="menuToggle" aria-expanded="false" aria-controls="mobileMenu">
+          <svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg>
+          <span>menu</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="mobile-menu" id="mobileMenu" aria-hidden="true">
+    <div class="mobile-menu__panel">
+      <p class="eyebrow">quick travel <span>✧</span></p>
+      <nav class="mobile-menu__nav" aria-label="Mobile navigation">
+        <a href="#about"><span>01</span> about me</a>
+        <a href="#work"><span>02</span> selected work</a>
+        <a href="#arcade"><span>03</span> the arcade</a>
+        <a href="#media"><span>04</span> motion &amp; art</a>
+        <a href="#contact"><span>05</span> say hi</a>
+      </nav>
+      <div class="mobile-menu__socials" data-socials="menu"></div>
+      <div class="mobile-menu__note">
+        <img src="assets/sprites/pet.webp" alt="" width="500" height="450" loading="lazy">
+        <p>this menu has a mascot now. no further questions.</p>
+      </div>
+    </div>
+  </div>
+
+  <main id="main">
+    <!-- ============ hero ============ -->
+    <section class="hero" id="home" aria-labelledby="heroTitle">
+      <h1 class="sr-only" id="heroTitle">Kurizu — developer, designer and pixel collector</h1>
+      <div class="hero__bg" aria-hidden="true">
+        <svg class="pixel-cloud pixel-cloud--1" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+        <svg class="pixel-cloud pixel-cloud--2" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+        <span class="float float--h1"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="float float--h2"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="float float--h3"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="float float--s1"><svg class="icon"><use href="#i-star"/></svg></span>
+        <span class="float float--s2"><svg class="icon"><use href="#i-star"/></svg></span>
+        <span class="float float--s3"><svg class="icon"><use href="#i-sparkle"/></svg></span>
+      </div>
+
+      <div class="container hero__inner">
+        <div class="hero__left">
+          <div class="speech-bubble" data-float>
+            <span class="speech-bubble__main">???</span>
+            <span class="speech-bubble__sub">probably coding</span>
+          </div>
+          <div class="hero-mascot-wrap">
+            <img class="hero-mascot" src="assets/sprites/mascot.webp" alt="Kurizu's purple chibi mascot wearing a headset and resting her chin on her hands" width="640" height="600" fetchpriority="high">
+            <div class="sticker sticker--mascot" aria-hidden="true">it me :3</div>
+          </div>
+          <div class="window now-playing" aria-label="Music player" data-draggable="player">
+            <div class="now-playing__disc" aria-hidden="true" data-drag-handle title="Drag player">
+              <span class="now-playing__disc-inner"><svg class="icon"><use href="#i-heart"/></svg></span>
+            </div>
+            <div class="now-playing__meta">
+              <span class="now-playing__label">now playing</span>
+              <strong data-track-title>pixel daydream</strong>
+              <span class="now-playing__eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+            <div class="now-playing__buttons">
+              <button type="button" class="mini-btn" id="musicPrev" aria-label="Previous track"><svg class="icon"><use href="#i-prev"/></svg></button>
+              <button type="button" class="round-btn" data-sound-toggle aria-pressed="false" aria-label="Play music">
+                <svg class="icon icon--idle"><use href="#i-play"/></svg>
+                <svg class="icon icon--active"><use href="#i-pause"/></svg>
+              </button>
+              <button type="button" class="mini-btn" id="musicNext" aria-label="Next track"><svg class="icon"><use href="#i-next"/></svg></button>
+            </div>
+            <div class="now-playing__extras">
+              <button type="button" class="mini-btn" id="shuffleBtn" aria-pressed="false" aria-label="Shuffle tracks"><svg class="icon"><use href="#i-shuffle"/></svg></button>
+              <button type="button" class="mini-btn" id="repeatBtn" aria-pressed="false" data-state="off" aria-label="Repeat off"><svg class="icon"><use href="#i-repeat"/></svg><span class="mini-btn__badge" aria-hidden="true">1</span></button>
+              <label class="volume">
+                <svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg>
+                <span class="sr-only">Music volume</span>
+                <sakuga-slider id="volumeSlider" min="0" max="100" value="70" label="Music volume" unit="%"></sakuga-slider>
+                <span class="volume-pct" id="volumePct">70%</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero__center">
+          <div class="window browser" id="heroBrowser" data-float data-draggable="browser">
+            <div class="browser__tabs" id="browserTabs" data-drag-handle>
+              <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <button type="button" class="browser__tab is-active" data-tab="home"><span class="tab-favicon"><svg class="icon"><use href="#i-heart"/></svg></span>kurizu.exe</button>
+              <button type="button" class="browser__tab browser__tab--ghost" data-tab="secret"><span class="tab-favicon"><svg class="icon"><use href="#i-sparkle"/></svg></span>new tab</button>
+              <button type="button" class="browser__tab browser__tab--ghost" id="browserCatTab" data-tab="cat" hidden><span class="tab-favicon"><svg class="icon"><use href="#i-gamepad"/></svg></span>cat.gif</button>
+              <button type="button" class="browser__tab-plus" id="browserPlusBtn" aria-label="Open a new secret tab" title="Open a secret tab">+</button>
+            </div>
+            <div class="browser__toolbar">
+              <span class="browser__nav">
+                <button type="button" class="browser__nav-btn" id="browserBackBtn" aria-label="Previous tab" title="Back"><svg class="icon"><use href="#i-arrow-l"/></svg></button>
+                <button type="button" class="browser__nav-btn" id="browserForwardBtn" aria-label="Next tab" title="Forward"><svg class="icon"><use href="#i-arrow-r"/></svg></button>
+                <button type="button" class="browser__nav-btn" id="browserRefreshBtn" aria-label="Refresh browser" title="Refresh"><svg class="icon"><use href="#i-refresh"/></svg></button>
+              </span>
+              <span class="browser__url"><svg class="icon"><use href="#i-lock"/></svg><span id="browserUrlText">https://kurizu.exe</span><button type="button" class="browser__url-heart" id="browserUrlHeartBtn" aria-label="Send a heart" title="Click to send love ♡">♡</button></span>
+              <span class="browser__tool-icons" aria-hidden="true"><svg class="icon"><use href="#i-star"/></svg><svg class="icon"><use href="#i-menu"/></svg></span>
+            </div>
+            <div class="browser__body" id="browserBody">
+              <!-- TAB 1: kurizu.exe (default) -->
+              <div class="browser__pane is-active" data-tab-pane="home">
+                <p class="browser__eyebrow">welcome to my little corner of the internet</p>
+                <div class="logo-word" data-text="kurizu" aria-hidden="true">
+                  <span class="logo-word__fill">kurizu</span>
+                </div>
+                <p class="browser__role">developer · designer · professional pixel collector</p>
+                <p class="browser__intro">I make websites, desktop apps, tiny games and weird little tools — usually purple, always with personality.</p>
+                <div class="browser__actions">
+                  <a class="btn btn--primary" href="#work"><svg class="icon"><use href="#i-folder"/></svg>explore my work</a>
+                  <a class="btn btn--ghost" href="#media" data-start-reel><svg class="icon"><use href="#i-play"/></svg>watch the reel</a>
+                </div>
+                <ul class="browser__pills" aria-label="Quick facts">
+                  <li><span class="dot dot--lime"></span>based in PH</li>
+                  <li><span class="dot dot--pink"></span>GMT+8</li>
+                  <li><span class="dot dot--cyan"></span><span data-availability>open for collabs</span></li>
+                </ul>
+              </div>
+
+              <!-- TAB 2: secret new tab (workbench & soundboard) -->
+              <div class="browser__pane" data-tab-pane="secret" hidden>
+                <p class="browser__eyebrow">kurizu://new-tab · secret workbench</p>
+                <h3 class="browser__pane-title">the 3am lab<span>.</span></h3>
+                <p class="browser__intro">You clicked the tab! Here are some tiny desktop toys &amp; shortcuts while you explore:</p>
+                <div class="lab-grid">
+                  <button type="button" class="lab-btn" data-lab-action="feed"><svg class="icon"><use href="#i-cookie"/></svg><span>feed Wisteria</span></button>
+                  <button type="button" class="lab-btn" data-lab-action="terminal"><svg class="icon"><use href="#i-terminal"/></svg><span>hack terminal</span></button>
+                  <button type="button" class="lab-btn" data-lab-action="party"><svg class="icon"><use href="#i-sparkle"/></svg><span>party mode</span></button>
+                  <button type="button" class="lab-btn" data-lab-action="arcade"><svg class="icon"><use href="#i-gamepad"/></svg><span>insert coin</span></button>
+                  <button type="button" class="lab-btn" data-lab-action="sound"><svg class="icon"><use href="#i-bolt"/></svg><span>8-bit chime</span></button>
+                  <button type="button" class="lab-btn" data-lab-action="reset-win"><svg class="icon"><use href="#i-refresh"/></svg><span>tidy desktop</span></button>
+                </div>
+                <p class="lab-note">tip: you can drag these hero windows around by their titlebars!</p>
+              </div>
+
+              <!-- TAB 3: cat.gif easter egg -->
+              <div class="browser__pane" data-tab-pane="cat" hidden>
+                <p class="browser__eyebrow">kurizu://secret/wisteria_dance.webp</p>
+                <div class="cat-stage">
+                  <img src="assets/Pet/idle animation/Dance (Scuba).webp" alt="Wisteria doing a happy little dance" width="160" height="160">
+                  <div class="cat-stage__copy">
+                    <strong>wisteria_vibe_check.exe</strong>
+                    <p>You found the hidden "+" tab! Wisteria is now dancing at 120% efficiency.</p>
+                    <button type="button" class="btn btn--small btn--primary" data-lab-action="heart-shower"><svg class="icon"><use href="#i-heart"/></svg>make it rain hearts</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="browser__deco browser__deco--cursor" aria-hidden="true">
+                <svg viewBox="0 0 24 30"><path d="M2 2h4v3h3v3h3v3h3v3h3v3h-5v3h-3v3H7v-4H4v-3H2z" fill="#ffd84d" stroke="#35104f" stroke-width="2"/></svg>
+              </div>
+              <div class="browser__deco browser__deco--star" aria-hidden="true"><svg class="icon"><use href="#i-sparkle"/></svg></div>
+              <div class="browser__tiles" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+            </div>
+            <div class="browser__status">
+              <span><span class="dot dot--lime"></span>online</span>
+              <span>9 projects &amp; counting</span>
+              <button type="button" class="browser__heart-btn" id="browserHeartBtn" aria-label="Press heart to be nice">press ♡ to be nice <b id="browserHeartCount">0</b></button>
+            </div>
+          </div>
+
+          <div class="featured-mini" id="featuredMini" aria-label="Featured projects"></div>
+        </div>
+
+        <div class="hero__right">
+          <aside class="window profile-card" aria-label="Kurizu official account" data-draggable="profile">
+            <div class="window__bar" data-drag-handle>
+              <span class="window__title"><svg class="icon"><use href="#i-sparkle"/></svg>official account</span>
+              <span class="window__badge">verified</span>
+            </div>
+            <div class="profile-card__body">
+              <div class="profile-card__banner" aria-hidden="true">
+                <span class="profile-card__banner-grid"></span>
+                <span class="profile-card__banner-text">:3</span>
+              </div>
+              <div class="profile-card__avatar">
+                <img src="assets/sprites/avatar.webp" alt="Kurizu mascot avatar" width="360" height="360">
+                <span class="online-pip" title="online"></span>
+              </div>
+              <h2 class="profile-card__name">kurizu <span class="verified-badge" aria-label="verified"><svg class="icon"><use href="#i-check"/></svg></span></h2>
+              <p class="profile-card__handle">@kurizu</p>
+              <p class="profile-card__bio">developer / designer / friendly gremlin <span>:3</span></p>
+              <div class="social-list" data-socials="rows"></div>
+              <div class="site-chip">
+                <a data-website href="#" target="_blank" rel="noopener">
+                  <svg class="icon"><use href="#i-globe"/></svg>
+                  <span data-website-label>KURIZUUUU.CARRD.CO</span>
+                </a>
+                <button type="button" class="site-chip__copy" data-copy-website aria-label="Copy website link"><svg class="icon"><use href="#i-copy"/></svg></button>
+              </div>
+              <div class="profile-card__actions">
+                <a class="btn btn--primary btn--sm" href="#contact">say hi <svg class="icon" aria-hidden="true"><use href="#i-heart"/></svg></a>
+                <sakuga-button id="donateBtn" data-donate>paypal</sakuga-button>
+                <a class="btn btn--primary btn--sm kofi-btn" id="kofiBtn" data-kofi href="https://ko-fi.com/kurizudev" target="_blank" rel="noopener" aria-label="Buy me a coffee on Ko-fi"><svg class="icon"><use href="#i-kofi"/></svg><span data-kofi-label>ko-fi</span></a>
+              </div>
+            </div>
+          </aside>
+
+          <a class="window widget reel-teaser" href="#media" data-start-reel aria-label="Watch the showreel">
+            <span class="reel-teaser__media">
+              <img class="reel-teaser__photo" src="assets/images/malfoy-desktop.webp" alt="" width="1280" height="800" loading="lazy">
+              <span class="reel-teaser__scan" aria-hidden="true"></span>
+              <span class="reel-teaser__play"><svg class="icon"><use href="#i-play"/></svg></span>
+              <span class="reel-teaser__tag">2026 reel</span>
+            </span>
+            <span class="reel-teaser__bar">
+              <span>watch the reel</span>
+              <span class="reel-teaser__time">0:24</span>
+            </span>
+          </a>
+        </div>
+      </div>
+
+      <div class="hero__stickers" aria-hidden="true">
+        <span class="sticker sticker--rotate">100% purple</span>
+        <span class="hero__scroll-hint">scroll for the good stuff <svg class="icon"><use href="#i-chevron"/></svg></span>
+        <span class="sticker sticker--outline">made with spite &amp; sparkles</span>
+      </div>
+
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee__track">
+          <span>websites</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>desktop apps</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>pixel games</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>extensions</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>UI design</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>weird little tools</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>websites</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>desktop apps</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>pixel games</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>extensions</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>UI design</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>weird little tools</span><svg class="icon"><use href="#i-star"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ about ============ -->
+    <section class="section section--about" id="about" aria-labelledby="aboutTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow"><span class="eyebrow__num">01</span> the human behind the pixels</p>
+            <h2 class="section-title" id="aboutTitle">about me<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">A self-taught developer and designer with a soft spot for small software, big personality and unnecessarily purple interfaces.</p>
+        </header>
+
+        <div class="window window--big about-window" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-folder"/></svg>about_me.txt</span>
+            <span class="window__badge">read-only</span>
+          </div>
+          <div class="about-grid">
+            <div class="about-portrait">
+              <div class="portrait-frame">
+                <span class="tape tape--tl" aria-hidden="true"></span>
+                <span class="tape tape--tr" aria-hidden="true"></span>
+                <div class="portrait-media">
+                  <span class="portrait-checker" aria-hidden="true"></span>
+                  <img src="assets/sprites/idle.webp" alt="Kurizu's chibi mascot writing in a notebook" width="480" height="414" loading="lazy">
+                </div>
+                <p class="portrait-caption">professional pixel goblin, est. 2026</p>
+              </div>
+              <span class="sticker sticker--portrait">running on coffee</span>
+              <div class="portrait-meta">
+                <span><svg class="icon"><use href="#i-heart"/></svg>she / they friendly</span>
+                <span><svg class="icon"><use href="#i-globe"/></svg>Philippines · GMT+8</span>
+              </div>
+            </div>
+
+            <div class="about-copy">
+              <p class="about-kicker">hello world,</p>
+              <h3 class="about-heading">i'm <span class="text-pink">kurizu</span> <span class="text-hand">:3</span></h3>
+              <p>I'm a self-taught developer and designer from the Philippines. I make small, useful things with too much personality: desktop pets, pixel games, browser tools, extensions, and websites that feel like a place instead of a page.</p>
+              <p>Most of my work starts with <em>“what if this existed?”</em> and ends with a purple UI, a custom cursor, and me learning three new things at 2am. I care about the details you feel more than the ones you see — smooth motion, tiny sounds, and software that's nice to spend time in.</p>
+
+              <div class="terminal" id="interactiveTerminal" aria-label="Interactive terminal">
+                <div class="terminal__bar">
+                  <span>kurizu@desktop</span>
+                  <span class="terminal__hint">type <b>help</b> + enter</span>
+                  <span>~ / status</span>
+                </div>
+                <div class="terminal__lines" id="terminalLines">
+                  <p><span class="term-pink">$</span> based_in <b>Philippines (GMT+8)</b></p>
+                  <p><span class="term-pink">$</span> currently_building <b>AIPet + Malfoy.exe</b></p>
+                  <p><span class="term-pink">$</span> learning <b>Rust · Unity · motion design</b></p>
+                  <p><span class="term-pink">$</span> fuel <b>iced coffee &amp; phonk</b></p>
+                  <p><span class="term-pink">$</span> open_to <b>collabs · commissions · fun problems</b></p>
+                </div>
+                <form class="terminal__form" id="terminalForm" autocomplete="off">
+                  <span class="term-pink">$</span>
+                  <input id="terminalInput" class="terminal__input" type="text" maxlength="64" placeholder="type a command (help, projects, party, pet, malfoy)..." aria-label="Terminal command input">
+                </form>
+                <div class="terminal__chips" aria-label="Quick terminal commands">
+                  <button type="button" class="term-chip" data-term-cmd="help">help</button>
+                  <button type="button" class="term-chip" data-term-cmd="projects">projects</button>
+                  <button type="button" class="term-chip" data-term-cmd="party">party</button>
+                  <button type="button" class="term-chip" data-term-cmd="pet">feed pet</button>
+                  <button type="button" class="term-chip" data-term-cmd="malfoy">malfoy.exe</button>
+                  <button type="button" class="term-chip" data-term-cmd="clear">clear</button>
+                </div>
+              </div>
+
+              <div class="toolbox">
+                <p class="toolbox__label">the toolkit <span class="toolbox__hint">(click a tool to filter work)</span></p>
+                <ul class="chip-list" id="toolkitChips">
+                  <li data-skill="JavaScript">JavaScript</li><li data-skill="TypeScript">TypeScript</li><li data-skill="Python">Python</li><li data-skill="Rust">Rust</li><li data-skill="Kotlin">Kotlin</li>
+                  <li data-skill="Tauri">Tauri</li><li data-skill="Electron">Electron</li><li data-skill="PySide6">PySide6</li><li data-skill="Unity">Unity / C#</li><li data-skill="WebGL">WebGL</li><li data-skill="HTML">HTML / CSS</li><li data-skill="Figma">Figma</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="about-stats">
+            <div class="stat"><strong>09</strong><span>projects built</span></div>
+            <div class="stat"><strong>05</strong><span>platforms</span></div>
+            <div class="stat"><strong>04</strong><span>languages</span></div>
+            <div class="stat"><strong>∞</strong><span>shades of purple</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ work ============ -->
+    <section class="section section--work" id="work" aria-labelledby="workTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow"><span class="eyebrow__num">02</span> selected work</p>
+            <h2 class="section-title" id="workTitle">things i've built<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">A mix of shipped apps, browser toys, game experiments and the occasional 3am idea. Click any card for the full story.</p>
+        </header>
+
+        <div class="window window--big explorer" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-folder"/></svg>projects.exe</span>
+            <span class="window__badge">C:\kurizu\work</span>
+          </div>
+
+          <div class="explorer__toolbar">
+            <div class="breadcrumb" aria-label="Breadcrumb">
+              <span>kurizu</span><span class="breadcrumb__sep">›</span><span>work</span><span class="breadcrumb__sep">›</span><span class="breadcrumb__current" id="breadcrumbCurrent">everything</span>
+            </div>
+            <div class="explorer__actions">
+              <span class="result-count" id="resultCount" aria-live="polite">9 items</span>
+              <div class="view-toggle" role="group" aria-label="Project view">
+                <button type="button" class="view-btn is-active" data-view="grid" aria-pressed="true" aria-label="Grid view"><svg class="icon"><use href="#i-grid"/></svg></button>
+                <button type="button" class="view-btn" data-view="list" aria-pressed="false" aria-label="List view"><svg class="icon"><use href="#i-list"/></svg></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="explorer__body">
+            <aside class="explorer__side" aria-label="Project filters">
+              <p class="side-label">quick access</p>
+              <div class="category-list" id="categoryList"></div>
+              <div class="side-note">
+                <span class="side-note__heart" aria-hidden="true"><svg class="icon"><use href="#i-heart"/></svg></span>
+                <p><strong>9 projects</strong> and counting.<br>Most source lives on GitHub — the rest is on my PC, probably.</p>
+                <a href="https://github.com/kurizzuuuu-code" target="_blank" rel="noopener">visit github <svg class="icon"><use href="#i-arrow-ur"/></svg></a>
+              </div>
+            </aside>
+
+            <div class="explorer__main">
+              <div class="projects-grid" id="projectsGrid"></div>
+              <div class="projects-footer">
+                <p>That's the highlight reel. The lab folder is much weirder.</p>
+                <a class="btn btn--small" href="https://github.com/kurizzuuuu-code" target="_blank" rel="noopener"><svg class="icon"><use href="#i-github"/></svg>more on github</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ arcade ============ -->
+    <section class="section section--arcade" id="arcade" aria-labelledby="arcadeTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow"><span class="eyebrow__num">03</span> the arcade cabinet</p>
+            <h2 class="section-title" id="arcadeTitle">play something<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">A tiny browser game My AIpet made. Three lanes, one endless trail and a very bad thing behind you. It runs right here — no download, no install.</p>
+        </header>
+
+        <div class="window window--big arcade-window" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-gamepad"/></svg>forest_run.exe</span>
+            <span class="window__badge">insert coin</span>
+          </div>
+
+          <div class="arcade">
+            <button class="arcade__screen" type="button" data-play-game aria-label="Play Do Not Stop — Forest Run">
+              <img src="assets/images/forest-run-run.webp" alt="Lavender-haired cat girl running down a purple low-poly forest trail" width="1400" height="788" loading="lazy">
+              <span class="arcade__scan" aria-hidden="true"></span>
+              <span class="arcade__hud" aria-hidden="true"><i></i> now playing</span>
+              <span class="arcade__play">
+                <span class="arcade__play-ring"><svg class="icon"><use href="#i-play"/></svg></span>
+                <strong>play now</strong>
+                <small>keyboard or touch</small>
+              </span>
+            </button>
+
+            <div class="arcade__info">
+              <p class="arcade__kicker">a kurizu arcade experiment</p>
+              <h3>do not <span>stop</span></h3>
+              <p class="arcade__tagline">Wisteria and a trail full of trouble. Jump fallen logs, slide under branches and grab golden ram coins before your momentum runs out.</p>
+
+              <ul class="arcade__controls" aria-label="Controls">
+                <li><kbd>A</kbd><kbd>D</kbd><span>lanes</span></li>
+                <li><kbd>SPC</kbd><span>jump</span></li>
+                <li><kbd>S</kbd><span>slide</span></li>
+                <li><kbd>P</kbd><span>pause</span></li>
+              </ul>
+
+              <div class="arcade__stats">
+                <span><b data-arcade-best>000000</b> your best</span>
+                <span><b>4</b> phases</span>
+                <span><b>∞</b> endless</span>
+              </div>
+
+              <div class="arcade__actions">
+                <button class="btn btn--primary" type="button" data-play-game><svg class="icon"><use href="#i-play"/></svg>play the game</button>
+                <a class="btn btn--ghost" href="game/index.html" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg>new tab</a>
+                <a class="btn btn--ghost" href="#kurizu3d"><svg class="icon"><use href="#i-sparkle"/></svg>inspect 3D model</a>
+              </div>
+              <p class="arcade__note">Best score is saved on this device. The background music pauses while you play ♡</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ media ============ -->
+    <section class="section section--media" id="media" aria-labelledby="mediaTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow"><span class="eyebrow__num">04</span> motion, art &amp; other brainworms</p>
+            <h2 class="section-title" id="mediaTitle">watch the pixels move<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">A little montage of builds, sprites and late-night experiments — plus the art that never makes it into the final app.</p>
+        </header>
+
+        <div class="media-grid">
+          <div class="window window--big reel" id="reel" data-reveal>
+            <div class="window__bar">
+              <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="window__title"><svg class="icon"><use href="#i-play"/></svg>showreel.mp4</span>
+              <span class="window__badge" id="reelState">paused</span>
+            </div>
+            <div class="reel__screen" id="reelScreen">
+              <div class="reel__slides" id="reelSlides"></div>
+              <span class="reel__scan" aria-hidden="true"></span>
+              <div class="reel__hud" aria-hidden="true">
+                <span class="reel__rec"><i></i> rec</span>
+                <span class="reel__timecode" id="reelTimecode">00:00:01</span>
+              </div>
+              <div class="reel__caption">
+                <span class="reel__kicker" id="reelKicker">loading</span>
+                <strong class="reel__title" id="reelTitle">the reel</strong>
+              </div>
+              <button class="reel__play" id="reelToggle" type="button" aria-label="Play showreel" aria-pressed="false">
+                <span class="reel__play-ring">
+                  <svg class="icon reel__icon-play"><use href="#i-play"/></svg>
+                  <svg class="icon reel__icon-pause"><use href="#i-pause"/></svg>
+                </span>
+                <span class="reel__play-label">play reel</span>
+              </button>
+              <div class="reel__progress" aria-hidden="true"><span id="reelProgress"></span></div>
+              <div class="reel__dots" id="reelDots" aria-hidden="true"></div>
+            </div>
+            <div class="reel__status">
+              <span><span class="dot dot--pink"></span>kurizu.OS / 2026</span>
+              <span class="reel__counter" id="reelCounter">01 / 04</span>
+              <span><button type="button" class="text-btn" id="reelStageBtn" aria-label="Next slide">next frame <svg class="icon"><use href="#i-arrow-r"/></svg></button></span>
+            </div>
+          </div>
+
+          <div class="video-stack" id="videoLinks" data-reveal></div>
+        </div>
+
+        <!-- ============ 3D Model Showcase ============ -->
+        <div class="window window--big model3d-window" id="kurizu3d" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-sparkle"/></svg>kurizu_avatar_3d.exe</span>
+            <span class="window__badge">MIXAMO RIG · 5 ANIMS</span>
+          </div>
+
+          <div class="model3d-head">
+            <div>
+              <p class="eyebrow eyebrow--dark">3D character rigging &amp; webgl</p>
+              <h3>kurizu — 3D rigged avatar</h3>
+            </div>
+            <p>Interactive real-time 3D model from <em>Forest Run</em>. Click and drag to orbit 360°, scroll to zoom, and test all 5 running, jumping, and sliding animations.</p>
+          </div>
+
+          <div class="model3d-stage" id="model3dStage">
+            <canvas id="model3dCanvas"></canvas>
+
+            <div class="model3d-overlay" aria-hidden="true">
+              <span class="model3d-badge">3D REALTIME · WEBGL</span>
+              <span class="model3d-help">Left click: rotate · Right click: pan · Wheel: zoom</span>
+            </div>
+
+            <div class="model3d-loading" id="model3dLoading">
+              <div class="model3d-spinner"></div>
+              <p id="model3dLoadingText">LOADING 3D CHARACTER MODEL...</p>
+            </div>
+          </div>
+
+          <div class="model3d-toolbar">
+            <div class="model3d-anim-group" role="group" aria-label="Animation actions">
+              <span class="model3d-anim-label">Animations:</span>
+              <button type="button" class="model3d-btn model3d-anim-btn active" data-anim="Sprint"><svg class="icon"><use href="#i-run"/></svg>Sprint</button>
+              <button type="button" class="model3d-btn model3d-anim-btn" data-anim="Jog To Flip"><svg class="icon"><use href="#i-jump"/></svg>Flip Jump</button>
+              <button type="button" class="model3d-btn model3d-anim-btn" data-anim="Slide"><svg class="icon"><use href="#i-slide"/></svg>Slide</button>
+              <button type="button" class="model3d-btn model3d-anim-btn" data-anim="Slide Start">Slide In</button>
+              <button type="button" class="model3d-btn model3d-anim-btn" data-anim="Slide Exit">Slide Out</button>
+            </div>
+
+            <div class="model3d-tools-group" role="group" aria-label="Viewer settings">
+              <div class="model3d-cams" role="group" aria-label="Camera presets">
+                <button type="button" class="model3d-tool-btn" data-cam-preset="front" title="Front full-body view">FRONT</button>
+                <button type="button" class="model3d-tool-btn" data-cam-preset="face" title="Close-up face view">CLOSE-UP</button>
+                <button type="button" class="model3d-tool-btn" data-cam-preset="action" title="Dynamic low action angle">DYNAMIC</button>
+              </div>
+              <button type="button" class="model3d-tool-btn" id="model3dLightBtn" title="Toggle showcase lighting presets (Studio, Bright+, Moody)"><svg class="icon"><use href="#i-bulb"/></svg><span>LIGHT: STUDIO</span></button>
+              <button type="button" class="model3d-tool-btn" id="model3dPlayPauseBtn" title="Play or pause animation"><svg class="icon"><use href="#i-pause"/></svg>PAUSE</button>
+              <button type="button" class="model3d-tool-btn" id="model3dSpeedBtn" title="Change animation speed"><svg class="icon"><use href="#i-bolt"/></svg><span>SPEED: 1.0x</span></button>
+              <button type="button" class="model3d-tool-btn active" id="model3dTurntableBtn" title="Toggle automatic 360 turntable rotation"><svg class="icon"><use href="#i-refresh"/></svg>TURNTABLE</button>
+              <button type="button" class="model3d-tool-btn active" id="model3dSparklesBtn" title="Toggle floating 3D starlight particles"><svg class="icon"><use href="#i-sparkle"/></svg>SPARKLES</button>
+              <button type="button" class="model3d-tool-btn" id="model3dWireframeBtn" title="Toggle 3D mesh wireframe"><svg class="icon"><use href="#i-mesh"/></svg>WIREFRAME</button>
+              <button type="button" class="model3d-tool-btn" id="model3dSnapBtn" title="Capture a PNG snapshot of the 3D pose"><svg class="icon"><use href="#i-camera"/></svg>SNAP</button>
+              <button type="button" class="model3d-tool-btn" id="model3dResetCamBtn" title="Reset camera angle"><svg class="icon"><use href="#i-refresh"/></svg>RESET</button>
+            </div>
+          </div>
+
+          <div class="model3d-status">
+            <span><span class="dot dot--lime"></span>playing: <b id="model3dStatusAnim">Sprint</b></span>
+            <span><b>61</b> Bones Rigged</span>
+            <span><b>3,794</b> Polygons</span>
+            <span>Three.js + GLTFLoader</span>
+          </div>
+        </div>
+
+        <div class="window window--big gallery-window" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-sparkle"/></svg>art_gallery.exe</span>
+            <span class="window__badge">no ai slop</span>
+          </div>
+          <div class="gallery-head">
+            <div>
+              <p class="eyebrow eyebrow--dark">the sketchbook</p>
+              <h3>art &amp; motion</h3>
+            </div>
+            <p>Digital pieces, scanned sketchbook pages and project art. Click anything to see it bigger.</p>
+          </div>
+          <div class="gallery-filters" id="galleryFilters" role="group" aria-label="Filter artwork"></div>
+          <div class="gallery" id="gallery"></div>
+          <div class="gallery-status">
+            <span><span class="dot dot--lime"></span><b id="galleryCount">57</b>&nbsp;pieces on display</span>
+            <span>drawn by hand, by pencil &amp; by pixel</span>
+            <span class="gallery-status__love">♡</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ contact ============ -->
+    <section class="section section--contact" id="contact" aria-labelledby="contactTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow"><span class="eyebrow__num">05</span> say hi</p>
+            <h2 class="section-title" id="contactTitle">let's make something cute<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">No contact form, no funnel, no “let's circle back”. Just a person on the other end of a DM who really likes making things.</p>
+        </header>
+
+        <div class="window window--big contact-window" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-mail"/></svg>new_message.exe</span>
+            <span class="window__badge">to: you</span>
+          </div>
+          <div class="contact-grid">
+            <div class="contact-copy">
+              <p class="contact-kicker">currently accepting</p>
+              <h3>weird ideas,<br><span>good collabs</span><br>&amp; nice people.</h3>
+              <p>Got a project that needs a little personality? Want a desktop pet, a pixel game, or a website that doesn't look like every other website? I'm listening.</p>
+              <div class="contact-actions" id="contactActions"></div>
+              <div class="contact-donate">
+                <p class="contact-donate__label"><svg class="icon"><use href="#i-heart"/></svg>enjoy my weird little tools? toss a tip:</p>
+                <sakuga-button id="contactDonateBtn" data-donate>paypal</sakuga-button>
+                <a class="btn kofi-btn" id="contactKofiBtn" data-kofi href="https://ko-fi.com/kurizudev" target="_blank" rel="noopener" aria-label="Buy me a coffee on Ko-fi"><svg class="icon"><use href="#i-kofi"/></svg><span data-kofi-label>ko-fi</span></a>
+              </div>
+              <p class="contact-note"><svg class="icon"><use href="#i-heart"/></svg>the fastest way to reach me is a DM. I reply to nice people.</p>
+            </div>
+
+            <div class="contact-side">
+              <div class="business-card">
+                <div class="business-card__top">
+                  <span>kurizu · digital gremlin</span>
+                  <svg class="icon" aria-hidden="true"><use href="#i-star"/></svg>
+                </div>
+                <div class="business-card__id">
+                  <img src="assets/sprites/avatar-still.webp" alt="" width="360" height="360" loading="lazy">
+                  <div>
+                    <strong>kurizu</strong>
+                    <span>@kurizu</span>
+                    <span class="business-card__status"><i></i><span data-availability>open for collabs</span></span>
+                  </div>
+                </div>
+                <p class="business-card__quote">“make it cute, then make it work.”</p>
+                <div class="business-card__socials" data-socials="icons"></div>
+                <div class="business-card__bottom">
+                  <span data-website-label-small>KURIZUUUU.CARRD.CO</span>
+                  <span class="barcode" aria-hidden="true"></span>
+                </div>
+              </div>
+              <div class="contact-sticker" aria-hidden="true">
+                <span>open for</span>
+                <strong>collabs</strong>
+                <small>since always</small>
+              </div>
+              <div class="contact-clock">
+                <span class="dot dot--lime"></span>
+                <span>my local time</span>
+                <strong data-clock>--:--</strong>
+                <span>PHT</span>
+              </div>
+            </div>
+          </div>
+          <div class="contact-status">
+            <span>message not sent — it's a metaphor</span>
+            <span class="contact-status__right">HTML · CSS · a little JS · a lot of purple</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============ footer ============ -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__top">
+        <div class="footer__intro">
+          <p class="eyebrow">stay a while</p>
+          <h2>thanks for<br><span>visiting</span> ♡</h2>
+          <p>This whole place is hand-built, a little silly, and always being tinkered with. If you made it this far, you're my favorite person today.</p>
+          <a class="btn btn--primary" href="#contact">say hello <svg class="icon"><use href="#i-arrow-ur"/></svg></a>
+        </div>
+        <div class="footer__links">
+          <div>
+            <p class="footer__label">explore</p>
+            <a href="#home">home</a>
+            <a href="#about">about</a>
+            <a href="#work">selected work</a>
+            <a href="#media">motion &amp; art</a>
+            <a href="#contact">contact</a>
+          </div>
+          <div>
+            <p class="footer__label">elsewhere</p>
+            <div data-socials="footer"></div>
+            <a data-website href="#" target="_blank" rel="noopener">carrd</a>
+          </div>
+          <div>
+            <p class="footer__label">this site</p>
+            <p class="footer__meta">no trackers<br>no cookies<br>no AI slop<br>just pixels</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer__word" aria-hidden="true">kurizu</div>
+
+      <div class="footer__bottom">
+        <span>© <span data-year>2026</span> kurizu. made with too much purple.</span>
+        <span>best viewed with headphones &amp; a CRT.</span>
+        <button class="text-btn" id="backToTop" type="button">back to top <svg class="icon"><use href="#i-arrow-r"/></svg></button>
+      </div>
+    </div>
+  </footer>
+
+  <sakuga-tooltip id="helpTooltip" text="need help? talk to me" label="Need help? Talk to me"><span class="help-btn-mark">?</span></sakuga-tooltip>
+
+  <!-- ============ taskbar ============ -->
+  <div class="taskbar" role="navigation" aria-label="Desktop taskbar">
+    <button type="button" class="start-btn" id="startToggle" aria-expanded="false" aria-controls="startMenu">
+      <span class="start-btn__heart"><svg class="icon"><use href="#i-heart"/></svg></span>
+      <span>start</span>
+    </button>
+    <span class="taskbar__sep" aria-hidden="true"></span>
+    <a class="taskbar__app" href="#home" aria-label="Home"><svg class="icon"><use href="#i-desktop"/></svg><span>home</span></a>
+    <a class="taskbar__app" href="#work" aria-label="Work"><svg class="icon"><use href="#i-folder"/></svg><span>work</span></a>
+    <a class="taskbar__app" href="#media" aria-label="Art and media"><svg class="icon"><use href="#i-sparkle"/></svg><span>art</span></a>
+    <a class="taskbar__app" href="#contact" aria-label="Contact"><svg class="icon"><use href="#i-mail"/></svg><span>contact</span></a>
+    <button type="button" class="taskbar__app" id="petChatToggle" aria-expanded="false" aria-controls="petChat">
+      <svg class="icon"><use href="#i-chat"/></svg><span>wisteria</span>
+    </button>
+    <span class="taskbar__spacer"></span>
+    <button type="button" class="taskbar__sound" id="sfxToggle" aria-pressed="true" aria-label="Toggle UI sound effects" title="Toggle 8-bit UI sound effects">
+      <svg class="icon"><use href="#i-bolt"/></svg>
+      <span class="sfx-label">sfx on</span>
+    </button>
+    <button type="button" class="taskbar__sound" data-sound-toggle aria-pressed="false" aria-label="Toggle music">
+      <svg class="icon icon--idle"><use href="#i-volume-off"/></svg>
+      <svg class="icon icon--active"><use href="#i-volume"/></svg>
+      <span class="sound-label">sound off</span>
+    </button>
+    <span class="taskbar__online"><i class="dot dot--lime"></i>online</span>
+    <span class="taskbar__clock"><strong data-clock>--:--</strong><small>PHT</small></span>
+  </div>
+
+  <div class="start-menu" id="startMenu" hidden>
+    <div class="start-menu__head">
+      <img src="assets/sprites/avatar-still.webp" alt="" width="360" height="360">
+      <div>
+        <strong>kurizu<span>.exe</span></strong>
+        <span><i class="dot dot--lime"></i>running · online</span>
+      </div>
+    </div>
+    <p class="start-menu__label">jump to</p>
+    <nav class="start-menu__nav">
+      <a href="#home"><svg class="icon"><use href="#i-desktop"/></svg>home</a>
+      <a href="#about"><svg class="icon"><use href="#i-heart"/></svg>about me</a>
+      <a href="#work"><svg class="icon"><use href="#i-folder"/></svg>selected work</a>
+      <a href="#media"><svg class="icon"><use href="#i-play"/></svg>motion &amp; art</a>
+      <a href="#contact"><svg class="icon"><use href="#i-mail"/></svg>say hi</a>
+    </nav>
+    <div class="start-menu__footer">
+      <button type="button" class="text-btn" data-sound-toggle aria-pressed="false"><span class="sound-label">sound off</span> <svg class="icon sound-icon icon--idle"><use href="#i-volume-off"/></svg><svg class="icon sound-icon icon--active"><use href="#i-volume"/></svg></button>
+      <button type="button" class="text-btn" id="startRestart"><svg class="icon"><use href="#i-refresh"/></svg>soft reset</button>
+    </div>
+  </div>
+
+  <!-- ============ dialogs ============ -->
+  <dialog class="game-modal" id="gameDialog" aria-labelledby="gameDialogTitle">
+    <div class="window game-modal__window">
+      <div class="window__bar">
+        <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="window__title" id="gameDialogTitle"><svg class="icon"><use href="#i-gamepad"/></svg>forest_run.exe</span>
+        <div class="game-modal__tools">
+          <a class="round-btn" href="game/index.html" target="_blank" rel="noopener" aria-label="Open the game in a new tab" title="Open in a new tab"><svg class="icon"><use href="#i-external"/></svg></a>
+          <button type="button" class="round-btn" id="gameFullscreen" aria-label="Fullscreen" title="Fullscreen"><svg class="icon"><use href="#i-fullscreen"/></svg></button>
+          <button type="button" class="window__close" data-close-dialog aria-label="Close the game"><svg class="icon"><use href="#i-close"/></svg></button>
+        </div>
+      </div>
+      <div class="game-modal__frame">
+        <div class="game-modal__loading" data-game-loading>
+          <span class="dot dot--lime"></span>
+          <p>loading the forest...</p>
+        </div>
+        <iframe id="gameIframe" title="Do Not Stop — Forest Run" src="about:blank" allow="autoplay; fullscreen; gamepad" loading="lazy"></iframe>
+      </div>
+      <div class="game-modal__foot">
+        <span><b>A</b>/<b>D</b> lanes · <b>SPACE</b> jump · <b>S</b> slide · <b>P</b> pause</span>
+        <button type="button" class="text-btn" data-close-dialog>close game <svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="projectDialog" aria-labelledby="projectDialogTitle">
+    <div class="window modal__window">
+      <div class="window__bar">
+        <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="window__title"><svg class="icon"><use href="#i-folder"/></svg>case_study.exe</span>
+        <button type="button" class="window__close" data-close-dialog aria-label="Close case study"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="modal__scroll" id="projectContent"></div>
+    </div>
+  </dialog>
+
+  <dialog class="lightbox" id="lightbox" aria-labelledby="lightboxTitle">
+    <div class="lightbox__bar">
+      <span class="window__title"><svg class="icon"><use href="#i-sparkle"/></svg><span id="lightboxTitle">art</span></span>
+      <div class="lightbox__tools">
+        <button type="button" class="round-btn" id="lightboxPrev" aria-label="Previous artwork"><svg class="icon"><use href="#i-arrow-l"/></svg></button>
+        <button type="button" class="round-btn" id="lightboxNext" aria-label="Next artwork"><svg class="icon"><use href="#i-arrow-r"/></svg></button>
+        <button type="button" class="round-btn" data-close-dialog aria-label="Close artwork"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+    </div>
+    <figure class="lightbox__figure">
+      <img id="lightboxImage" src="" alt="">
+      <figcaption><span id="lightboxMeta"></span><strong id="lightboxCaption"></strong></figcaption>
+    </figure>
+  </dialog>
+
+  <div class="pet" id="pet" aria-hidden="true">
+    <div class="pet__stage">
+      <div class="pet__bubble" id="petBubble" role="status" aria-live="polite"></div>
+      <div class="pet__hud" id="petHud" aria-label="Wisteria happiness and snacks">
+        <span class="pet__meter" title="Wisteria's happiness">
+          <svg class="icon"><use href="#i-heart"/></svg>
+          <span class="pet__meter-bar"><i id="petHappyFill" style="width: 85%"></i></span>
+          <b id="petHappyVal">85%</b>
+        </span>
+        <button type="button" class="pet__feed-btn" id="petFeedBtn" title="Feed Wisteria a treat (+15% happiness)">
+          <svg class="icon"><use href="#i-cookie"/></svg><span>feed</span>
+        </button>
+      </div>
+      <div class="pet__anim-wrap" id="petAnimWrap">
+        <img id="petImg" src="" alt="Wisteria the little purple gremlin">
+      </div>
+    </div>
+  </div>
+
+  <div class="pet-chat" id="petChat" hidden>
+    <div class="pet-chat__phone">
+      <div class="pet-chat__notch" aria-hidden="true"></div>
+      <div class="pet-chat__head">
+        <img class="pet-chat__avatar" src="assets/sprites/avatar-still.webp" alt="" width="40" height="40">
+        <div class="pet-chat__who">
+          <strong>wisteria<span>.pet</span></strong>
+          <span><i class="dot dot--lime"></i>online · chat powered by vibes</span>
+        </div>
+        <button type="button" class="round-btn" data-close-chat aria-label="Close chat with Wisteria"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="pet-chat__log" id="petChatLog" role="log" aria-live="polite"></div>
+      <div class="pet-chat__chips" id="petChatChips" aria-label="Quick questions for Wisteria">
+        <button type="button" class="pet-chip" data-pet-ask="who are you">who are you?</button>
+        <button type="button" class="pet-chip" data-pet-ask="tell me about AIPet">AIPet</button>
+        <button type="button" class="pet-chip" data-pet-ask="pixify">pixify</button>
+        <button type="button" class="pet-chip" data-pet-ask="wobble studio">wobble</button>
+        <button type="button" class="pet-chip" data-pet-ask="malfoy.exe">malfoy.exe</button>
+        <button type="button" class="pet-chip" data-pet-ask="bounce">do a flip!</button>
+        <button type="button" class="pet-chip" data-pet-ask="feed">give snack 🍪</button>
+      </div>
+      <form class="pet-chat__form" id="petChatForm">
+        <input id="petChatInput" type="text" autocomplete="off" maxlength="140" placeholder="ask wisteria anything..." aria-label="Message Wisteria">
+        <button class="btn btn--small btn--primary" type="submit"><svg class="icon"><use href="#i-send"/></svg>send</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <noscript>
+    <div class="noscript">This little desktop needs JavaScript for the project grid, search and case studies. The links and copy still work without it.</div>
+  </noscript>
+
+  <script src="slider.js"></script>
+  <script src="tooltip.js"></script>
+  <script src="button.js"></script>
+  <script src="js/site.config.js?v=interactive2"></script>
+  <script src="js/main.js?v=interactive2"></script>
+  <script src="game/three.min.js"></script>
+  <script src="game/GLTFLoader.js"></script>
+  <script src="game/player_model_data.js"></script>
+  <script src="js/model-viewer.js?v=interactive2"></script>
+</body>
+</html>
