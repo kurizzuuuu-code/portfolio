@@ -1157,7 +1157,19 @@
     camera = new THREE.PerspectiveCamera(baseFov, innerWidth / innerHeight, 0.1, 240);
     camera.position.set(0, baseCameraY, baseCameraZ);
 
-    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    } catch (e1) {
+      try {
+        renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "default" });
+      } catch (e2) {
+        if (typeof THREE.WebGL1Renderer !== "undefined") {
+          try { renderer = new THREE.WebGL1Renderer({ antialias: false }); } catch (e3) { throw e2; }
+        } else {
+          throw e2;
+        }
+      }
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.65));
     renderer.setSize(innerWidth, innerHeight);
     renderer.shadowMap.enabled = true;
@@ -7301,10 +7313,16 @@
   try {
     init();
   } catch (error) {
-    console.error(error);
+    console.error("[Forest Run Init Error]:", error);
     $("startBtn").disabled = true;
-    $("startBtn").textContent = "WEBGL IS NOT AVAILABLE";
-    document.querySelector(".tagline").textContent = "This forest needs WebGL. Please enable hardware acceleration or try another browser.";
+    const msg = (error && error.message) ? error.message : String(error);
+    if (/webgl|context/i.test(msg)) {
+      $("startBtn").textContent = "WEBGL NOT AVAILABLE";
+      document.querySelector(".tagline").textContent = "WebGL is disabled or unsupported in this browser. Please enable Hardware Acceleration in browser settings (chrome://settings/system) or try another browser.";
+    } else {
+      $("startBtn").textContent = "INITIALIZATION ERROR";
+      document.querySelector(".tagline").textContent = "Error loading forest: " + msg;
+    }
   }
 })();
 </script>

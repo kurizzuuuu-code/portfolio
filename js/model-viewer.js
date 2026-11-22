@@ -37,13 +37,39 @@
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, stage.clientWidth / stage.clientHeight, 0.1, 80);
 
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-      powerPreference: "high-performance"
-    });
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true,
+        powerPreference: "high-performance"
+      });
+    } catch (e1) {
+      try {
+        renderer = new THREE.WebGLRenderer({
+          canvas,
+          antialias: false,
+          alpha: true,
+          preserveDrawingBuffer: true,
+          powerPreference: "default"
+        });
+      } catch (e2) {
+        if (typeof THREE.WebGL1Renderer !== "undefined") {
+          try {
+            renderer = new THREE.WebGL1Renderer({ canvas, alpha: true, preserveDrawingBuffer: true });
+          } catch (e3) {
+            console.warn("[3D Viewer] WebGL1 fallback failed:", e3);
+          }
+        }
+        if (!renderer) {
+          console.warn("[3D Viewer] WebGL not available:", e2);
+          if (loadingText) loadingText.textContent = "WEBGL NOT AVAILABLE — PLEASE ENABLE HARDWARE ACCELERATION";
+          return;
+        }
+      }
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(stage.clientWidth, stage.clientHeight);
     renderer.shadowMap.enabled = true;
