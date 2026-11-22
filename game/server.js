@@ -125,7 +125,7 @@ function checkAllDead(room) {
     if (rooms.get(room.code) === room && room.phase === "lobby") {
       broadcast(room, { t: "all_dead" });
     }
-  }, 2200);
+  }, 2800);
 }
 
 function join(c, msg) {
