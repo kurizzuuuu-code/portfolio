@@ -4912,7 +4912,7 @@
     if (cachedReiruArrayBuffer) { cb(cachedReiruArrayBuffer); return; }
     if (reiruLoadCallbacks) { reiruLoadCallbacks.push(cb); return; }
     reiruLoadCallbacks = [cb];
-    fetch("rigged-reiru.glb")
+    fetch("rigged-reiru.glb?v=2")
       .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.arrayBuffer(); })
       .then(buf => {
         cachedReiruArrayBuffer = buf;
@@ -4941,8 +4941,8 @@
     };
     if (want === "reiru") {
       getReiruArrayBuffer(buf => {
-        if (buf) loader.parse(buf.slice(0), "", swap, () => loader.load("rigged-reiru.glb", swap));
-        else loader.load("rigged-reiru.glb", swap);
+        if (buf) loader.parse(buf.slice(0), "", swap, () => loader.load("rigged-reiru.glb?v=2", swap));
+        else loader.load("rigged-reiru.glb?v=2", swap);
       });
     } else {
       const buf = getPlayerArrayBuffer();
@@ -5092,12 +5092,12 @@
       getReiruArrayBuffer(rbuf => {
         if (rbuf) {
           try {
-            loader.parse(rbuf.slice(0), "", onGltf, () => loader.load("rigged-reiru.glb", onGltf));
+            loader.parse(rbuf.slice(0), "", onGltf, () => loader.load("rigged-reiru.glb?v=2", onGltf));
           } catch (e) {
-            loader.load("rigged-reiru.glb", onGltf);
+            loader.load("rigged-reiru.glb?v=2", onGltf);
           }
         } else {
-          loader.load("rigged-reiru.glb", onGltf);
+          loader.load("rigged-reiru.glb?v=2", onGltf);
         }
       });
     } else if (buf) {
