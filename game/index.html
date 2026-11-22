@@ -4718,18 +4718,37 @@
     showToast("YOU NOW CONTROL THE CREATURE'S MIND", "gold");
   }
 
-  /* ---------- other players' bodies ---------- */
+  /* ---------- other players' bodies (Kurizu 3D character) ---------- */
+  let cachedPlayerArrayBuffer = null;
+  function getPlayerArrayBuffer() {
+    if (cachedPlayerArrayBuffer) return cachedPlayerArrayBuffer;
+    const b64 = (typeof window !== "undefined" && window.PLAYER_MODEL_BASE64) ? window.PLAYER_MODEL_BASE64 : null;
+    if (b64) {
+      try {
+        cachedPlayerArrayBuffer = base64ToArrayBuffer(b64);
+        return cachedPlayerArrayBuffer;
+      } catch (e) {
+        console.warn("[avatar] base64 decode failed:", e);
+      }
+    }
+    return null;
+  }
+
   function mpMakeAvatar(pl) {
     const col = MP_COLORS[pl.color % MP_COLORS.length];
     const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.5, roughness: 0.7 });
     const dark = new THREE.MeshStandardMaterial({ color: 0x2a1a44, roughness: 0.9 });
     const g = new THREE.Group(), rig = new THREE.Group();
     g.add(rig);
+
+    // Standby fallback shapes while the 3D model is instantiated
+    const dummyRig = new THREE.Group();
+    rig.add(dummyRig);
     const add = (parent, geo, m, x, y, z) => { const me = new THREE.Mesh(geo, m); me.position.set(x, y, z); parent.add(me); return me; };
-    add(rig, new THREE.BoxGeometry(0.56, 0.78, 0.3), mat, 0, 1.15, 0);                          // torso
-    add(rig, new THREE.SphereGeometry(0.23, 12, 10), mat, 0, 1.75, 0);                           // head
-    add(rig, new THREE.BoxGeometry(0.3, 0.1, 0.1), new THREE.MeshBasicMaterial({ color: 0xffffff }), 0, 1.78, -0.2);   // visor = which way they face
-    const limb = (m, w, h, x, y) => { const piv = new THREE.Group(); piv.position.set(x, y, 0); add(piv, new THREE.BoxGeometry(w, h, w), m, 0, -h / 2, 0); rig.add(piv); return piv; };
+    add(dummyRig, new THREE.BoxGeometry(0.56, 0.78, 0.3), mat, 0, 1.15, 0);                          // torso
+    add(dummyRig, new THREE.SphereGeometry(0.23, 12, 10), mat, 0, 1.75, 0);                           // head
+    add(dummyRig, new THREE.BoxGeometry(0.3, 0.1, 0.1), new THREE.MeshBasicMaterial({ color: 0xffffff }), 0, 1.78, -0.2);   // visor = which way they face
+    const limb = (m, w, h, x, y) => { const piv = new THREE.Group(); piv.position.set(x, y, 0); add(piv, new THREE.BoxGeometry(w, h, w), m, 0, -h / 2, 0); dummyRig.add(piv); return piv; };
     const legL = limb(dark, 0.2, 0.78, -0.15, 0.78), legR = limb(dark, 0.2, 0.78, 0.15, 0.78);
     const armL = limb(mat, 0.16, 0.7, -0.38, 1.5), armR = limb(mat, 0.16, 0.7, 0.38, 1.5);
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture, color: col, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
@@ -4744,12 +4763,119 @@
     const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, fog: false }));
     tag.scale.set(2.4, 0.6, 1); tag.position.set(0, 2.45, 0); tag.renderOrder = 10; g.add(tag);
     g.visible = false;
-    return { group: g, rig, legL, legR, armL, armR, glow, tag, phase: Math.random() * 6, mats: [mat, dark], tex };
+
+    const avatar = {
+      group: g, rig, dummyRig, legL, legR, armL, armR, glow, tag,
+      phase: Math.random() * 6, mats: [mat, dark], tex,
+      customModel: false, mixer: null, actions: null, curAnim: "", col
+    };
+
+    mpAttachCustomAvatarModel(avatar, pl);
+    return avatar;
   }
+
+  function mpAttachCustomAvatarModel(avatar, pl) {
+    if (typeof THREE.GLTFLoader === "undefined") return;
+    const buf = getPlayerArrayBuffer();
+    const loader = new THREE.GLTFLoader();
+
+    const onGltf = gltf => {
+      if (!avatar.group) return; // avatar was dropped before load finished
+      try {
+        const model = gltf.scene;
+        model.updateMatrixWorld(true);
+        const bones = {};
+        model.traverse(o => { if (o.isBone) bones[o.name] = o; });
+        const box = new THREE.Box3(), v = new THREE.Vector3();
+        Object.keys(bones).forEach(k => { bones[k].getWorldPosition(v); box.expandByPoint(v); });
+        const height = Math.max(0.001, (box.max.y - box.min.y) * 1.42);
+        const sc = 2.6 / height;
+        const yaw = Math.PI; // Mixamo rig faces +z, yaw faces forward
+        const holder = new THREE.Group();
+        holder.add(model);
+        holder.scale.setScalar(sc);
+        holder.rotation.y = yaw;
+        holder.position.y = -box.min.y * sc + 0.03;
+
+        // Give each multiplayer runner their unique lobby accent color
+        const tint = new THREE.Color(avatar.col);
+        model.traverse(o => {
+          if (o.isMesh) {
+            o.frustumCulled = false;
+            o.castShadow = true;
+            if (o.material) {
+              o.material = o.material.clone();
+              if (o.material.isMeshStandardMaterial) {
+                o.material.emissive = tint;
+                o.material.emissiveIntensity = 0.28;
+                o.material.roughness = 0.8;
+                o.material.metalness = 0;
+                o.material.needsUpdate = true;
+              }
+            }
+          }
+        });
+
+        // Set up animations
+        const mixer = new THREE.AnimationMixer(model);
+        const findClip = name => THREE.AnimationClip.findByName(gltf.animations, name);
+        const runClip = findClip("Sprint");
+        const slideClip = findClip("Slide");
+        const flipClip = findClip("Jog To Flip");
+
+        const mk = (clip, loop) => {
+          if (!clip) return null;
+          const a = mixer.clipAction(clip);
+          a.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce);
+          a.clampWhenFinished = !loop;
+          return a;
+        };
+
+        const actions = {
+          run: mk(runClip, true),
+          slide: mk(slideClip, true),
+          flip: mk(flipClip, false)
+        };
+
+        if (actions.run) {
+          actions.run.play();
+          actions.run.timeScale = 0; // starts idle until movement is detected
+          avatar.curAnim = "run";
+        }
+
+        avatar.mixer = mixer;
+        avatar.actions = actions;
+        avatar.modelHolder = holder;
+        avatar.customModel = true;
+
+        // Hide primitive box/sphere dummy and attach the Kurizu 3D character
+        if (avatar.dummyRig) avatar.dummyRig.visible = false;
+        avatar.rig.add(holder);
+      } catch (err) {
+        console.warn("[mp] error applying Kurizu 3D character model to avatar:", err);
+      }
+    };
+
+    if (buf) {
+      try {
+        loader.parse(buf.slice(0), "", onGltf, () => {
+          loader.load("rigged-modelkurizu.glb", onGltf);
+        });
+      } catch (e) {
+        loader.load("rigged-modelkurizu.glb", onGltf);
+      }
+    } else {
+      loader.load("rigged-modelkurizu.glb", onGltf);
+    }
+  }
+
   function mpDropAvatar(pl) {
     if (!pl.avatar) return;
+    if (pl.avatar.mixer) {
+      try { pl.avatar.mixer.stopAllAction(); } catch (e) {}
+    }
     if (pl.avatar.group.parent) pl.avatar.group.parent.remove(pl.avatar.group);
-    pl.avatar.tex.dispose();
+    if (pl.avatar.tex) pl.avatar.tex.dispose();
     pl.avatar = null;
   }
   function mpSyncAvatars() {
@@ -4772,13 +4898,39 @@
       let d = pl.ty - a.rig.rotation.y; d = Math.atan2(Math.sin(d), Math.cos(d));
       a.rig.rotation.y += d * Math.min(1, dt * 10);
       a.phase += dt * pl.sp * 1.5;
-      const sw = Math.sin(a.phase) * Math.min(1, pl.sp / 3) * 0.8;
-      a.legL.rotation.x = sw; a.legR.rotation.x = -sw; a.armL.rotation.x = -sw * 0.9; a.armR.rotation.x = sw * 0.9;
-      a.rig.scale.y += ((pl.cr ? 0.78 : 1) - a.rig.scale.y) * k;
+
+      if (a.customModel && a.mixer && a.actions) {
+        a.mixer.update(dt);
+        if (pl.cr) {
+          if (a.curAnim !== "slide") {
+            if (a.actions.slide) { a.actions.slide.reset().play(); if (a.actions.run) a.actions.run.stop(); a.curAnim = "slide"; }
+          }
+        } else if (pl.sp > 0.35) {
+          if (a.curAnim !== "run") {
+            if (a.actions.run) { a.actions.run.reset().play(); if (a.actions.slide) a.actions.slide.stop(); a.curAnim = "run"; }
+          }
+          if (a.actions.run) {
+            a.actions.run.timeScale = Math.min(1.8, Math.max(0.6, pl.sp / 6));
+          }
+        } else {
+          // Standing idle: slow breathing rate
+          if (a.curAnim === "run" && a.actions.run) {
+            a.actions.run.timeScale = 0.05;
+          }
+        }
+      } else {
+        const sw = Math.sin(a.phase) * Math.min(1, pl.sp / 3) * 0.8;
+        if (a.legL) a.legL.rotation.x = sw;
+        if (a.legR) a.legR.rotation.x = -sw;
+        if (a.armL) a.armL.rotation.x = -sw * 0.9;
+        if (a.armR) a.armR.rotation.x = sw * 0.9;
+        a.rig.scale.y += ((pl.cr ? 0.78 : 1) - a.rig.scale.y) * k;
+      }
+
       g.rotation.z += ((pl.dead ? Math.PI / 2 : 0) - g.rotation.z) * Math.min(1, dt * 6);
       g.position.y = pl.dead ? 0.3 : 0;
       a.glow.material.opacity = (pl.dead ? 0.15 : 0.5) + Math.sin(elapsed * 3 + a.phase) * 0.08;
-      a.tag.position.y = pl.dead ? 1.2 : 2.45 - (pl.cr ? 0.35 : 0);
+      a.tag.position.y = pl.dead ? 1.2 : 2.55 - (pl.cr ? 0.45 : 0);
       a.tag.material.opacity = pl.dead ? 0.5 : 1;
     }
   }
@@ -5958,7 +6110,8 @@
     const b64 = window.PLAYER_MODEL_BASE64;
     if (b64) {
       try {
-        loader.parse(base64ToArrayBuffer(b64), "", onOk, err => {
+        if (!cachedPlayerArrayBuffer) cachedPlayerArrayBuffer = base64ToArrayBuffer(b64);
+        loader.parse(cachedPlayerArrayBuffer.slice(0), "", onOk, err => {
           console.warn("[player model] embedded model failed to parse, trying the .glb file:", err);
           loadFromFile();
         });
