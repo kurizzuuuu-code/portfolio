@@ -5014,8 +5014,7 @@
         holder.rotation.y = yaw;
         holder.position.y = -box.min.y * sc + 0.03;
 
-        // Give each multiplayer runner their unique lobby accent color
-        const tint = new THREE.Color(avatar.col);
+        // Match local player's material lighting (use emissiveMap so real texture colors stay crisp, not washed out)
         model.traverse(o => {
           if (o.isMesh) {
             o.frustumCulled = false;
@@ -5023,8 +5022,9 @@
             if (o.material) {
               o.material = o.material.clone();
               if (o.material.isMeshStandardMaterial) {
-                o.material.emissive = tint;
-                o.material.emissiveIntensity = 0.28;
+                o.material.emissive = new THREE.Color(0xffffff);
+                if (o.material.map) o.material.emissiveMap = o.material.map;
+                o.material.emissiveIntensity = 0.24;
                 o.material.roughness = 0.8;
                 o.material.metalness = 0;
                 o.material.needsUpdate = true;
@@ -5080,8 +5080,9 @@
         avatar.modelHolder = holder;
         avatar.customModel = true;
 
-        // Hide primitive box/sphere dummy and attach the Kurizu 3D character
+        // Hide primitive box/sphere dummy and body light orb, and attach the 3D character
         if (avatar.dummyRig) avatar.dummyRig.visible = false;
+        if (avatar.glow) avatar.glow.visible = false;
         avatar.rig.add(holder);
       } catch (err) {
         console.warn("[mp] error applying Kurizu 3D character model to avatar:", err);
