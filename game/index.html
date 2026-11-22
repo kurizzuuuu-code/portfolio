@@ -4458,14 +4458,18 @@
   function mpStatus(t) { const el = $("mpStatus"); if (el) el.textContent = t || ""; }
   // Production WebSocket server address (e.g. Render, Railway, VPS).
   // If set, players on Netlify connect to this server automatically without typing it in ADVANCED.
-  const DEFAULT_MP_SERVER = "";
+  const DEFAULT_MP_SERVER = "wss://kurizu-game-server.onrender.com";
 
   const mpStore = {
     get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
   };
   function mpDefaultServer() {
-    const saved = mpStore.get("dns_mp_server");
+    let saved = mpStore.get("dns_mp_server");
+    if (saved && saved.includes("netlify.app")) {
+      mpStore.set("dns_mp_server", "");
+      saved = "";
+    }
     if (saved) return saved;
     if (DEFAULT_MP_SERVER) return mpNormalizeServer(DEFAULT_MP_SERVER);
     // Netlify is static CDN and cannot host WebSockets directly
