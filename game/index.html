@@ -384,6 +384,14 @@
   <div id="comboPill" class="hidden">FLOW ×2</div>
   <div id="statusBadge" class="hidden">CLEAR</div>
   <div id="mpHud" class="hidden"></div>
+  <div id="mpSpecHud" class="hidden" style="position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:45;display:flex;align-items:center;gap:12px;padding:10px 18px;border-radius:999px;background:rgba(12,6,26,0.84);border:1px solid rgba(255,255,255,0.22);backdrop-filter:blur(8px);color:#fff;font-family:inherit;box-shadow:0 8px 28px rgba(0,0,0,0.55);">
+    <button id="mpSpecPrev" type="button" aria-label="Previous player" style="background:rgba(255,255,255,0.14);border:none;color:#fff;padding:6px 12px;border-radius:999px;cursor:pointer;font-weight:700;">◀</button>
+    <div style="text-align:center;min-width:165px;">
+      <div style="font-size:10px;letter-spacing:0.18em;color:#ff8fb1;font-weight:700;">SPECTATING · A / D TO SWITCH</div>
+      <div id="mpSpecName" style="font-size:15px;font-weight:800;letter-spacing:0.06em;">—</div>
+    </div>
+    <button id="mpSpecNext" type="button" aria-label="Next player" style="background:rgba(255,255,255,0.14);border:none;color:#fff;padding:6px 12px;border-radius:999px;cursor:pointer;font-weight:700;">▶</button>
+  </div>
   <div id="interactPrompt">[ E ] / OPEN THE DOOR</div>
   <div id="toast" aria-live="polite"></div>
   <div id="countdown" class="hidden">3</div>
@@ -618,7 +626,7 @@
   let nearTerminal = false, terminalFound = false, winShown = false;
   /* multiplayer state (Phase 4 only; everything stays inert while mp.active is false) */
   const mp = { active: false, ws: null, id: null, room: "", hostId: null, isHost: false, players: new Map(), inRound: false,
-    dead: false, deadT: 0, spawnX: 0, door: null, creatureStart: null, seed: 1, winSent: false, loser: false, proxy: null,
+    dead: false, deadT: 0, spectating: false, specId: null, spawnX: 0, door: null, creatureStart: null, seed: 1, winSent: false, loser: false, proxy: null,
     sendT: 0, crT: 0, hudT: 0, cr: { x: 0, z: 0, yaw: 0, st: "hunt", sp: 0, aw: 0, has: false }, connTimer: 0 };
   let keys = {};
   let joyX = 0, joyZ = 0;   // mobile joystick, -1..1 (x: right, z: back)
@@ -3985,6 +3993,47 @@
   }
 
   function updatePhase4Camera(dt) {
+    // Spectator camera in multiplayer after being caught
+    if (mp.active && mp.dead && mp.spectating && state === "playing") {
+      playerVisual.visible = false;
+      if (fpHands) fpHands.visible = false;
+      if (shadow) shadow.visible = false;
+      camera.fov += (76 - camera.fov) * Math.min(1, dt * 5);
+      camera.updateProjectionMatrix();
+      camera.up.set(0, 1, 0);
+
+      let tgt = mp.specId ? mp.players.get(mp.specId) : null;
+      if (!tgt || tgt.dead || !tgt.seen) {
+        mpSpecNext(1);
+        tgt = mp.specId ? mp.players.get(mp.specId) : null;
+      }
+
+      const cp = Math.cos(lookPitch);
+      const fx = -Math.sin(lookYaw), fz = -Math.cos(lookYaw);
+      const sx = shake > 0 ? (Math.random() - 0.5) * shake * 0.6 : 0;
+      const sy = shake > 0 ? (Math.random() - 0.5) * shake * 0.3 : 0;
+      if (tgt && !tgt.dead && tgt.seen) {
+        const dist = 5.0;
+        const headY = 1.75 - (tgt.cr ? 0.45 : 0);
+        const camY = Math.max(0.7, headY + 1.15 - Math.sin(lookPitch) * dist);
+        const tx = tgt.px - fx * dist * cp + sx;
+        const tz = tgt.pz - fz * dist * cp;
+        camera.position.lerp(new THREE.Vector3(tx, camY + sy, tz), Math.min(1, dt * 10));
+        lookTarget.set(tgt.px + fx * 1.4, headY + 0.1, tgt.pz + fz * 1.4);
+        camera.lookAt(lookTarget);
+      } else {
+        // No alive players left: orbit high above the creature while waiting for round end
+        const ang = elapsed * 0.4;
+        const dist = 9.0;
+        camera.position.lerp(new THREE.Vector3(obeliskX + Math.cos(ang) * dist, 5.5, obeliskZ + Math.sin(ang) * dist), Math.min(1, dt * 4));
+        lookTarget.set(obeliskX, 2.2, obeliskZ);
+        camera.lookAt(lookTarget);
+      }
+      updateFog(dt);
+      shake = Math.max(0, shake - dt * 2.2);
+      return;
+    }
+
     // First-person: camera sits at the player's eyes and looks where lookYaw / lookPitch point.
     const third = p4ThirdPerson && state === "playing" && !jumpscareActive;
     playerVisual.visible = third;           // no body in your own face (unless in 3rd person)
@@ -4155,7 +4204,21 @@
     }
 
     // Monster proximity horror effects:
-    const mDist = Math.hypot(playerX - obeliskX, playerZ - obeliskZ);
+    let refX = playerX, refZ = playerZ;
+    if (mp.active && mp.dead && mp.spectating && mp.specId) {
+      const spTgt = mp.players.get(mp.specId);
+      if (spTgt && !spTgt.dead && spTgt.seen) {
+        refX = spTgt.px; refZ = spTgt.pz;
+        // Move lantern to softly illuminate the spectated player's path
+        if (playerLantern && playerLantern.target) {
+          const lx = -Math.sin(spTgt.ty || 0), lz = -Math.cos(spTgt.ty || 0);
+          playerLantern.position.set(refX - playerX, 2.2, refZ - playerZ);
+          playerLantern.target.position.set(refX - playerX + lx * 18, 1.0, refZ - playerZ + lz * 18);
+          if (playerLanternCore) playerLanternCore.position.set(refX - playerX, 2.0, refZ - playerZ);
+        }
+      }
+    }
+    const mDist = Math.hypot(refX - obeliskX, refZ - obeliskZ);
     // When monster is within 34m, proximity ramps from 0 up to 1.0 at 5m
     const proximity = Math.max(0, Math.min(1, (34 - mDist) / 28));
 
@@ -4165,7 +4228,7 @@
     else if (obeliskState === "stare") staticTarget = Math.max(staticTarget, 0.42);
     else if (awareness > 0.5) staticTarget = Math.max(staticTarget, awareness * 0.3);
     if (mDist > 40 && (obeliskState !== "charge" || mp.active)) staticTarget = 0;
-    if (mp.active && mp.dead) staticTarget = 0.85;
+    if (mp.active && mp.dead) staticTarget = mp.spectating ? Math.max(0.08, staticTarget * 0.6) : 0.85;
     updateStaticOverlay(dt, Math.max(staticTarget, bgm.burst * 0.85));
 
     // Screen darkens when monster is near:
@@ -4547,9 +4610,10 @@
   function mpLeave() {
     mpClose();
     mpClearPlayers();
-    mp.active = false; mp.inRound = false; mp.dead = false; mp.proxy = null; mp.isHost = false; mp.loser = false; mp.winSent = false;
+    mp.active = false; mp.inRound = false; mp.dead = false; mp.spectating = false; mp.specId = null; mp.proxy = null; mp.isHost = false; mp.loser = false; mp.winSent = false;
     mp.door = null; mp.creatureStart = null; mp.cr.has = false;
     const h = $("mpHud"); if (h) h.classList.add("hidden");
+    const sh = $("mpSpecHud"); if (sh) sh.classList.add("hidden");
     playerVisual.rotation.z = 0; playerY = 0;
     const wr = $("winResults"); if (wr) wr.classList.remove("hidden");
   }
@@ -4631,8 +4695,11 @@
         const pl = mp.players.get(m.id);
         if (!pl || pl.id === mp.id) break;
         pl.tx = m.x; pl.tz = m.z; pl.ty = m.y; pl.sp = m.s || 0; pl.cr = m.c ? 1 : 0; pl.inv = m.i ? 1 : 0;
-        if (!m.d && pl.dead && performance.now() > pl.deadUntil) { pl.dead = false; mpHudUpdate(); }
-        if (m.d && !pl.dead) { pl.dead = true; mpHudUpdate(); }
+        if (m.d && !pl.dead) {
+          pl.dead = true; pl.deadUntil = Infinity;
+          mpHudUpdate();
+          if (mp.spectating && mp.specId === pl.id) mpSpecNext(1);
+        }
         if (!pl.seen && pl.avatar) {
           pl.seen = true; pl.px = pl.tx; pl.pz = pl.tz;
           pl.avatar.group.position.set(pl.tx, 0, pl.tz); pl.avatar.rig.rotation.y = pl.ty; pl.avatar.group.visible = true;
@@ -4649,7 +4716,12 @@
       case "caught": {
         if (m.id === mp.id) { mpCaughtLocal(); break; }
         const pl = mp.players.get(m.id);
-        if (pl) { pl.dead = true; pl.deadUntil = performance.now() + 2000; showToast(`${pl.name} WAS CAUGHT`, "bad"); mpHudUpdate(); }
+        if (pl) {
+          pl.dead = true; pl.deadUntil = Infinity;
+          showToast(`${pl.name} WAS CAUGHT`, "bad");
+          mpHudUpdate();
+          if (mp.spectating && mp.specId === pl.id) mpSpecNext(1);
+        }
         break;
       }
       case "open": {
@@ -4661,6 +4733,7 @@
         break;
       }
       case "win": mpRoundEnd(m.id, m.name); break;
+      case "all_dead": mpRoundAllDead(); break;
       case "err": mpStatus(m.msg || "Server error."); mpClose(); mp.active = false; mpLeave(); break;
     }
   }
@@ -4671,7 +4744,8 @@
     const order = (m.order || []).slice();
     let idx = order.indexOf(mp.id);
     if (idx < 0) { order.push(mp.id); idx = order.length - 1; }
-    mp.dead = false; mp.deadT = 0; mp.winSent = false; mp.loser = false; mp.inRound = true;
+    mp.dead = false; mp.deadT = 0; mp.spectating = false; mp.specId = null; mp.winSent = false; mp.loser = false; mp.inRound = true;
+    mpHideSpecHud();
     mp.cr.has = false; mp.cr.st = "hunt"; mp.cr.nst = "hunt";
     mp.isHost = mp.hostId === mp.id;
     for (const pl of mp.players.values()) { pl.dead = false; pl.deadUntil = 0; pl.inv = 1; pl.seen = false; if (pl.avatar) pl.avatar.group.visible = false; }
@@ -4688,6 +4762,8 @@
   function mpRoundEnd(winnerId, winnerName) {
     if (!mp.inRound || state !== "playing") return;
     mp.inRound = false;
+    mp.spectating = false; mp.specId = null;
+    mpHideSpecHud();
     const me = winnerId === mp.id;
     mp.loser = !me;
     winGame();
@@ -4701,6 +4777,21 @@
     const wr = $("winResults"); if (wr) wr.classList.add("hidden");
     mpHudUpdate();
   }
+  function mpRoundAllDead() {
+    if (!mp.inRound || state !== "playing") return;
+    mp.inRound = false;
+    mp.spectating = false; mp.specId = null;
+    mpHideSpecHud();
+    mp.loser = true;
+    winGame();
+    const w = (id, t) => { const el = $(id); if (el) el.textContent = t; };
+    w("winEyebrow", "THE FOREST CLAIMED EVERYONE");
+    w("winTitle", "NO ONE ESCAPED");
+    w("winSub", "The road creature hunted down every last runner. Regroup in the lobby and try again.");
+    w("winRestartBtn", "BACK TO LOBBY");
+    const wr = $("winResults"); if (wr) wr.classList.add("hidden");
+    mpHudUpdate();
+  }
   function mpToLobby() {
     clearWorld(); resetPlayer();
     state = "menu";
@@ -4708,7 +4799,8 @@
     ui.hud.classList.add("hidden"); ui.mobile.classList.add("hidden"); ui.pause.classList.add("hidden");
     ui.countdown.classList.add("hidden"); ui.combo.classList.add("hidden"); ui.lowVignette.style.opacity = "0";
     resetVhsEffect(); resetHorror();
-    mp.inRound = false; mp.dead = false;
+    mp.inRound = false; mp.dead = false; mp.spectating = false; mp.specId = null;
+    mpHideSpecHud();
     mpHudUpdate();
     mpOpenLobby();
   }
@@ -5097,7 +5189,7 @@
     if (!mp.active) { endGame(); ui.reason.textContent = reason; return; }
     if (mp.proxy) {
       const pl = mp.proxy;
-      pl.dead = true; pl.deadUntil = performance.now() + 5000;
+      pl.dead = true; pl.deadUntil = Infinity;
       mpSend({ t: "caught", id: pl.id });
     } else {
       mpSend({ t: "caught", id: mp.id });
@@ -5109,11 +5201,14 @@
   }
   function mpCaughtLocal() {
     if (mp.dead || state !== "playing") return;
-    mp.dead = true; mp.deadT = 0;
+    mp.dead = true; mp.deadT = 0; mp.spectating = false; mp.specId = null;
     velX = 0; velZ = 0; hiding = false; sprinting = false; crouchToggle = false;
-    shake = 1.4; flashDamage(); audio.crash(); audio.scream(); vibrate([150, 40, 300]);
+    shake = 1.6; flashDamage(); audio.crash(); audio.monsterSurge(1.0); audio.scream(); vibrate([180, 40, 320]);
+    const jf = $("jumpscareFlash");
+    if (jf) { jf.classList.remove("go"); void jf.offsetWidth; jf.classList.add("go"); }
     ui.interactPrompt.classList.remove("show");
-    showToast("CAUGHT! BACK ON YOUR FEET SOON…", "bad");
+    const alive = mpAliveTargets();
+    showToast(alive.length ? "CAUGHT! SPECTATING REMAINING RUNNERS…" : "CAUGHT! NO SURVIVORS LEFT…", "bad");
     mpHudUpdate();
   }
   function mpDeadTick(dt) {
@@ -5122,15 +5217,58 @@
     playerY += (-0.75 - playerY) * Math.min(1, dt * 6);                 // knocked flat: the camera drops to the ground
     playerVisual.rotation.z += (-1.2 - playerVisual.rotation.z) * Math.min(1, dt * 4);
     playerRoot.position.set(playerX, 0, playerZ);
-    if (mp.deadT > 4.5) mpRespawn();
+    // After the jumpscare impact, switch to spectating remaining alive players (no revive)
+    if (!mp.spectating && mp.deadT > 2.0) {
+      mpStartSpectating();
+    }
   }
-  function mpRespawn() {
-    mp.dead = false; mp.deadT = 0;
-    playerX = mp.spawnX; playerZ = 8; velX = 0; velZ = 0; playerY = 0; crouchBlend = 0; lookPitch = 0;
-    invulnerability = 4;
-    playerVisual.rotation.z = 0; playerRoot.position.set(playerX, 0, playerZ);
-    showToast("BACK AT THE CLEARING — RUN!", "gold");
-    mpHudUpdate();
+  function mpAliveTargets() {
+    const list = [];
+    for (const pl of mp.players.values()) {
+      if (pl.id !== mp.id && !pl.dead && pl.seen) list.push(pl);
+    }
+    return list;
+  }
+  function mpStartSpectating() {
+    if (!mp.active || !mp.dead) return;
+    mp.spectating = true;
+    ui.mobilePhase4.classList.add("hidden");
+    mpSpecNext(1);
+    mpSpecHudUpdate();
+  }
+  function mpSpecNext(dir) {
+    const alive = mpAliveTargets();
+    if (!alive.length) {
+      mp.specId = null;
+      mpSpecHudUpdate();
+      return;
+    }
+    const idx = alive.findIndex(p => p.id === mp.specId);
+    const nextIdx = idx < 0 ? 0 : (idx + (dir >= 0 ? 1 : -1) + alive.length) % alive.length;
+    mp.specId = alive[nextIdx].id;
+    mpSpecHudUpdate();
+  }
+  function mpSpecHudUpdate() {
+    const hud = $("mpSpecHud"), nm = $("mpSpecName");
+    if (!hud || !nm) return;
+    if (!mp.active || !mp.dead || !mp.spectating || !mp.inRound) {
+      hud.classList.add("hidden");
+      return;
+    }
+    hud.classList.remove("hidden");
+    const tgt = mp.specId ? mp.players.get(mp.specId) : null;
+    if (tgt && !tgt.dead) {
+      const col = "#" + MP_COLORS[tgt.color % MP_COLORS.length].toString(16).padStart(6, "0");
+      nm.textContent = tgt.name;
+      nm.style.color = col;
+    } else {
+      nm.textContent = "NO SURVIVORS LEFT";
+      nm.style.color = "#ffb2c5";
+    }
+  }
+  function mpHideSpecHud() {
+    const hud = $("mpSpecHud");
+    if (hud) hud.classList.add("hidden");
   }
 
   /* ---------- UI wiring ---------- */
@@ -5140,6 +5278,8 @@
     on("mpJoinBtn", mpJoin);
     on("mpStartBtn", () => mpSend({ t: "start" }));
     on("mpBackBtn", () => { mpLeave(); showScreen("start"); });
+    on("mpSpecPrev", () => { mpSpecNext(-1); blurButton(); });
+    on("mpSpecNext", () => { mpSpecNext(1); blurButton(); });
     for (const id of ["mpName", "mpRoom", "mpServer"]) {
       const el = $(id);
       if (el) el.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); mpJoin(); } });
@@ -7330,6 +7470,11 @@
       }
 
       if (inPhase4) {
+        if (mp.active && mp.dead && mp.spectating) {
+          if (!event.repeat && (code === "KeyA" || code === "ArrowLeft")) { event.preventDefault(); mpSpecNext(-1); }
+          if (!event.repeat && (code === "KeyD" || code === "ArrowRight" || code === "Space")) { event.preventDefault(); mpSpecNext(1); }
+          return;
+        }
         // Prevent browser hotkeys from triggering during free roam (especially Ctrl+W closing tab!)
         if (event.ctrlKey || ["KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "KeyX", "KeyE"].includes(code)) {
           if (["KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "KeyX", "KeyE"].includes(code)) {

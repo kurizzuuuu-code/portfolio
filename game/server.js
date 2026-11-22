@@ -115,6 +115,19 @@ function broadcast(room, obj, exceptId) {
 }
 function roundInfo(room) { return { door: room.door, cr: room.cr, order: room.order, seed: room.seed }; }
 
+function checkAllDead(room) {
+  if (room.phase !== "playing" || room.players.size === 0) return;
+  for (const p of room.players.values()) {
+    if (!p.dead) return;
+  }
+  room.phase = "lobby";
+  setTimeout(() => {
+    if (rooms.get(room.code) === room && room.phase === "lobby") {
+      broadcast(room, { t: "all_dead" });
+    }
+  }, 2200);
+}
+
 function join(c, msg) {
   if (c.room) return;
   let code = cleanRoom(msg.room) || randomCode();
@@ -123,6 +136,7 @@ function join(c, msg) {
   if (room.players.size >= MAX_PLAYERS) { send(c, { t: "err", msg: "Room is full (" + MAX_PLAYERS + " max)." }); return; }
   c.id = nextId++;
   c.name = cleanName(msg.name);
+  c.dead = false;
   const used = new Set([...room.players.values()].map(p => p.color));
   c.color = 0; while (used.has(c.color)) c.color++;
   c.room = room;
@@ -141,6 +155,7 @@ function leave(c) {
   if (room.players.size === 0) { rooms.delete(room.code); return; }
   if (room.hostId === c.id) room.hostId = room.players.keys().next().value;
   broadcast(room, Object.assign({ t: "roster", left: c.id }, roster(room)));
+  if (room.phase === "playing") checkAllDead(room);
 }
 
 function startRound(room) {
@@ -154,6 +169,7 @@ function startRound(room) {
   room.cr = { x: cx, z: cz };
   room.order = [...room.players.keys()];
   room.seed = (Math.random() * 2 ** 31) | 0;
+  for (const p of room.players.values()) p.dead = false;
   broadcast(room, Object.assign({ t: "start" }, roundInfo(room)));
 }
 
@@ -175,7 +191,14 @@ function onMessage(c, text) {
     case "start": if (isHost && room.phase === "lobby") startRound(room); break;
     case "p": m.id = c.id; broadcast(room, m, c.id); break;                       // player state
     case "c": if (isHost) broadcast(room, m, c.id); break;                         // creature state (host only)
-    case "caught": if (isHost && room.phase === "playing") broadcast(room, { t: "caught", id: m.id }); break;
+    case "caught":
+      if (isHost && room.phase === "playing") {
+        const tgt = room.players.get(m.id);
+        if (tgt) tgt.dead = true;
+        broadcast(room, { t: "caught", id: m.id });
+        checkAllDead(room);
+      }
+      break;
     case "open": if (room.phase === "playing") broadcast(room, { t: "open", id: c.id }); break;
     case "win":
       if (room.phase === "playing") {
