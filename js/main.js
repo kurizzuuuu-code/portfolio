@@ -1923,6 +1923,33 @@
     }
   }
 
+  function spawnHeartRain(count = 38) {
+    const layer = $("#cursorHearts");
+    if (!layer) return;
+    const palette = ["#ff5ea8", "#ff8fd8", "#c084fc", "#ffd166", "#f472b6", "#a855f7"];
+    for (let i = 0; i < count; i++) {
+      const heart = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      heart.setAttribute("class", "heart-particle heart-particle--rain");
+      heart.setAttribute("viewBox", "0 0 12 11");
+      const dur = 1.8 + Math.random() * 1.4;
+      const delay = Math.random() * 0.9;
+      const drift = (Math.random() - 0.5) * 140;
+      const spin = (Math.random() < 0.5 ? -1 : 1) * (140 + Math.random() * 240);
+      heart.style.left = `${(Math.random() * 96 + 2).toFixed(1)}vw`;
+      heart.style.top = `0px`;
+      heart.style.color = palette[i % palette.length];
+      heart.style.setProperty("--dur", `${dur.toFixed(2)}s`);
+      heart.style.setProperty("--delay", `${delay.toFixed(2)}s`);
+      heart.style.setProperty("--drift", `${drift.toFixed(0)}px`);
+      heart.style.setProperty("--spin", `${spin.toFixed(0)}deg`);
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", i % 4 === 0 ? "#i-star" : "#i-heart");
+      heart.appendChild(use);
+      layer.appendChild(heart);
+      window.setTimeout(() => heart.remove(), Math.ceil((dur + delay + 0.2) * 1000));
+    }
+  }
+
   function initHeartCounter() {
     const countEl = $("#browserHeartCount");
     const heartBtn = $("#browserHeartBtn");
@@ -2119,7 +2146,8 @@
       } else if (act === "heart-shower") {
         const r = btn.getBoundingClientRect();
         playSfx("coin", true);
-        spawnHeartShower(r.left + r.width / 2, r.top + r.height / 2, 28);
+        spawnHeartShower(r.left + r.width / 2, r.top + r.height / 2, 18);
+        spawnHeartRain(38);
         toast("♥ raining hearts! ♥");
       }
     });
