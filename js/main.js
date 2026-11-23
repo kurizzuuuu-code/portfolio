@@ -332,6 +332,7 @@
           <ul class="project-card__tags" aria-label="Tools">${tags}</ul>
           <div class="project-card__foot">
             <span class="project-card__status${progress ? " is-progress" : ""}">${esc(project.status)}</span>
+            <span class="project-card__rating" data-rating-badge="${esc(project.id)}" title="Community star rating">☆ rate</span>
             <span class="project-card__more">read more +</span>
           </div>
         </div>
@@ -562,6 +563,37 @@
           <h3>${icon("external")} find it</h3>
           ${links ? `<div class="case__links">${links}</div>` : `<p class="case__note">${progress ? "still baking — ask me for a build ♡" : "source lives on my laptop (or in a folder named final_final_v3). ask me about it ♡"}</p>`}
         </div>
+        <div class="case__section case__reviews" id="caseReviews" data-review-project="${esc(project.id)}">
+          <div class="case-reviews__head">
+            <h3>${icon("star")} ratings &amp; comments</h3>
+            <div class="case-reviews__summary" id="caseReviewSummary">
+              <span class="case-reviews__avg" id="caseReviewAvg">—</span>
+              <span class="case-reviews__stars-display" id="caseReviewStarsDisplay" aria-hidden="true">☆☆☆☆☆</span>
+              <span class="case-reviews__count" id="caseReviewCount">be the first to rate ♡</span>
+            </div>
+          </div>
+          <form class="case-reviews__form" id="caseReviewForm" novalidate>
+            <div class="case-reviews__picker-row">
+              <span class="case-reviews__label">your rating:</span>
+              <div class="star-picker" id="caseStarPicker" role="radiogroup" aria-label="Rate this project from 1 to 5 stars">
+                ${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="star-picker__btn" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}" aria-checked="false" role="radio">★</button>`).join("")}
+              </div>
+              <span class="case-reviews__picked-text" id="caseStarText">click a star</span>
+            </div>
+            <div class="case-reviews__inputs">
+              <input type="text" id="caseReviewName" class="case-reviews__input" placeholder="your name (optional)" maxlength="24" autocomplete="nickname">
+              <textarea id="caseReviewText" class="case-reviews__textarea" placeholder="leave a comment or feedback on ${esc(project.title)}..." maxlength="400" rows="3"></textarea>
+            </div>
+            <div class="case-reviews__actions">
+              <span class="case-reviews__char" id="caseReviewChar">0 / 400</span>
+              <span class="case-reviews__status" id="caseReviewStatus" aria-live="polite"></span>
+              <button type="submit" class="btn btn--small btn--primary" id="caseReviewSubmit">post review ★</button>
+            </div>
+          </form>
+          <div class="case-reviews__list" id="caseCommentsList">
+            <p class="case-reviews__empty">loading comments…</p>
+          </div>
+        </div>
       </div>`;
   }
 
@@ -588,6 +620,7 @@
     }
 
     initCaseTilt();
+    initCaseReviews(project.id);
 
     if (!openDialog(projectDialog)) return;
 
@@ -2919,6 +2952,275 @@
   }
 
   if (petRoot) initPet();
+
+  /* ============================================================
+     PROJECT STAR RATINGS & COMMENTS (live Render backend + local cache)
+     ============================================================ */
+  const REVIEWS_API = "https://kurizu-game-server.onrender.com/api/reviews";
+  const REVIEWS_CACHE_KEY = "kurizu_reviews_cache_v1";
+  const REVIEWER_NAME_KEY = "kurizu_reviewer_name";
+  const REVIEWER_CID_KEY = "kurizu_client_id";
+
+  function getClientId() {
+    try {
+      let id = localStorage.getItem(REVIEWER_CID_KEY);
+      if (!id) {
+        id = "c_" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+        localStorage.setItem(REVIEWER_CID_KEY, id);
+      }
+      return id;
+    } catch (_) {
+      return "c_anon";
+    }
+  }
+
+  function loadReviewCache() {
+    try {
+      return JSON.parse(localStorage.getItem(REVIEWS_CACHE_KEY) || "{}") || {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function saveReviewCache(cache) {
+    try {
+      localStorage.setItem(REVIEWS_CACHE_KEY, JSON.stringify(cache));
+    } catch (_) {}
+  }
+
+  function formatStarsStr(avg) {
+    const rounded = Math.round(Number(avg) || 0);
+    let s = "";
+    for (let i = 1; i <= 5; i++) s += i <= rounded ? "★" : "☆";
+    return s;
+  }
+
+  function formatTimeAgo(ts) {
+    const diff = Math.max(0, Math.floor((Date.now() - Number(ts || 0)) / 1000));
+    if (diff < 45) return "just now";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
+    return new Date(ts).toLocaleDateString();
+  }
+
+  function updateCardRatingBadge(projectId, summary) {
+    const el = document.querySelector(`[data-rating-badge="${CSS.escape(projectId)}"]`);
+    if (!el) return;
+    const count = Number(summary?.count || 0);
+    const avg = Number(summary?.avg || 0);
+    const cCount = Number(summary?.commentsCount ?? (summary?.comments ? summary.comments.length : 0));
+    if (count > 0) {
+      el.textContent = `★ ${avg.toFixed(1)} (${count})${cCount ? ` · 💬 ${cCount}` : ""}`;
+      el.classList.add("has-rating");
+    } else if (cCount > 0) {
+      el.textContent = `☆ rate · 💬 ${cCount}`;
+      el.classList.remove("has-rating");
+    } else {
+      el.textContent = "☆ rate";
+      el.classList.remove("has-rating");
+    }
+  }
+
+  function syncAllReviewSummaries() {
+    const cache = loadReviewCache();
+    Object.keys(cache).forEach((pid) => updateCardRatingBadge(pid, cache[pid]));
+
+    fetch(REVIEWS_API, { mode: "cors" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !data.projects) return;
+        const nextCache = loadReviewCache();
+        Object.entries(data.projects).forEach(([pid, sum]) => {
+          nextCache[pid] = Object.assign({}, nextCache[pid] || {}, sum);
+          updateCardRatingBadge(pid, nextCache[pid]);
+        });
+        saveReviewCache(nextCache);
+      })
+      .catch(() => { /* offline or server waking up — local cache is already shown */ });
+  }
+
+  function initCaseReviews(projectId) {
+    const root = $("#caseReviews");
+    if (!root) return;
+
+    const avgEl = $("#caseReviewAvg", root);
+    const starsDisp = $("#caseReviewStarsDisplay", root);
+    const countEl = $("#caseReviewCount", root);
+    const picker = $("#caseStarPicker", root);
+    const starBtns = Array.from(picker ? picker.querySelectorAll(".star-picker__btn") : []);
+    const starText = $("#caseStarText", root);
+    const form = $("#caseReviewForm", root);
+    const nameInput = $("#caseReviewName", root);
+    const textInput = $("#caseReviewText", root);
+    const charEl = $("#caseReviewChar", root);
+    const statusEl = $("#caseReviewStatus", root);
+    const submitBtn = $("#caseReviewSubmit", root);
+    const listEl = $("#caseCommentsList", root);
+
+    const STAR_LABELS = ["click a star", "1 / 5 · needs work", "2 / 5 · okay", "3 / 5 · pretty cool", "4 / 5 · love it!", "5 / 5 · masterpiece ★"];
+    let selectedStar = 0;
+
+    try {
+      const savedName = localStorage.getItem(REVIEWER_NAME_KEY);
+      if (savedName && nameInput) nameInput.value = savedName;
+    } catch (_) {}
+
+    function paintStars(val) {
+      starBtns.forEach((btn) => {
+        const n = Number(btn.dataset.star);
+        btn.classList.toggle("is-lit", n <= val);
+        btn.setAttribute("aria-checked", String(n === selectedStar));
+      });
+      if (starText) starText.textContent = STAR_LABELS[val] || STAR_LABELS[0];
+    }
+
+    starBtns.forEach((btn) => {
+      const n = Number(btn.dataset.star);
+      btn.addEventListener("mouseenter", () => paintStars(n));
+      btn.addEventListener("focus", () => paintStars(n));
+      btn.addEventListener("click", () => {
+        selectedStar = n;
+        paintStars(selectedStar);
+        if (typeof playUiSfx === "function") playUiSfx("pop");
+      });
+    });
+    if (picker) {
+      picker.addEventListener("mouseleave", () => paintStars(selectedStar));
+    }
+
+    if (textInput && charEl) {
+      textInput.addEventListener("input", () => {
+        charEl.textContent = `${textInput.value.length} / 400`;
+      });
+    }
+
+    function renderData(data) {
+      const count = Number(data?.count || 0);
+      const avg = Number(data?.avg || 0);
+      const comments = Array.isArray(data?.comments) ? data.comments : [];
+
+      if (avgEl) avgEl.textContent = count > 0 ? avg.toFixed(1) : "—";
+      if (starsDisp) starsDisp.textContent = formatStarsStr(avg);
+      if (countEl) {
+        countEl.textContent = count > 0
+          ? `${count} rating${count === 1 ? "" : "s"} · ${comments.length} comment${comments.length === 1 ? "" : "s"}`
+          : (comments.length ? `${comments.length} comment${comments.length === 1 ? "" : "s"} · be the first to rate ♡` : "be the first to rate or comment ♡");
+      }
+
+      updateCardRatingBadge(projectId, { avg, count, commentsCount: comments.length });
+
+      if (!listEl) return;
+      if (!comments.length) {
+        listEl.innerHTML = `<p class="case-reviews__empty">no comments yet — drop the first thought below ♡</p>`;
+        return;
+      }
+
+      listEl.innerHTML = comments.map((c) => {
+        const initial = (String(c.name || "A").trim()[0] || "A").toUpperCase();
+        const rStars = c.rating >= 1 && c.rating <= 5
+          ? `<span class="review-item__stars" aria-label="Rated ${c.rating} out of 5">${formatStarsStr(c.rating)}</span>`
+          : "";
+        return `<article class="review-item">
+          <div class="review-item__head">
+            <span class="review-item__avatar" aria-hidden="true">${esc(initial)}</span>
+            <strong class="review-item__name">${esc(c.name || "anonymous")}</strong>
+            ${rStars}
+            <span class="review-item__time">${esc(formatTimeAgo(c.ts))}</span>
+          </div>
+          <p class="review-item__text">${esc(c.text || "")}</p>
+        </article>`;
+      }).join("");
+    }
+
+    // 1. Render cached data immediately
+    const cache = loadReviewCache();
+    if (cache[projectId]) renderData(cache[projectId]);
+
+    // 2. Fetch live data from Render backend
+    fetch(`${REVIEWS_API}?project=${encodeURIComponent(projectId)}`, { mode: "cors" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        const c = loadReviewCache();
+        c[projectId] = { avg: data.avg, count: data.count, comments: data.comments || [], commentsCount: (data.comments || []).length };
+        saveReviewCache(c);
+        renderData(c[projectId]);
+      })
+      .catch(() => {
+        if (!cache[projectId] && listEl) {
+          listEl.innerHTML = `<p class="case-reviews__empty">no comments yet — drop the first thought below ♡</p>`;
+        }
+      });
+
+    // 3. Handle new rating / comment submission
+    if (form) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const name = (nameInput?.value || "").trim().slice(0, 24) || "anonymous";
+        const text = (textInput?.value || "").trim().slice(0, 400);
+        if (!selectedStar && !text) {
+          if (statusEl) statusEl.textContent = "pick a star or type a comment first ♡";
+          return;
+        }
+        try {
+          if (nameInput?.value.trim()) localStorage.setItem(REVIEWER_NAME_KEY, name);
+        } catch (_) {}
+
+        if (submitBtn) submitBtn.disabled = true;
+        if (statusEl) statusEl.textContent = "posting…";
+
+        try {
+          const res = await fetch(REVIEWS_API, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              project: projectId,
+              name,
+              rating: selectedStar,
+              text,
+              clientId: getClientId(),
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Could not post");
+          const c = loadReviewCache();
+          c[projectId] = { avg: data.avg, count: data.count, comments: data.comments || [], commentsCount: (data.comments || []).length };
+          saveReviewCache(c);
+          renderData(c[projectId]);
+          if (textInput) textInput.value = "";
+          if (charEl) charEl.textContent = "0 / 400";
+          if (statusEl) statusEl.textContent = "posted! thank you ♡";
+          toast("review posted! thank you ♡");
+        } catch (err) {
+          // Graceful local fallback if Render is sleeping/offline
+          const c = loadReviewCache();
+          const cur = c[projectId] || { avg: 0, count: 0, comments: [] };
+          if (text) {
+            cur.comments = [{ id: "local_" + Date.now(), name, rating: selectedStar, text, ts: Date.now() }, ...(cur.comments || [])];
+          }
+          if (selectedStar) {
+            const total = cur.avg * cur.count + selectedStar;
+            cur.count += 1;
+            cur.avg = +(total / cur.count).toFixed(1);
+          }
+          cur.commentsCount = (cur.comments || []).length;
+          c[projectId] = cur;
+          saveReviewCache(c);
+          renderData(cur);
+          if (textInput) textInput.value = "";
+          if (charEl) charEl.textContent = "0 / 400";
+          if (statusEl) statusEl.textContent = "saved locally (server waking up)";
+          toast("review saved ♡");
+        } finally {
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      });
+    }
+  }
+
+  syncAllReviewSummaries();
 
   /* deep link: #project-aipet */
   const hashMatch = /^#project-(.+)$/.exec(window.location.hash);

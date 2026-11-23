@@ -25,16 +25,118 @@ const MIME = {
   ".wav": "audio/wav", ".woff2": "font/woff2", ".webp": "image/webp"
 };
 
+/* ------------------------------ portfolio reviews & ratings API ------------------------------ */
+const REVIEWS_FILE = path.join(ROOT, "reviews.json");
+let reviewStore = {}; // { [projectId]: { ratings: { [clientId]: 1..5 }, comments: [{ id, name, rating, text, ts }] } }
+try {
+  if (fs.existsSync(REVIEWS_FILE)) {
+    const parsed = JSON.parse(fs.readFileSync(REVIEWS_FILE, "utf8"));
+    if (parsed && typeof parsed === "object") reviewStore = parsed;
+  }
+} catch (e) { reviewStore = {}; }
+
+function saveReviews() {
+  try { fs.writeFileSync(REVIEWS_FILE, JSON.stringify(reviewStore, null, 2), "utf8"); } catch (e) {}
+}
+function cleanProjectId(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 48);
+}
+function projectSummary(id) {
+  const entry = reviewStore[id] || { ratings: {}, comments: [] };
+  const vals = Object.values(entry.ratings || {}).filter(v => v >= 1 && v <= 5);
+  const count = vals.length;
+  const avg = count ? +(vals.reduce((a, b) => a + b, 0) / count).toFixed(1) : 0;
+  return { avg, count, commentsCount: (entry.comments || []).length };
+}
+function sendJson(res, status, obj) {
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Cache-Control": "no-cache"
+  });
+  res.end(JSON.stringify(obj));
+}
+const reviewCooldown = new Map();
+
+function handleReviewsApi(req, res) {
+  if (req.method === "OPTIONS") { sendJson(res, 204, {}); return; }
+  const qStr = (req.url || "").split("?")[1] || "";
+  const params = new URLSearchParams(qStr);
+  if (req.method === "GET") {
+    const pid = cleanProjectId(params.get("project"));
+    if (pid) {
+      const entry = reviewStore[pid] || { ratings: {}, comments: [] };
+      const sum = projectSummary(pid);
+      sendJson(res, 200, { project: pid, avg: sum.avg, count: sum.count, comments: (entry.comments || []).slice(0, 100) });
+      return;
+    }
+    const projects = {};
+    for (const k of Object.keys(reviewStore)) projects[k] = projectSummary(k);
+    sendJson(res, 200, { projects });
+    return;
+  }
+  if (req.method === "POST") {
+    const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+    const now = Date.now();
+    if (now - (reviewCooldown.get(ip) || 0) < 2500) {
+      sendJson(res, 429, { error: "Slow down a bit — try again in a few seconds." });
+      return;
+    }
+    let body = "";
+    req.on("data", chunk => {
+      body += chunk;
+      if (body.length > 8192) { req.destroy(); }
+    });
+    req.on("end", () => {
+      let data;
+      try { data = JSON.parse(body || "{}"); } catch (e) { sendJson(res, 400, { error: "Invalid JSON" }); return; }
+      const pid = cleanProjectId(data.project);
+      if (!pid) { sendJson(res, 400, { error: "Missing project id" }); return; }
+      const rating = Math.round(Number(data.rating) || 0);
+      const validRating = rating >= 1 && rating <= 5 ? rating : 0;
+      const text = String(data.text || "").trim().slice(0, 400);
+      const name = String(data.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24) || "anonymous";
+      const clientId = String(data.clientId || ip || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 36);
+      if (!validRating && !text) {
+        sendJson(res, 400, { error: "Add a star rating or a comment first." });
+        return;
+      }
+      reviewCooldown.set(ip, now);
+      if (!reviewStore[pid]) reviewStore[pid] = { ratings: {}, comments: [] };
+      const entry = reviewStore[pid];
+      if (validRating) entry.ratings[clientId] = validRating;
+      if (text) {
+        entry.comments.unshift({
+          id: crypto.randomBytes(6).toString("hex"),
+          name,
+          rating: validRating,
+          text,
+          ts: now
+        });
+        if (entry.comments.length > 100) entry.comments.length = 100;
+      }
+      saveReviews();
+      const sum = projectSummary(pid);
+      sendJson(res, 200, { ok: true, project: pid, avg: sum.avg, count: sum.count, comments: entry.comments });
+    });
+    return;
+  }
+  sendJson(res, 405, { error: "Method not allowed" });
+}
+
 /* ------------------------------ static files ------------------------------ */
 const server = http.createServer((req, res) => {
   let url = "/";
   try { url = decodeURIComponent((req.url || "/").split("?")[0]); } catch (e) { res.writeHead(400); res.end(); return; }
   if (url === "/health") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("ok"); return; }
+  if (url === "/api/reviews") { handleReviewsApi(req, res); return; }
   if (url === "/") url = "/index.html";
   const file = path.join(ROOT, path.normalize(url));
   const base = path.basename(file);
   const ext = path.extname(file).toLowerCase();
-  if (!file.startsWith(ROOT + path.sep) || base.startsWith(".") || base === "server.js" || base === "package.json" || !MIME[ext]) {
+  if (!file.startsWith(ROOT + path.sep) || base.startsWith(".") || base === "server.js" || base === "package.json" || base === "reviews.json" || !MIME[ext]) {
     res.writeHead(404); res.end("Not found"); return;
   }
   fs.readFile(file, (err, data) => {
