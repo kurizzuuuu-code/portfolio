@@ -77,8 +77,8 @@
     return audioCtx;
   }
 
-  function playSfx(kind = "click") {
-    if (!sfxEnabled || reduceMotion) return;
+  function playSfx(kind = "click", force = false) {
+    if (!sfxEnabled && !force) return;
     const ctx = getAudioCtx();
     if (!ctx) return;
 
@@ -92,14 +92,14 @@
       osc.type = "square";
       osc.frequency.setValueAtTime(520, now);
       osc.frequency.exponentialRampToValueAtTime(780, now + 0.045);
-      gain.gain.setValueAtTime(0.035, now);
+      gain.gain.setValueAtTime(0.045, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
       osc.start(now);
       osc.stop(now + 0.055);
     } else if (kind === "hover") {
       osc.type = "sine";
       osc.frequency.setValueAtTime(660, now);
-      gain.gain.setValueAtTime(0.014, now);
+      gain.gain.setValueAtTime(0.018, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
       osc.start(now);
       osc.stop(now + 0.028);
@@ -107,7 +107,7 @@
       osc.type = "triangle";
       osc.frequency.setValueAtTime(360, now);
       osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
-      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.setValueAtTime(0.075, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
       osc.start(now);
       osc.stop(now + 0.095);
@@ -115,30 +115,31 @@
       osc.type = "square";
       osc.frequency.setValueAtTime(987.77, now); // B5
       osc.frequency.setValueAtTime(1318.51, now + 0.06); // E6
-      gain.gain.setValueAtTime(0.045, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-      osc.start(now);
-      osc.stop(now + 0.23);
-    } else if (kind === "powerup") {
-      osc.type = "triangle";
-      const notes = [523.25, 659.25, 783.99, 1046.5];
-      notes.forEach((freq, idx) => {
-        osc.frequency.setValueAtTime(freq, now + idx * 0.045);
-      });
-      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.setValueAtTime(0.085, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
       osc.start(now);
       osc.stop(now + 0.25);
+    } else if (kind === "powerup") {
+      osc.type = "square";
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, idx) => {
+        osc.frequency.setValueAtTime(freq, now + idx * 0.055);
+      });
+      gain.gain.setValueAtTime(0.09, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
+      osc.start(now);
+      osc.stop(now + 0.32);
     } else if (kind === "error") {
       osc.type = "sawtooth";
       osc.frequency.setValueAtTime(190, now);
       osc.frequency.linearRampToValueAtTime(130, now + 0.14);
-      gain.gain.setValueAtTime(0.045, now);
+      gain.gain.setValueAtTime(0.07, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
       osc.start(now);
       osc.stop(now + 0.16);
     }
   }
+  const playUiSfx = playSfx;
 
   function updateSfxUI() {
     const btn = $("#sfxToggle");
@@ -1899,7 +1900,7 @@
 
   function spawnHeartShower(originX, originY, count = 16) {
     const layer = $("#cursorHearts");
-    if (!layer || reduceMotion) return;
+    if (!layer) return;
     const cx = originX ?? window.innerWidth / 2;
     const cy = originY ?? window.innerHeight / 2;
     for (let i = 0; i < count; i++) {
@@ -2111,14 +2112,15 @@
       } else if (act === "arcade") {
         openGame();
       } else if (act === "sound") {
-        playSfx("powerup");
+        playSfx("powerup", true);
         toast("♪ 8-bit chiptune powerup! ♪");
       } else if (act === "reset-win") {
         resetAllDraggableWindows();
       } else if (act === "heart-shower") {
         const r = btn.getBoundingClientRect();
-        playSfx("coin");
-        spawnHeartShower(r.left + r.width / 2, r.top + r.height / 2, 24);
+        playSfx("coin", true);
+        spawnHeartShower(r.left + r.width / 2, r.top + r.height / 2, 28);
+        toast("♥ raining hearts! ♥");
       }
     });
   }
@@ -2128,12 +2130,20 @@
      PARTY MODE + INTERACTIVE TERMINAL (about_me.txt)
      ============================================================ */
   let partyMode = false;
+  let partyInterval = null;
   function togglePartyMode(force) {
     partyMode = typeof force === "boolean" ? force : !partyMode;
     document.body.classList.toggle("is-party", partyMode);
-    playSfx(partyMode ? "powerup" : "pop");
+    playSfx(partyMode ? "powerup" : "pop", true);
+    if (partyInterval) { clearInterval(partyInterval); partyInterval = null; }
     if (partyMode) {
-      spawnHeartShower(window.innerWidth / 2, window.innerHeight / 2, 26);
+      spawnHeartShower(window.innerWidth / 2, window.innerHeight / 2, 28);
+      partyInterval = window.setInterval(() => {
+        if (!partyMode) return;
+        const rx = window.innerWidth * (0.15 + Math.random() * 0.7);
+        const ry = window.innerHeight * (0.2 + Math.random() * 0.5);
+        spawnHeartShower(rx, ry, 10);
+      }, 1600);
       toast("★ PARTY MODE ACTIVATED ★");
     } else {
       toast("party mode off — back to cozy purple");

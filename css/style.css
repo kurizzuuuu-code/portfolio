@@ -4775,7 +4775,9 @@ body.pet-chat-open #helpTooltip {
 
 /* Heart confetti burst particles */
 .heart-particle--burst {
-  animation: heart-burst 950ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: heart-burst 950ms cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  animation-duration: 950ms !important;
+  animation-iteration-count: 1 !important;
 }
 @keyframes heart-burst {
   0% {
@@ -5104,13 +5106,23 @@ button.browser__tab-plus:hover {
 }
 
 /* Party Mode Easter Egg */
+body.is-party {
+  animation: party-hue 4s linear infinite !important;
+  animation-duration: 4s !important;
+  animation-iteration-count: infinite !important;
+}
 body.is-party .window__bar,
 body.is-party .marquee {
-  animation: party-hue 3s linear infinite;
+  animation: party-hue 2s linear infinite !important;
+  animation-duration: 2s !important;
+  animation-iteration-count: infinite !important;
+}
+body.is-party .window {
+  box-shadow: 0 0 0 2px #ff66d9, 0 0 24px rgba(255, 102, 217, 0.55), 6px 6px 0 var(--ink) !important;
 }
 @keyframes party-hue {
-  from { filter: hue-rotate(0deg); }
-  to { filter: hue-rotate(360deg); }
+  from { filter: hue-rotate(0deg) saturate(1.25); }
+  to { filter: hue-rotate(360deg) saturate(1.25); }
 }
 
 /* Case Study Before / After Comparison Slider */
