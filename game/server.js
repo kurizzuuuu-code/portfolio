@@ -84,36 +84,79 @@ function handleReviewsApi(req, res) {
   if (req.method === "POST") {
     const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
     const now = Date.now();
-    if (now - (reviewCooldown.get(ip) || 0) < 2500) {
-      sendJson(res, 429, { error: "Slow down a bit — try again in a few seconds." });
-      return;
-    }
     let body = "";
     req.on("data", chunk => {
       body += chunk;
-      if (body.length > 8192) { req.destroy(); }
+      if (body.length > 32768) { req.destroy(); }
     });
     req.on("end", () => {
       let data;
       try { data = JSON.parse(body || "{}"); } catch (e) { sendJson(res, 400, { error: "Invalid JSON" }); return; }
       const pid = cleanProjectId(data.project);
       if (!pid) { sendJson(res, 400, { error: "Missing project id" }); return; }
+
+      const isSync = Boolean(data.sync);
+      if (!isSync && now - (reviewCooldown.get(ip) || 0) < 1800) {
+        sendJson(res, 429, { error: "Slow down a bit — try again in a few seconds." });
+        return;
+      }
+
+      if (!reviewStore[pid]) reviewStore[pid] = { ratings: {}, comments: [] };
+      const entry = reviewStore[pid];
+      const clientId = String(data.clientId || ip || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 36);
+
+      // Handle background re-sync of cached comments/ratings after a cold boot
+      if (isSync && Array.isArray(data.syncComments)) {
+        const rating = Math.round(Number(data.rating) || 0);
+        if (rating >= 1 && rating <= 5 && !entry.ratings[clientId]) {
+          entry.ratings[clientId] = rating;
+        }
+        const existingKeys = new Set(
+          (entry.comments || []).map(c => `${c.id || ""}|${(c.name || "").toLowerCase()}|${(c.text || "").toLowerCase()}`)
+        );
+        for (const item of data.syncComments.slice(0, 50)) {
+          const cText = String(item?.text || "").trim().slice(0, 400);
+          if (!cText) continue;
+          const cName = String(item?.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24) || "anonymous";
+          const cId = String(item?.id || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+          const cRating = Math.round(Number(item?.rating) || 0);
+          const validCRating = cRating >= 1 && cRating <= 5 ? cRating : 0;
+          const cTs = Number(item?.ts) > 1000000000000 ? Number(item.ts) : now;
+          const dedupKey = `${cId}|${cName.toLowerCase()}|${cText.toLowerCase()}`;
+          const textMatches = (entry.comments || []).some(
+            c => c.id === cId || ((c.name || "").toLowerCase() === cName.toLowerCase() && (c.text || "").toLowerCase() === cText.toLowerCase())
+          );
+          if (!existingKeys.has(dedupKey) && !textMatches) {
+            existingKeys.add(dedupKey);
+            entry.comments.push({ id: cId, name: cName, rating: validCRating, text: cText, ts: cTs });
+            if (validCRating && !entry.ratings[`c_${cId}`]) {
+              entry.ratings[`c_${cId}`] = validCRating;
+            }
+          }
+        }
+        entry.comments.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+        if (entry.comments.length > 100) entry.comments.length = 100;
+        saveReviews();
+        const sum = projectSummary(pid);
+        sendJson(res, 200, { ok: true, project: pid, avg: sum.avg, count: sum.count, comments: entry.comments });
+        return;
+      }
+
       const rating = Math.round(Number(data.rating) || 0);
       const validRating = rating >= 1 && rating <= 5 ? rating : 0;
       const text = String(data.text || "").trim().slice(0, 400);
       const name = String(data.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24) || "anonymous";
-      const clientId = String(data.clientId || ip || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 36);
       if (!validRating && !text) {
         sendJson(res, 400, { error: "Add a star rating or a comment first." });
         return;
       }
       reviewCooldown.set(ip, now);
-      if (!reviewStore[pid]) reviewStore[pid] = { ratings: {}, comments: [] };
-      const entry = reviewStore[pid];
       if (validRating) entry.ratings[clientId] = validRating;
       if (text) {
+        const cid = String(data.id || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+        entry.comments = (entry.comments || []).filter(c => c.id !== cid);
         entry.comments.unshift({
-          id: crypto.randomBytes(6).toString("hex"),
+          id: cid,
           name,
           rating: validRating,
           text,

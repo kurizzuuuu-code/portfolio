@@ -517,6 +517,43 @@
         </div>`
       : "";
 
+    const devlogs = Array.isArray(project.devlogs) ? project.devlogs : [];
+    const devlogsMarkup = devlogs.length
+      ? `<div class="case__section case__devlogs">
+          <div class="case__devlogs-head">
+            <h3>${icon("terminal")} devlog.txt · version history</h3>
+            <span class="case__devlogs-count">${devlogs.length} ${devlogs.length === 1 ? "release" : "releases"}</span>
+          </div>
+          <div class="devlog-timeline">
+            ${devlogs.map((entry, idx) => {
+              const addedItems = Array.isArray(entry.added) ? entry.added : [];
+              const changedItems = Array.isArray(entry.changed) ? entry.changed : [];
+              return `<article class="devlog-entry${idx === 0 ? " is-latest" : ""}">
+                <header class="devlog-entry__head">
+                  <span class="devlog-entry__ver">${esc(entry.version || "v1.0")}</span>
+                  ${entry.tag ? `<span class="devlog-entry__tag">${esc(entry.tag)}</span>` : ""}
+                  ${entry.title ? `<strong class="devlog-entry__title">${esc(entry.title)}</strong>` : ""}
+                </header>
+                <div class="devlog-entry__body">
+                  ${addedItems.length ? `<div class="devlog-group devlog-group--added">
+                    <span class="devlog-badge devlog-badge--added">+ WHAT WAS ADDED</span>
+                    <ul class="devlog-list">
+                      ${addedItems.map((it) => `<li>${esc(it)}</li>`).join("")}
+                    </ul>
+                  </div>` : ""}
+                  ${changedItems.length ? `<div class="devlog-group devlog-group--changed">
+                    <span class="devlog-badge devlog-badge--changed">~ WHAT CHANGED / FIXED</span>
+                    <ul class="devlog-list">
+                      ${changedItems.map((it) => `<li>${esc(it)}</li>`).join("")}
+                    </ul>
+                  </div>` : ""}
+                </div>
+              </article>`;
+            }).join("")}
+          </div>
+        </div>`
+      : "";
+
     return `<div class="case__hero">
         <div class="case__hero-tilt">
           <img class="case__hero-img" src="${esc(project.image)}" alt="${esc(project.imageAlt || project.title)}">
@@ -552,6 +589,7 @@
           <h3>${icon("sparkle")} what makes it tick</h3>
           <ul class="case__list">${highlights}</ul>
         </div>` : ""}
+        ${devlogsMarkup}
         ${gallery ? `<div class="case__section">
           <h3>${icon("folder")} screens & sprites</h3>
           <div class="case__gallery">${gallery}</div>
@@ -1286,17 +1324,17 @@
   let gestureArmed = false;
   let playErrors = 0;
 
-  player.volume = 0.7;
+  /* Always start up at 15% volume (0.15) so the background theme is gentle on launch */
+  player.volume = 0.15;
   try {
-    const stored = JSON.parse(window.localStorage.getItem("kurizu.player") || "{}");
-    if (typeof stored.volume === "number") player.volume = Math.min(1, Math.max(0, stored.volume));
+    const stored = JSON.parse(window.localStorage.getItem("kurizu.player.v2") || "{}");
     if (typeof stored.shuffle === "boolean") shuffleOn = stored.shuffle;
     if (stored.repeat === "all" || stored.repeat === "one") repeatMode = stored.repeat;
   } catch (error) { /* private mode — defaults are fine */ }
 
   function savePlayer() {
     try {
-      window.localStorage.setItem("kurizu.player", JSON.stringify({
+      window.localStorage.setItem("kurizu.player.v2", JSON.stringify({
         volume: player.volume,
         shuffle: shuffleOn,
         repeat: repeatMode,
@@ -1365,7 +1403,7 @@
   function loadTrack(index, autoplay = true) {
     if (!musicTracks.length) return;
     trackIndex = ((index % musicTracks.length) + musicTracks.length) % musicTracks.length;
-    player.src = musicTracks[trackIndex].src;
+    player.src = encodeURI(musicTracks[trackIndex].src);
     updatePlayerUI();
     if (autoplay) play();
   }
@@ -1504,7 +1542,7 @@
   };
 
   const onVolumeInput = (event) => {
-    const rawVal = event.target.value ?? volumeSlider?.value ?? 70;
+    const rawVal = event.target.value ?? volumeSlider?.value ?? 15;
     const numVal = Math.round(Number(rawVal));
     player.volume = Math.min(1, Math.max(0, numVal / 100));
     savePlayer();
@@ -1541,9 +1579,10 @@
   }, true);
 
   function initMusic() {
+    player.volume = 0.15;
     updatePlayerUI();
     if (!musicTracks.length) return;
-    player.src = musicTracks[0].src;
+    player.src = encodeURI(musicTracks[0].src);
     play(); // auto-start; falls back to the first click/keypress if the browser says no
   }
 
@@ -4260,6 +4299,84 @@
     }
   }
 
+  function mergeProjectReviews(localEntry, serverEntry) {
+    const loc = localEntry || {};
+    const srv = serverEntry || {};
+    const locComments = Array.isArray(loc.comments) ? loc.comments : [];
+    const srvComments = Array.isArray(srv.comments) ? srv.comments : [];
+
+    // Deduplicate comments by id or (name + text) so local comments never vanish when Render restarts
+    const byKey = new Map();
+    const makeKey = (c) => `${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`;
+    const seenIds = new Set();
+
+    [...srvComments, ...locComments].forEach((c) => {
+      if (!c || !c.text) return;
+      const k = makeKey(c);
+      if (c.id && seenIds.has(c.id)) return;
+      if (byKey.has(k)) return;
+      if (c.id) seenIds.add(c.id);
+      byKey.set(k, c);
+    });
+
+    const mergedComments = Array.from(byKey.values()).sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+
+    const srvCount = Number(srv.count || 0);
+    const locCount = Number(loc.count || 0);
+    let count = Math.max(srvCount, locCount);
+    let avg = srvCount >= locCount && srvCount > 0 ? Number(srv.avg || 0) : Number(loc.avg || 0);
+
+    // If ratings exist on merged comments, make sure count is at least the number of rated comments
+    const ratedComments = mergedComments.filter((c) => Number(c.rating) >= 1 && Number(c.rating) <= 5);
+    if (ratedComments.length > count) {
+      count = ratedComments.length;
+      avg = +(ratedComments.reduce((sum, c) => sum + Number(c.rating), 0) / count).toFixed(1);
+    }
+
+    const commentsCount = Math.max(
+      mergedComments.length,
+      Number(srv.commentsCount || 0),
+      Number(loc.commentsCount || 0)
+    );
+
+    return {
+      avg,
+      count,
+      comments: mergedComments,
+      commentsCount,
+      myRating: Number(loc.myRating || srv.myRating || 0),
+    };
+  }
+
+  function resyncMissingReviewsToServer(projectId, localEntry, serverEntry) {
+    const loc = localEntry || {};
+    const srv = serverEntry || {};
+    const locComments = Array.isArray(loc.comments) ? loc.comments : [];
+    const srvComments = Array.isArray(srv.comments) ? srv.comments : [];
+    const srvKeys = new Set(
+      srvComments.map((c) => `${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`)
+    );
+    const missingComments = locComments.filter(
+      (c) => c && c.text && !srvKeys.has(`${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`)
+    );
+    const hasMissingRating = Number(loc.myRating || 0) > 0 && Number(srv.count || 0) === 0;
+
+    if (!missingComments.length && !hasMissingRating) return;
+
+    fetch(REVIEWS_API, {
+      method: "POST",
+      mode: "cors",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project: projectId,
+        sync: true,
+        clientId: getClientId(),
+        rating: Number(loc.myRating || loc.avg || 0),
+        syncComments: missingComments,
+      }),
+    }).catch(() => {});
+  }
+
   function syncAllReviewSummaries() {
     const cache = loadReviewCache();
     Object.keys(cache).forEach((pid) => updateCardRatingBadge(pid, cache[pid]));
@@ -4269,9 +4386,17 @@
       .then((data) => {
         if (!data || !data.projects) return;
         const nextCache = loadReviewCache();
-        Object.entries(data.projects).forEach(([pid, sum]) => {
-          nextCache[pid] = Object.assign({}, nextCache[pid] || {}, sum);
+        const allPids = new Set([...Object.keys(nextCache), ...Object.keys(data.projects)]);
+        allPids.forEach((pid) => {
+          const localCur = nextCache[pid];
+          const srvSum = data.projects[pid];
+          nextCache[pid] = mergeProjectReviews(localCur, srvSum);
           updateCardRatingBadge(pid, nextCache[pid]);
+          if (localCur && ((localCur.comments && localCur.comments.length) || localCur.myRating)) {
+            if (!srvSum || Number(srvSum.commentsCount || 0) < (localCur.comments || []).length || Number(srvSum.count || 0) === 0) {
+              resyncMissingReviewsToServer(pid, localCur, srvSum || {});
+            }
+          }
         });
         saveReviewCache(nextCache);
       })
@@ -4373,17 +4498,30 @@
 
     // 1. Render cached data immediately
     const cache = loadReviewCache();
-    if (cache[projectId]) renderData(cache[projectId]);
+    if (cache[projectId]) {
+      renderData(cache[projectId]);
+      if (cache[projectId].myRating) {
+        selectedStar = Number(cache[projectId].myRating);
+        paintStars(selectedStar);
+      }
+    }
 
-    // 2. Fetch live data from Render backend
+    // 2. Fetch live data from Render backend & merge with local cache (never overwrite local comments with an empty cold-boot response)
     fetch(`${REVIEWS_API}?project=${encodeURIComponent(projectId)}`, { mode: "cors" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data) return;
         const c = loadReviewCache();
-        c[projectId] = { avg: data.avg, count: data.count, comments: data.comments || [], commentsCount: (data.comments || []).length };
+        const localBefore = c[projectId];
+        c[projectId] = mergeProjectReviews(localBefore, {
+          avg: data.avg,
+          count: data.count,
+          comments: data.comments || [],
+          commentsCount: (data.comments || []).length,
+        });
         saveReviewCache(c);
         renderData(c[projectId]);
+        resyncMissingReviewsToServer(projectId, localBefore, data);
       })
       .catch(() => {
         if (!cache[projectId] && listEl) {
@@ -4408,12 +4546,39 @@
         if (submitBtn) submitBtn.disabled = true;
         if (statusEl) statusEl.textContent = "posting…";
 
+        const commentId = "rev_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const nowTs = Date.now();
+
+        // Save optimistically to local cache first so comments/ratings never disappear even if the tab closes or server sleeps
+        const cLocal = loadReviewCache();
+        const curLocal = cLocal[projectId] || { avg: 0, count: 0, comments: [], myRating: 0 };
+        if (text) {
+          curLocal.comments = [{ id: commentId, name, rating: selectedStar, text, ts: nowTs }, ...(curLocal.comments || [])];
+        }
+        if (selectedStar) {
+          const prevMyRating = Number(curLocal.myRating || 0);
+          if (prevMyRating > 0 && curLocal.count > 0) {
+            const total = Math.max(0, curLocal.avg * curLocal.count - prevMyRating) + selectedStar;
+            curLocal.avg = +(total / curLocal.count).toFixed(1);
+          } else {
+            const total = curLocal.avg * curLocal.count + selectedStar;
+            curLocal.count += 1;
+            curLocal.avg = +(total / curLocal.count).toFixed(1);
+          }
+          curLocal.myRating = selectedStar;
+        }
+        curLocal.commentsCount = (curLocal.comments || []).length;
+        cLocal[projectId] = curLocal;
+        saveReviewCache(cLocal);
+        renderData(curLocal);
+
         try {
           const res = await fetch(REVIEWS_API, {
             method: "POST",
             mode: "cors",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              id: commentId,
               project: projectId,
               name,
               rating: selectedStar,
@@ -4424,7 +4589,13 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Could not post");
           const c = loadReviewCache();
-          c[projectId] = { avg: data.avg, count: data.count, comments: data.comments || [], commentsCount: (data.comments || []).length };
+          c[projectId] = mergeProjectReviews(c[projectId], {
+            avg: data.avg,
+            count: data.count,
+            comments: data.comments || [],
+            commentsCount: (data.comments || []).length,
+            myRating: selectedStar || c[projectId]?.myRating || 0,
+          });
           saveReviewCache(c);
           renderData(c[projectId]);
           if (textInput) textInput.value = "";
@@ -4432,24 +4603,9 @@
           if (statusEl) statusEl.textContent = "posted! thank you ♡";
           toast("review posted! thank you ♡");
         } catch (err) {
-          // Graceful local fallback if Render is sleeping/offline
-          const c = loadReviewCache();
-          const cur = c[projectId] || { avg: 0, count: 0, comments: [] };
-          if (text) {
-            cur.comments = [{ id: "local_" + Date.now(), name, rating: selectedStar, text, ts: Date.now() }, ...(cur.comments || [])];
-          }
-          if (selectedStar) {
-            const total = cur.avg * cur.count + selectedStar;
-            cur.count += 1;
-            cur.avg = +(total / cur.count).toFixed(1);
-          }
-          cur.commentsCount = (cur.comments || []).length;
-          c[projectId] = cur;
-          saveReviewCache(c);
-          renderData(cur);
           if (textInput) textInput.value = "";
           if (charEl) charEl.textContent = "0 / 400";
-          if (statusEl) statusEl.textContent = "saved locally (server waking up)";
+          if (statusEl) statusEl.textContent = "saved! thank you ♡";
           toast("review saved ♡");
         } finally {
           if (submitBtn) submitBtn.disabled = false;

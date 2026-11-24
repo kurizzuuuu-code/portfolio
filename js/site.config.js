@@ -64,6 +64,16 @@ window.KURIZU = {
      browser allows it), then shuffle / repeat take over. */
   music: [
     {
+      title: "8-bit chill kurizu",
+      note: "main theme · chill chiptune",
+      src: "assets/music/8-bit chill kurizu.mp3",
+    },
+    {
+      title: "day 1",
+      note: "fresh start loop",
+      src: "assets/music/Day 1.mp3",
+    },
+    {
       title: "8-bit chiptune",
       note: "pixel arcade energy",
       src: "assets/music/chiptune-8bit.mp3",
@@ -266,6 +276,104 @@ window.KURIZU = {
           url: "https://github.com/kurizzuuuu-code/Desktop-virtual-pet",
         },
       ],
+      devlogs: [
+        {
+          version: "v1.82.0",
+          tag: "latest · full & lite",
+          title: "Minecraft Bedrock Autopilot, Discord Voice + DJ Booth & Streaming TTS",
+          added: [
+            "Minecraft Bedrock Autopilot (bedrock-autopilot.js) alongside Java Edition Mineflayer bot (minecraft-bot.js) with raycast 'look there' / 'look at me' & mod skill casting ('cast gungnir')",
+            "Two-way Discord Voice Channel conversation + native libopus Discord DJ Booth (!play, Spotify links, smart !shuffle without repeats, !loop, !queue)",
+            "Streaming AI chat & sentence-by-sentence TTS playback (built-in 180MB VOICEVOX Core, Edge TTS, and offline Kokoro worker vox-kokoro-worker.js)",
+            "Quick Overlay panel (quick/), persistent Memory Editor tab, Say-as-Pet manual speech box, and customizable Content / Word Filter modes",
+          ],
+          changed: [
+            "Split releases into Desktop Gremlin Full (182 MB with built-in offline VOICEVOX Core) and Lite (89 MB using Edge TTS / Kokoro)",
+            "Refined Minecraft chat/command routing so the pet can guard, mine, collect drops, follow players, and answer in-game chat simultaneously",
+          ],
+        },
+        {
+          version: "v1.81.10",
+          tag: "performance & vision",
+          title: "Screen Vision State Fixes & Live CPU / RAM / VRAM Telemetry",
+          added: [
+            "Dedicated Stats tab with real-time CPU, RAM, and GPU VRAM graphs (queries nvidia-smi on NVIDIA GPUs and Windows performance counters on AMD/Intel)",
+            "Built-in local Screen Vision worker (vision-builtin-worker.js) so the pet can inspect active windows without external API keys",
+          ],
+          changed: [
+            "Fixed thinking animation getting stuck after Screen Vision snapshots",
+            "Added anti-repeat cooldowns on auto-look when switching between the same application windows",
+            "Major RAM and VRAM footprint reductions across idle and background worker threads",
+          ],
+        },
+        {
+          version: "v1.81.0 – v1.81.8",
+          tag: "vtube studio & live streams",
+          title: "VTube Studio Live2D Bridge, TikTok LIVE & Wake-Word Hearing",
+          added: [
+            "VTube Studio WebSocket bridge (vts-client.js) driving Live2D models with real-time lip-sync, idle head/body sway, eyes-dart-first gaze tracking, and hotkey triggers",
+            "TikTok LIVE stream connector (tiktok-worker.js) that reads live chat, gift combos, and new followers out loud in character",
+            "Wake-word microphone hearing ('KURIZU, …') powered by Gemini, Groq Whisper, or 100% offline Local Whisper (Xenova/whisper-tiny.en) with room-noise auto-calibration",
+            "Beat-locked music jamming with automatic smile expressions when Spotify or desktop audio is playing",
+          ],
+          changed: [
+            "Unified portable .exe and NSIS installer build pipeline with automatic WebView / Electron cache cleanup",
+            "Smoothed Live2D mouth-open vowel curve so speech bubbles and voice lines stay frame-synced",
+          ],
+        },
+        {
+          version: "v1.80.0 – v1.80.6",
+          tag: "audio & physics polish",
+          title: "Zero Audio Ducking, Wall-Throw Physics & Sleep Schedule",
+          added: [
+            "Automatic Sleep Schedule (23:00 – 07:00) with a 10-minute interaction snooze when you poke or chat with the pet late at night",
+            "Play Mode cursor chase & pounce physics — the gremlin stalks your mouse pointer and leaps across windows",
+          ],
+          changed: [
+            "Fixed Windows / Chromium communication audio ducking by disabling AEC/AGC on mic & loopback capture and reusing a single shared AudioContext",
+            "Capped wall-throw sulk timer to ~17s so impact barks no longer cut off longer spoken sentences mid-thought",
+          ],
+        },
+        {
+          version: "v1.78.3",
+          tag: "audio engine",
+          title: "Bundled FFmpeg & Out-of-the-Box Discord Audio",
+          added: [
+            "Bundled ffmpeg-static directly inside app resources so Discord DJ Booth and voice transcoding work immediately with zero external installs",
+          ],
+          changed: [
+            "Hardened opus packet framing and automatic reconnect when switching Discord voice channels",
+          ],
+        },
+        {
+          version: "v1.60.0",
+          tag: "social & multi-pet",
+          title: "Multi-Pet Households, Game OCR Trash-Talk & Prank Kit",
+          added: [
+            "Multi-pet households — spawn multiple desktop pets that hold pet-to-pet conversations, form friendships, get jealous, trade gifts, and play tag or rock-paper-scissors",
+            "Game reaction engine using window titles, process detection, and screen OCR to celebrate victories or roast defeats in real time",
+            "Multi-provider AI brain (OpenAI, Ollama local LLMs, Gemini, OpenRouter) with persistent long-term JSON memory",
+            "Optional reversible desktop prank kit (prank/) and Spotify now-playing dance triggers",
+          ],
+          changed: [
+            "Upgraded sprite loader to hot-reload custom GIF, WebP, and PNG mood folders without restarting the app",
+          ],
+        },
+        {
+          version: "v1.2.0 – v1.8.5",
+          tag: "foundation",
+          title: "Core Transparent Desktop Companion & Typewriter Speech Engine",
+          added: [
+            "Transparent, click-through always-on-top desktop window with custom idle, walk, talk, pat, poke, and held sprites",
+            "Drag-and-drop gravity physics with floor bounce, screen-edge collisions, and heart particle bursts on headpats",
+            "Undertale-style per-character synth voice bleeps and visual-novel typewriter text animations (pop, wave, fade, rainbow)",
+            "System tray menu, ghost click-through mode, and persistent local settings",
+          ],
+          changed: [
+            "Tuned physics tick loop to sleep when idle so background CPU usage stays near 0%",
+          ],
+        },
+      ],
     },
     {
       id: "pixify",
@@ -306,6 +414,44 @@ window.KURIZU = {
           url: "https://kurizupixify.netlify.app/",
         },
       ],
+      devlogs: [
+        {
+          version: "v2.1.0",
+          tag: "latest",
+          title: "Raster-to-SVG Vectorizer & Editable Palette Swatches",
+          added: [
+            "True SVG path contour tracer that converts cleaned pixel grids or illustrations into crisp, scalable vector paths",
+            "Interactive palette editor allowing manual color merges, locked swatches, and 1-click Lospec-style palette presets",
+            "Side-by-side split comparison slider with pixel-accurate zoom and pan",
+          ],
+          changed: [
+            "Improved edge-autocorrelation grid detector to handle uneven AI-generated sub-pixel borders",
+            "Moved heavy quantization passes off the main thread for instant live previews",
+          ],
+        },
+        {
+          version: "v1.4.0",
+          tag: "cleanup engine",
+          title: "Despeckle, Jaggy Smoothing & Multi-Sampler Pipeline",
+          added: [
+            "Stray-pixel despeckle, 1px hole-fill, and L-corner jaggy cleanup passes",
+            "Four cell sampling modes: Dominant, Median, Mean, and Center-point",
+          ],
+          changed: [
+            "Replaced simple uniform quantization with Median-Cut color clustering for sharper retro palettes",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "Run-Length Grid Estimator & Local Canvas Export",
+          added: [
+            "Automatic pixel grid pitch detection and 1:1 true-resolution PNG export (plus integer upscaling 2x–16x)",
+            "Clipboard paste, drag-and-drop loader, and 100% client-side processing",
+          ],
+          changed: [],
+        },
+      ],
     },
     {
       id: "wobble",
@@ -340,6 +486,31 @@ window.KURIZU = {
           label: "live website",
           icon: "globe",
           url: "https://kurizu-wobble-studio.netlify.app/",
+        },
+      ],
+      devlogs: [
+        {
+          version: "v1.6.0",
+          tag: "latest",
+          title: "32 Motion Presets, Color-Match Flood Fill & Sprite Sheet Exporter",
+          added: [
+            "Expanded preset library to 32 procedural motions including breathe, hair flutter, jelly bounce, flame flicker, and heartbeat",
+            "Smart tolerance flood-fill bucket and feathered falloff brush for seamless limb/hair zones",
+            "Seamless loop exporter for sprite sheets, PNG frame zips, and WebM/MP4 video clips",
+          ],
+          changed: [
+            "Upgraded WebGL2 displacement shader with Gaussian rubber-sheet weight falloff so painted edges never tear pixels",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "13-Channel Paint Map & Real-Time WebGL2 Mesh Warp",
+          added: [
+            "13 independent color channels each assignable to custom amplitude, frequency, angle, and phase offset",
+            "Live 60fps WebGL2 preview with onion-skin mask overlay",
+          ],
+          changed: [],
         },
       ],
     },
@@ -388,6 +559,30 @@ window.KURIZU = {
           url: "https://github.com/kurizzuuuu-code/Malfoy-Virus-prank",
         },
       ],
+      devlogs: [
+        {
+          version: "v1.2.0",
+          tag: "latest",
+          title: "Hydra Terminal Windows, Fake BSOD & Triple-DELETE Panic Exit",
+          added: [
+            "Hydra cmd.exe prank windows that spawn two more terminals whenever you try to close one during the fake System32 wipe",
+            "Full-screen pixel-melting shader effect transitioning into a convincing fake Windows BSOD and fake restart sequence",
+            "Global keyboard hook for the secret passphrase ('i love you malfoid') plus an emergency 3x DELETE panic kill-switch",
+          ],
+          changed: [
+            "Packed Python + Pillow + Tkinter runtime into a single standalone Windows executable requiring zero setup",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "Malfoid Desktop Sprite & Trash-Talk Speech Sequence",
+          added: [
+            "Animated transparent Malfoid sprite that walks onto the taskbar, waves, and delivers timed roast dialogue",
+          ],
+          changed: [],
+        },
+      ],
     },
     {
       id: "forest-run",
@@ -421,6 +616,42 @@ window.KURIZU = {
           label: "play in browser",
           icon: "gamepad",
           url: "game/index.html",
+        },
+      ],
+      devlogs: [
+        {
+          version: "v1.4.0",
+          tag: "latest · mobile & 60fps",
+          title: "Mobile Touch Fast-Path, True Delta-Time Speed & Live Leaderboard",
+          added: [
+            "Online high-score leaderboard backed by the Render game server with instant local fallback",
+            "Responsive touch swipe gestures and dedicated on-screen jump / slide / lane buttons for phones and tablets",
+          ],
+          changed: [
+            "Eliminated mobile slow-motion lag by raising the frame delta-time ceiling and bypassing CPU getImageData post-processing on mobile GPUs",
+            "Auto-pauses background 3D character viewer while forest_run.exe is active so mobile devices get 100% GPU budget",
+          ],
+        },
+        {
+          version: "v1.2.0",
+          tag: "3d rig & audio",
+          title: "Custom Rigged GLTF Runner Model & Web Audio Chiptune Synth",
+          added: [
+            "Custom rigged 3D cat-hoodie runner character with smooth lane-lean, jump flip, slide, and stumble animations",
+            "Zero-asset Web Audio API chiptune soundtrack, countdown beeps, and coin pickup synth SFX",
+          ],
+          changed: [
+            "Reworked momentum drain curve and Flow multiplier so consecutive coin streaks reward risky lane swaps",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "3-Lane Infinite Forest Chunk Generator",
+          added: [
+            "Endless procedural low-poly purple forest with 5 obstacle archetypes (logs, high branches, stumps, pits, and double barriers)",
+          ],
+          changed: [],
         },
       ],
     },
@@ -457,6 +688,30 @@ window.KURIZU = {
           url: "https://github.com/kurizzuuuu-code/AI-Blocker-Browser-Extention",
         },
       ],
+      devlogs: [
+        {
+          version: "v1.3.0",
+          tag: "latest",
+          title: "Per-Site Allowlist, Declarative Net Request Rules & Instant Un-Hide",
+          added: [
+            "Declarative Net Request ruleset blocking background third-party AI telemetry and widget scripts",
+            "1-click per-domain allowlist in the popup UI so deliberately visited AI tools keep working normally",
+          ],
+          changed: [
+            "Switched from destructive DOM node removal to non-destructive CSS hiding so toggling the extension restores page elements without reloading",
+            "Updated selectors for 2026 Google AI Overviews, YouTube summary cards, X Grok buttons, and LinkedIn rewrite prompts",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "Manifest V3 Content Filter & Search Heuristics",
+          added: [
+            "Curated selector and text-heuristic engine for Google, Bing, Brave, DuckDuckGo, Reddit, and YouTube",
+          ],
+          changed: [],
+        },
+      ],
     },
     {
       id: "dns-changer",
@@ -489,6 +744,29 @@ window.KURIZU = {
           label: "GitHub",
           icon: "github",
           url: "https://github.com/kurizzuuuu-code/dns-changer-ph",
+        },
+      ],
+      devlogs: [
+        {
+          version: "v1.2.0",
+          tag: "latest",
+          title: "Latency Ping Benchmark & Auto-Fastest Resolver",
+          added: [
+            "Built-in latency tester that pings Cloudflare (1.1.1.1), Google (8.8.8.8), and Quad9 (9.9.9.9) before connecting",
+            "Persistent quick-tile notification showing active DNS resolver and connection uptime",
+          ],
+          changed: [
+            "Restricted VpnService routing table strictly to the target DNS /32 IP so game and voice packets bypass the TUN interface with zero overhead",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "No-Root Local TUN DNS Forwarder for PH ISPs",
+          added: [
+            "One-tap Android VpnService UDP/53 forwarder designed to fix ISP DNS poisoning on Discord and gaming services",
+          ],
+          changed: [],
         },
       ],
     },
@@ -524,6 +802,30 @@ window.KURIZU = {
           url: "dropship/index.html",
         },
       ],
+      devlogs: [
+        {
+          version: "v1.3.0",
+          tag: "latest · netlify + render",
+          title: "Cloud Relay Pairing Codes, Windowed Desktop Mode & Compact UI",
+          added: [
+            "Added 4-digit Room Code pairing & cloud relay backend on Render so devices on different networks or mobile data can also share files on Netlify",
+            "Embedded directly into KURIZU.OS as a draggable, maximizable desktop window (kurizu.dropship)",
+          ],
+          changed: [
+            "Redesigned compact 2-column layout so the Drop Files zone and Nearby Devices radar stay visible side-by-side inside windowed mode",
+          ],
+        },
+        {
+          version: "v1.0.0",
+          tag: "initial release",
+          title: "Zero-Dependency SSE Radar, 4GB Streaming & QR Join",
+          added: [
+            "Automatic same-Wi-Fi peer discovery over Server-Sent Events (SSE) with custom purple gremlin avatars",
+            "Multi-file streaming transfers (up to 50 files / 4 GB each), instant text notes, and incoming_transfer.exe accept/decline modals",
+          ],
+          changed: [],
+        },
+      ],
     },
     {
       id: "firesword",
@@ -549,6 +851,20 @@ window.KURIZU = {
       tags: ["Minecraft", "Bedrock", "Game design"],
       gallery: [],
       links: [],
+      devlogs: [
+        {
+          version: "v1.1.0",
+          tag: "latest",
+          title: "Emissive Flame Particles & Chatty Companion Behavior Pack",
+          added: [
+            "Custom emissive pixel-art fire sword texture with ember trail particles and AoE ignite sweep on hit",
+            "AIBot NPC companion entity that follows the player and replies to Bedrock chat triggers",
+          ],
+          changed: [
+            "Bundled both Resource Pack and Behavior Pack into a single one-click .mcaddon installer",
+          ],
+        },
+      ],
     },
   ],
 
