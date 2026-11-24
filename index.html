@@ -22,7 +22,7 @@
   <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/fonts.css">
-  <link rel="stylesheet" href="css/style.css?v=interactive5">
+  <link rel="stylesheet" href="css/style.css?v=interactive6">
 </head>
 <body>
   <a class="skip-link" href="#main">skip to content</a>
@@ -204,13 +204,30 @@
         </div>
 
         <div class="hero__center">
-          <div class="window browser" id="heroBrowser" data-float data-draggable="browser">
+          <div class="window browser" id="heroBrowser" data-float data-draggable="browser" data-win-id="browser" data-win-title="kurizu.exe">
             <div class="browser__tabs" id="browserTabs" data-drag-handle>
               <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <button type="button" class="browser__tab is-active" data-tab="home"><span class="tab-favicon"><svg class="icon"><use href="#i-heart"/></svg></span>kurizu.exe</button>
-              <button type="button" class="browser__tab browser__tab--ghost" data-tab="secret"><span class="tab-favicon"><svg class="icon"><use href="#i-sparkle"/></svg></span>new tab</button>
-              <button type="button" class="browser__tab browser__tab--ghost" id="browserCatTab" data-tab="cat" hidden><span class="tab-favicon"><svg class="icon"><use href="#i-gamepad"/></svg></span>cat.gif</button>
-              <button type="button" class="browser__tab-plus" id="browserPlusBtn" aria-label="Open a new secret tab" title="Open a secret tab">+</button>
+              <button type="button" class="browser__tab is-active" data-tab="home">
+                <span class="tab-favicon"><svg class="icon"><use href="#i-heart"/></svg></span>
+                <span class="browser__tab-label">kurizu.exe</span>
+                <span class="browser__tab-close" data-close-tab="home" role="button" tabindex="0" aria-label="Close kurizu.exe tab" title="Close tab">×</span>
+              </button>
+              <button type="button" class="browser__tab browser__tab--ghost" data-tab="apps">
+                <span class="tab-favicon"><svg class="icon"><use href="#i-desktop"/></svg></span>
+                <span class="browser__tab-label">my_apps.dir</span>
+                <span class="browser__tab-close" data-close-tab="apps" role="button" tabindex="0" aria-label="Close my_apps.dir tab" title="Close tab">×</span>
+              </button>
+              <button type="button" class="browser__tab browser__tab--ghost" data-tab="secret">
+                <span class="tab-favicon"><svg class="icon"><use href="#i-sparkle"/></svg></span>
+                <span class="browser__tab-label">3am_lab</span>
+                <span class="browser__tab-close" data-close-tab="secret" role="button" tabindex="0" aria-label="Close 3am_lab tab" title="Close tab">×</span>
+              </button>
+              <button type="button" class="browser__tab browser__tab--ghost" id="browserCatTab" data-tab="cat" hidden>
+                <span class="tab-favicon"><svg class="icon"><use href="#i-gamepad"/></svg></span>
+                <span class="browser__tab-label">cat.gif</span>
+                <span class="browser__tab-close" data-close-tab="cat" role="button" tabindex="0" aria-label="Close cat.gif tab" title="Close tab">×</span>
+              </button>
+              <button type="button" class="browser__tab-plus" id="browserPlusBtn" aria-label="Open or restore a tab" title="New / restore tab">+</button>
             </div>
             <div class="browser__toolbar">
               <span class="browser__nav">
@@ -241,7 +258,13 @@
                 </ul>
               </div>
 
-              <!-- TAB 2: secret new tab (workbench & soundboard) -->
+              <!-- TAB 2: my_apps.dir (interactive app icons inside browser) -->
+              <div class="browser__pane" data-tab-pane="apps" hidden>
+                <p class="browser__eyebrow">C:\kurizu\desktop\apps · double-click or tap any icon to launch</p>
+                <div class="desktop-icons desktop-icons--in-browser" id="browserAppsGrid" role="list" aria-label="Kurizu's built apps"></div>
+              </div>
+
+              <!-- TAB 3: secret new tab (workbench & soundboard) -->
               <div class="browser__pane" data-tab-pane="secret" hidden>
                 <p class="browser__eyebrow">kurizu://new-tab · secret workbench</p>
                 <h3 class="browser__pane-title">the 3am lab<span>.</span></h3>
@@ -257,7 +280,7 @@
                 <p class="lab-note">tip: you can drag these hero windows around by their titlebars!</p>
               </div>
 
-              <!-- TAB 3: cat.gif easter egg -->
+              <!-- TAB 4: cat.gif easter egg -->
               <div class="browser__pane" data-tab-pane="cat" hidden>
                 <p class="browser__eyebrow">kurizu://secret/wisteria_dance.webp</p>
                 <div class="cat-stage">
@@ -267,6 +290,16 @@
                     <p>You found the hidden "+" tab! Wisteria is now dancing at 120% efficiency.</p>
                     <button type="button" class="btn btn--small btn--primary" data-lab-action="heart-shower"><svg class="icon"><use href="#i-heart"/></svg>make it rain hearts</button>
                   </div>
+                </div>
+              </div>
+
+              <!-- EMPTY TAB FALLBACK (when user closes all tabs with ×) -->
+              <div class="browser__pane browser__pane--empty" data-tab-pane="empty" hidden>
+                <p class="browser__eyebrow">kurizu://no-tabs-open</p>
+                <h3 class="browser__pane-title">all tabs closed<span>!</span></h3>
+                <p class="browser__intro">You closed every browser tab. Click <b>+</b> in the tab bar or restore your workspace below:</p>
+                <div class="browser__actions">
+                  <button type="button" class="btn btn--small btn--primary" id="browserRestoreTabsBtn"><svg class="icon"><use href="#i-refresh"/></svg>reopen tabs</button>
                 </div>
               </div>
 
@@ -285,7 +318,23 @@
             </div>
           </div>
 
-          <div class="featured-mini" id="featuredMini" aria-label="Featured projects"></div>
+          <!-- ============ Interactive Desktop App Shortcuts ============ -->
+          <div class="window desktop-launchpad" id="desktopLaunchpad" data-draggable="launchpad" data-win-id="launchpad" data-win-title="desktop_apps.dir">
+            <div class="window__bar" data-drag-handle>
+              <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="window__title"><svg class="icon"><use href="#i-desktop"/></svg>C:\kurizu\desktop — my apps</span>
+              <button type="button" class="desktop-launchpad__tidy" id="desktopRestoreAllBtn" title="Restore all minimized/closed windows &amp; reset positions">restore all</button>
+            </div>
+            <div class="desktop-launchpad__body">
+              <div class="desktop-icons" id="desktopAppsGrid" role="list" aria-label="Desktop shortcuts for apps made by Kurizu"></div>
+              <div class="desktop-launchpad__foot">
+                <span id="desktopSelectionStatus">9 apps installed · click to select, double-click (or tap) to launch</span>
+                <span>drag icons to rearrange</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="featured-mini" id="featuredMini" aria-label="Featured projects" hidden></div>
         </div>
 
         <div class="hero__right">
@@ -832,6 +881,7 @@
     <button type="button" class="taskbar__app" id="petChatToggle" aria-expanded="false" aria-controls="petChat">
       <svg class="icon"><use href="#i-chat"/></svg><span>wisteria</span>
     </button>
+    <div class="taskbar__tray" id="taskbarTray" aria-label="Minimized and closed windows"></div>
     <span class="taskbar__spacer"></span>
     <button type="button" class="taskbar__sound" id="sfxToggle" aria-pressed="true" aria-label="Toggle UI sound effects" title="Toggle 8-bit UI sound effects">
       <svg class="icon"><use href="#i-bolt"/></svg>
@@ -976,7 +1026,7 @@
   <script src="tooltip.js"></script>
   <script src="button.js"></script>
   <script src="js/site.config.js?v=interactive2"></script>
-  <script src="js/main.js?v=interactive5"></script>
+  <script src="js/main.js?v=interactive6"></script>
   <script src="game/three.min.js"></script>
   <script src="game/GLTFLoader.js"></script>
   <script src="game/player_model_data.js"></script>

@@ -2053,22 +2053,33 @@
     const backBtn = $("#browserBackBtn");
     const fwdBtn = $("#browserForwardBtn");
     const refreshBtn = $("#browserRefreshBtn");
+    const restoreTabsBtn = $("#browserRestoreTabsBtn");
     if (!tabsWrap) return;
 
-    const tabOrder = ["home", "secret", "cat"];
+    const tabOrder = ["home", "apps", "secret", "cat"];
     const tabUrls = {
       home: "https://kurizu.exe",
+      apps: "kurizu://desktop/my-apps",
       secret: "kurizu://new-tab/workbench",
       cat: "kurizu://secret/wisteria_dance.webp",
+      empty: "kurizu://no-tabs-open",
     };
     let currentTab = "home";
 
+    function getOpenTabs() {
+      return tabOrder.filter((id) => {
+        const el = tabsWrap.querySelector(`.browser__tab[data-tab="${id}"]`);
+        return el && !el.hidden;
+      });
+    }
+
     function switchBrowserTab(tabId) {
-      if (tabId === "cat" && catTab) catTab.hidden = false;
+      const targetBtn = tabsWrap.querySelector(`.browser__tab[data-tab="${tabId}"]`);
+      if (targetBtn && targetBtn.hidden) targetBtn.hidden = false;
       currentTab = tabId;
 
       $$(".browser__tab", tabsWrap).forEach((t) => {
-        const active = t.dataset.tab === tabId;
+        const active = t.dataset.tab === tabId && !t.hidden;
         t.classList.toggle("is-active", active);
         t.classList.toggle("browser__tab--ghost", !active);
       });
@@ -2085,31 +2096,88 @@
       playSfx("pop");
     }
 
+    function closeBrowserTab(tabId) {
+      const tabBtn = tabsWrap.querySelector(`.browser__tab[data-tab="${tabId}"]`);
+      if (!tabBtn) return;
+      tabBtn.hidden = true;
+      tabBtn.classList.remove("is-active");
+      const remaining = getOpenTabs();
+      if (remaining.length > 0) {
+        if (currentTab === tabId) {
+          switchBrowserTab(remaining[0]);
+        } else {
+          playSfx("pop");
+        }
+        toast(`closed tab "${tabId}" — click + to reopen ✨`);
+      } else {
+        switchBrowserTab("empty");
+        toast("all tabs closed! click + to reopen");
+      }
+    }
+
+    function restoreClosedTab() {
+      const closed = tabOrder.find((id) => {
+        const el = tabsWrap.querySelector(`.browser__tab[data-tab="${id}"]`);
+        return el && el.hidden;
+      });
+      if (closed) {
+        const el = tabsWrap.querySelector(`.browser__tab[data-tab="${closed}"]`);
+        if (el) el.hidden = false;
+        switchBrowserTab(closed);
+        if (closed === "cat") toast("secret tab unlocked: wisteria_dance.webp ♪");
+        else toast(`reopened ${closed} tab ✨`);
+      } else {
+        const open = getOpenTabs();
+        const idx = open.indexOf(currentTab);
+        switchBrowserTab(open[(idx + 1) % open.length]);
+      }
+    }
+
     tabsWrap.addEventListener("click", (e) => {
+      const closeBtn = e.target.closest("[data-close-tab]");
+      if (closeBtn) {
+        e.stopPropagation();
+        closeBrowserTab(closeBtn.dataset.closeTab);
+        return;
+      }
       const tab = e.target.closest(".browser__tab[data-tab]");
       if (!tab) return;
       switchBrowserTab(tab.dataset.tab);
     });
 
-    plusBtn?.addEventListener("click", () => {
-      if (catTab && catTab.hidden) {
-        catTab.hidden = false;
-        switchBrowserTab("cat");
-        toast("secret tab unlocked: wisteria_dance.webp ♪");
-      } else {
-        switchBrowserTab(currentTab === "secret" ? "cat" : "secret");
+    tabsWrap.addEventListener("keydown", (e) => {
+      const closeBtn = e.target.closest("[data-close-tab]");
+      if (closeBtn && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeBrowserTab(closeBtn.dataset.closeTab);
       }
     });
 
+    plusBtn?.addEventListener("click", () => {
+      restoreClosedTab();
+    });
+
+    restoreTabsBtn?.addEventListener("click", () => {
+      ["home", "apps", "secret"].forEach((id) => {
+        const el = tabsWrap.querySelector(`.browser__tab[data-tab="${id}"]`);
+        if (el) el.hidden = false;
+      });
+      switchBrowserTab("home");
+      toast("default browser tabs restored ✨");
+    });
+
     backBtn?.addEventListener("click", () => {
-      const visibleTabs = tabOrder.filter((id) => id !== "cat" || (catTab && !catTab.hidden));
-      const idx = visibleTabs.indexOf(currentTab);
+      const visibleTabs = getOpenTabs();
+      if (!visibleTabs.length) return;
+      const idx = Math.max(0, visibleTabs.indexOf(currentTab));
       switchBrowserTab(visibleTabs[(idx - 1 + visibleTabs.length) % visibleTabs.length]);
     });
 
     fwdBtn?.addEventListener("click", () => {
-      const visibleTabs = tabOrder.filter((id) => id !== "cat" || (catTab && !catTab.hidden));
-      const idx = visibleTabs.indexOf(currentTab);
+      const visibleTabs = getOpenTabs();
+      if (!visibleTabs.length) return;
+      const idx = Math.max(0, visibleTabs.indexOf(currentTab));
       switchBrowserTab(visibleTabs[(idx + 1) % visibleTabs.length]);
     });
 
@@ -2132,6 +2200,7 @@
       if (act === "feed") {
         feedPet();
       } else if (act === "terminal") {
+        restoreWindowById("about");
         $("#about")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
         window.setTimeout(() => $("#terminalInput")?.focus(), 450);
       } else if (act === "party") {
@@ -2142,7 +2211,7 @@
         playSfx("powerup", true);
         toast("♪ 8-bit chiptune powerup! ♪");
       } else if (act === "reset-win") {
-        resetAllDraggableWindows();
+        restoreAllDesktopWindows();
       } else if (act === "heart-shower") {
         const r = btn.getBoundingClientRect();
         playSfx("coin", true);
@@ -2153,6 +2222,384 @@
     });
   }
   initHeroBrowser();
+
+  /* ============================================================
+     DESKTOP APP SHORTCUT ICONS & OS WINDOW MANAGER (MINIMIZE / MAXIMIZE / CLOSE)
+     ============================================================ */
+  const APP_EXTENSIONS = {
+    aipet: { file: "AIPet.exe", ext: ".EXE", color: "#a855f7" },
+    pixify: { file: "pixify.app", ext: ".WEB", color: "#ec4899" },
+    wobble: { file: "wobble.app", ext: ".WEB", color: "#f59e0b" },
+    malfoy: { file: "malfoy.exe", ext: ".EXE", color: "#ef4444" },
+    "forest-run": { file: "forest_run.exe", ext: ".GAME", color: "#10b981" },
+    "ai-blocker": { file: "ai_blocker.crx", ext: ".CRX", color: "#3b82f6" },
+    "dns-changer": { file: "dns_ph.apk", ext: ".APK", color: "#06b6d4" },
+    lanshare: { file: "lanshare.exe", ext: ".EXE", color: "#8b5cf6" },
+    firesword: { file: "firesword.mc", ext: ".MOD", color: "#f97316" },
+  };
+
+  function getDesktopShortcutItems() {
+    const projectApps = (config.projects || []).map((p) => {
+      const meta = APP_EXTENSIONS[p.id] || { file: `${p.id}.exe`, ext: ".APP", color: "#a855f7" };
+      return {
+        id: p.id,
+        kind: p.play ? "game-or-case" : "project",
+        title: p.title,
+        subtitle: p.subtitle || p.categoryLabel,
+        file: meta.file,
+        ext: meta.ext,
+        color: meta.color,
+        image: p.image,
+      };
+    });
+    // Add 3D Avatar Viewer & Terminal system shortcuts
+    projectApps.push(
+      {
+        id: "kurizu3d",
+        kind: "scroll-win",
+        targetWin: "kurizu3d",
+        targetSelector: "#kurizu3d",
+        title: "Kurizu 3D Rig",
+        subtitle: "Interactive WebGL Avatar",
+        file: "kurizu_3d.exe",
+        ext: ".3D",
+        color: "#d946ef",
+        image: "assets/sprites/mascot-still.webp",
+      },
+      {
+        id: "terminal-app",
+        kind: "terminal",
+        targetWin: "about",
+        targetSelector: "#interactiveTerminal",
+        title: "Terminal",
+        subtitle: "Interactive Shell",
+        file: "terminal.sh",
+        ext: ".CMD",
+        color: "#22c55e",
+        image: "assets/sprites/idle-still.webp",
+      },
+      {
+        id: "gallery-app",
+        kind: "scroll-win",
+        targetWin: "gallery",
+        targetSelector: ".gallery-window",
+        title: "Art Gallery",
+        subtitle: "57 Hand-drawn Pieces",
+        file: "gallery.exe",
+        ext: ".ART",
+        color: "#f43f5e",
+        image: "assets/arts/digital/wisteria-night.webp",
+      }
+    );
+    return projectApps;
+  }
+
+  function launchDesktopApp(item) {
+    playSfx("powerup");
+    if (item.kind === "project" || item.kind === "game-or-case") {
+      openProject(item.id);
+      toast(`launching ${item.file}… ✨`);
+    } else if (item.kind === "terminal") {
+      restoreWindowById("about");
+      $("#interactiveTerminal")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+      window.setTimeout(() => $("#terminalInput")?.focus(), 420);
+      toast("opened terminal.sh — type help!");
+    } else if (item.kind === "scroll-win") {
+      if (item.targetWin) restoreWindowById(item.targetWin);
+      const el = $(item.targetSelector);
+      if (el) el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+      toast(`opened ${item.file} ✨`);
+    }
+  }
+
+  const desktopIconOffsets = new Map();
+
+  function initDesktopAppIcons() {
+    const grids = [$("#desktopAppsGrid"), $("#browserAppsGrid")].filter(Boolean);
+    if (!grids.length) return;
+    const items = getDesktopShortcutItems();
+    const statusEl = $("#desktopSelectionStatus");
+
+    const markup = items.map((item) => `
+      <button type="button" class="desktop-icon" role="listitem" data-app-id="${esc(item.id)}" title="${esc(item.title)} — ${esc(item.subtitle)} (Double-click or tap to open)">
+        <span class="desktop-icon__frame">
+          <img src="${esc(item.image)}" alt="${esc(item.title)}" width="56" height="56" loading="lazy" draggable="false">
+          <span class="desktop-icon__ext" style="--ext-bg:${esc(item.color)}">${esc(item.ext)}</span>
+          <span class="desktop-icon__shortcut" aria-hidden="true">↗</span>
+        </span>
+        <span class="desktop-icon__label">${esc(item.file)}</span>
+      </button>
+    `).join("");
+
+    grids.forEach((grid) => {
+      grid.innerHTML = markup;
+    });
+
+    let selectedId = null;
+    let lastClickId = null;
+    let lastClickTime = 0;
+
+    grids.forEach((grid) => {
+      // Selection + single-tap/double-click launch
+      grid.addEventListener("click", (e) => {
+        const btn = e.target.closest(".desktop-icon[data-app-id]");
+        if (!btn || btn.dataset.justDragged === "1") return;
+        const appId = btn.dataset.appId;
+        const item = items.find((x) => x.id === appId);
+        if (!item) return;
+
+        const now = Date.now();
+        const isTouch = window.matchMedia("(pointer: coarse)").matches;
+        const isDouble = (lastClickId === appId && now - lastClickTime < 550) || isTouch;
+
+        $$(".desktop-icon").forEach((ic) => ic.classList.toggle("is-selected", ic.dataset.appId === appId));
+        selectedId = appId;
+        lastClickId = appId;
+        lastClickTime = now;
+
+        if (statusEl) {
+          statusEl.textContent = `${item.file} — ${item.subtitle} · click again to launch`;
+        }
+
+        if (isDouble) {
+          launchDesktopApp(item);
+          lastClickId = null;
+        } else {
+          playSfx("click");
+        }
+      });
+
+      // Drag icons around inside the desktop grid
+      $$(".desktop-icon", grid).forEach((iconBtn) => {
+        let dragging = false;
+        let moved = false;
+        let sx = 0, sy = 0, bx = 0, by = 0;
+
+        iconBtn.addEventListener("pointerdown", (e) => {
+          if (e.button !== 0 || window.innerWidth <= 720) return;
+          dragging = true;
+          moved = false;
+          const cur = desktopIconOffsets.get(iconBtn) || { x: 0, y: 0 };
+          bx = cur.x; by = cur.y;
+          sx = e.clientX; sy = e.clientY;
+          try { iconBtn.setPointerCapture(e.pointerId); } catch (_) {}
+        });
+
+        iconBtn.addEventListener("pointermove", (e) => {
+          if (!dragging) return;
+          const dx = e.clientX - sx;
+          const dy = e.clientY - sy;
+          if (!moved && Math.hypot(dx, dy) < 6) return;
+          moved = true;
+          iconBtn.classList.add("is-dragging");
+          const nx = bx + dx;
+          const ny = by + dy;
+          desktopIconOffsets.set(iconBtn, { x: nx, y: ny });
+          iconBtn.style.transform = `translate3d(${Math.round(nx)}px, ${Math.round(ny)}px, 0)`;
+        });
+
+        const endIconDrag = (e) => {
+          if (!dragging) return;
+          dragging = false;
+          iconBtn.classList.remove("is-dragging");
+          try { iconBtn.releasePointerCapture(e.pointerId); } catch (_) {}
+          if (moved) {
+            iconBtn.dataset.justDragged = "1";
+            window.setTimeout(() => { delete iconBtn.dataset.justDragged; }, 80);
+          }
+        };
+        iconBtn.addEventListener("pointerup", endIconDrag);
+        iconBtn.addEventListener("pointercancel", endIconDrag);
+      });
+    });
+
+    // Deselect when clicking outside
+    document.addEventListener("click", (e) => {
+      if (!e.target.closest(".desktop-icon")) {
+        $$(".desktop-icon.is-selected").forEach((ic) => ic.classList.remove("is-selected"));
+        selectedId = null;
+      }
+    });
+  }
+
+  // Track managed desktop windows for minimize / maximize / close
+  const managedWindows = new Map();
+
+  function updateTaskbarTray() {
+    const tray = $("#taskbarTray");
+    if (!tray) return;
+    const pills = [];
+    managedWindows.forEach((info, id) => {
+      const isMin = info.el.classList.contains("is-minimized");
+      const isClosed = info.el.classList.contains("is-closed");
+      if (isMin || isClosed) {
+        pills.push(`
+          <button type="button" class="taskbar__tray-btn ${isClosed ? "is-closed-pill" : "is-min-pill"}" data-restore-win="${esc(id)}" title="Click to restore ${esc(info.title)}">
+            <span class="taskbar__tray-dot"></span>
+            <span>${esc(info.title)}</span>
+          </button>
+        `);
+      }
+    });
+    tray.innerHTML = pills.join("");
+  }
+
+  function restoreWindowById(id, scroll = false) {
+    const info = managedWindows.get(id);
+    if (!info) return;
+    const wasHidden = info.el.classList.contains("is-minimized") || info.el.classList.contains("is-closed");
+    info.el.classList.remove("is-minimized", "is-closed");
+    updateTaskbarTray();
+    if (wasHidden) playSfx("pop");
+    if (scroll) {
+      info.el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+    }
+  }
+
+  function restoreAllDesktopWindows() {
+    managedWindows.forEach((info) => {
+      info.el.classList.remove("is-minimized", "is-closed", "is-maximized");
+    });
+    document.body.classList.remove("has-maximized-window");
+    desktopIconOffsets.forEach((_, iconEl) => {
+      iconEl.style.transform = "";
+    });
+    desktopIconOffsets.clear();
+    updateTaskbarTray();
+    resetAllDraggableWindows();
+  }
+
+  function initDesktopWindowManager() {
+    const windowSpecs = [
+      { id: "browser", sel: "#heroBrowser", title: "kurizu.exe", barSel: "#browserTabs" },
+      { id: "launchpad", sel: "#desktopLaunchpad", title: "my_apps.dir" },
+      { id: "profile", sel: ".profile-card", title: "official_account" },
+      { id: "about", sel: ".about-window", title: "about_me.txt" },
+      { id: "work", sel: ".explorer", title: "projects.exe" },
+      { id: "arcade", sel: ".arcade-window", title: "forest_run.exe" },
+      { id: "reel", sel: "#reel", title: "showreel.mp4" },
+      { id: "kurizu3d", sel: "#kurizu3d", title: "kurizu_avatar_3d.exe" },
+      { id: "gallery", sel: ".gallery-window", title: "art_gallery.exe" },
+      { id: "contact", sel: ".contact-window", title: "new_message.exe" },
+    ];
+
+    windowSpecs.forEach((spec) => {
+      const win = $(spec.sel);
+      if (!win) return;
+      const bar = spec.barSel ? $(spec.barSel, win) : $(".window__bar", win);
+      if (!bar) return;
+
+      win.dataset.winId = spec.id;
+      managedWindows.set(spec.id, { id: spec.id, el: win, bar, title: spec.title });
+
+      // Make the 3 retro traffic dots interactive (dot 1 = close, dot 2 = minimize, dot 3 = maximize)
+      const dots = $(".win-dots", bar);
+      if (dots) {
+        dots.removeAttribute("aria-hidden");
+        const dotItems = $$("i", dots);
+        if (dotItems[0]) { dotItems[0].title = "Close window"; dotItems[0].dataset.winAct = "close"; }
+        if (dotItems[1]) { dotItems[1].title = "Minimize window"; dotItems[1].dataset.winAct = "minimize"; }
+        if (dotItems[2]) { dotItems[2].title = "Maximize / restore"; dotItems[2].dataset.winAct = "maximize"; }
+      }
+
+      // Inject crisp OS window control buttons [ — ] [ □ ] [ × ] on the right side of the titlebar
+      if (!$(".win-controls", bar)) {
+        const ctrls = document.createElement("div");
+        ctrls.className = "win-controls";
+        ctrls.innerHTML = `
+          <button type="button" class="win-ctrl win-ctrl--min" data-win-act="minimize" aria-label="Minimize ${esc(spec.title)}" title="Minimize">—</button>
+          <button type="button" class="win-ctrl win-ctrl--max" data-win-act="maximize" aria-label="Maximize or restore ${esc(spec.title)}" title="Maximize / Restore">□</button>
+          <button type="button" class="win-ctrl win-ctrl--close" data-win-act="close" aria-label="Close ${esc(spec.title)}" title="Close to taskbar">×</button>
+        `;
+        bar.appendChild(ctrls);
+      }
+
+      bar.addEventListener("click", (e) => {
+        const actEl = e.target.closest("[data-win-act]");
+        if (!actEl) {
+          // Clicking anywhere on a minimized titlebar un-minimizes it!
+          if (win.classList.contains("is-minimized") && !e.target.closest("button, a, input")) {
+            win.classList.remove("is-minimized");
+            playSfx("pop");
+            updateTaskbarTray();
+          }
+          return;
+        }
+        e.stopPropagation();
+        const act = actEl.dataset.winAct;
+
+        if (act === "minimize") {
+          win.classList.remove("is-maximized");
+          document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
+          const min = win.classList.toggle("is-minimized");
+          playSfx("pop");
+          updateTaskbarTray();
+          toast(min ? `minimized ${spec.title} (click bar or taskbar to restore)` : `restored ${spec.title} ✨`);
+        } else if (act === "maximize") {
+          win.classList.remove("is-minimized");
+          const max = win.classList.toggle("is-maximized");
+          document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
+          playSfx("pop");
+          updateTaskbarTray();
+          if (spec.id === "kurizu3d") window.setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
+        } else if (act === "close") {
+          win.classList.remove("is-maximized", "is-minimized");
+          document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
+          win.classList.add("is-closed");
+          playSfx("pop");
+          updateTaskbarTray();
+          toast(`closed ${spec.title} — click its taskbar pill or icon to reopen ✨`);
+        }
+      });
+    });
+
+    // Restore from taskbar tray pills
+    $("#taskbarTray")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-restore-win]");
+      if (!btn) return;
+      const id = btn.dataset.restoreWin;
+      restoreWindowById(id, true);
+      toast(`restored ${managedWindows.get(id)?.title || "window"} ✨`);
+    });
+
+    // Restore all button in Desktop Launchpad & Start Menu soft reset
+    $("#desktopRestoreAllBtn")?.addEventListener("click", () => {
+      restoreAllDesktopWindows();
+    });
+
+    // Clicking nav links (#about, #work, #arcade, #media, #contact, #home) automatically restores any closed/minimized windows in that section!
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest('a[href^="#"]');
+      if (!link) return;
+      const hash = link.getAttribute("href");
+      const map = {
+        "#home": ["browser", "launchpad", "profile"],
+        "#about": ["about"],
+        "#work": ["work"],
+        "#arcade": ["arcade"],
+        "#media": ["reel", "kurizu3d", "gallery"],
+        "#contact": ["contact"],
+      };
+      if (map[hash]) {
+        map[hash].forEach((id) => restoreWindowById(id, false));
+      }
+    });
+
+    // Escape exits maximized window
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        const maxWin = $(".window.is-maximized");
+        if (maxWin) {
+          maxWin.classList.remove("is-maximized");
+          document.body.classList.remove("has-maximized-window");
+          playSfx("pop");
+        }
+      }
+    });
+  }
+
+  initDesktopAppIcons();
+  initDesktopWindowManager();
 
   /* ============================================================
      PARTY MODE + INTERACTIVE TERMINAL (about_me.txt)
