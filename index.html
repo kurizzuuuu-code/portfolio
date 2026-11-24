@@ -22,9 +22,9 @@
   <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/fonts.css">
-  <link rel="stylesheet" href="css/style.css?v=interactive6">
+  <link rel="stylesheet" href="css/style.css?v=interactive17">
 </head>
-<body>
+<body class="is-desktop-os">
   <a class="skip-link" href="#main">skip to content</a>
 
   <!-- ============ icon sprite ============ -->
@@ -149,6 +149,45 @@
   </div>
 
   <main id="main">
+    <!-- ============ Windows-style Desktop Wallpaper & App Shortcut Icons ============ -->
+    <div class="os-desktop" id="osDesktop" aria-label="Kurizu Desktop Workspace">
+      <div class="os-desktop__wallpaper" aria-hidden="true">
+        <div class="os-bg-grid"></div>
+        <div class="os-bg-orb os-bg-orb--1"></div>
+        <div class="os-bg-orb os-bg-orb--2"></div>
+        <div class="os-bg-orb os-bg-orb--3"></div>
+
+        <!-- Glowing pixel crescent moon -->
+        <div class="os-bg-moon">
+          <svg viewBox="0 0 64 64" fill="none">
+            <path d="M41 10a22 22 0 1 0 15 37.2A18 18 0 0 1 41 10Z" fill="#fde047" opacity="0.88"/>
+            <circle cx="48" cy="18" r="2.2" fill="#bef264"/>
+            <circle cx="18" cy="14" r="1.6" fill="#ff8fd8"/>
+          </svg>
+        </div>
+
+        <!-- Drifting pixel clouds -->
+        <svg class="os-bg-cloud os-bg-cloud--1" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+        <svg class="os-bg-cloud os-bg-cloud--2" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+        <svg class="os-bg-cloud os-bg-cloud--3" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+
+        <!-- Shooting stars -->
+        <span class="os-bg-comet os-bg-comet--1"></span>
+        <span class="os-bg-comet os-bg-comet--2"></span>
+
+        <!-- Floating & twinkling pixel hearts, stars & sparkles -->
+        <span class="os-bg-float os-bg-float--1"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="os-bg-float os-bg-float--2"><svg class="icon"><use href="#i-star"/></svg></span>
+        <span class="os-bg-float os-bg-float--3"><svg class="icon"><use href="#i-sparkle"/></svg></span>
+        <span class="os-bg-float os-bg-float--4"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="os-bg-float os-bg-float--5"><svg class="icon"><use href="#i-star"/></svg></span>
+        <span class="os-bg-float os-bg-float--6"><svg class="icon"><use href="#i-sparkle"/></svg></span>
+        <span class="os-bg-float os-bg-float--7"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="os-bg-float os-bg-float--8"><svg class="icon"><use href="#i-star"/></svg></span>
+      </div>
+      <div class="os-desktop__icons" id="osDesktopIcons" role="list" aria-label="Desktop shortcut icons"></div>
+    </div>
+
     <!-- ============ hero ============ -->
     <section class="hero" id="home" aria-labelledby="heroTitle">
       <h1 class="sr-only" id="heroTitle">Kurizu — developer, designer and pixel collector</h1>
@@ -173,7 +212,7 @@
             <img class="hero-mascot" src="assets/sprites/mascot.webp" alt="Kurizu's purple chibi mascot wearing a headset and resting her chin on her hands" width="640" height="600" fetchpriority="high">
             <div class="sticker sticker--mascot" aria-hidden="true">it me :3</div>
           </div>
-          <div class="window now-playing" aria-label="Music player" data-draggable="player">
+          <div class="window now-playing" id="nowPlayingWidget" aria-label="Music player" data-draggable="player">
             <div class="now-playing__disc" aria-hidden="true" data-drag-handle title="Drag player">
               <span class="now-playing__disc-inner"><svg class="icon"><use href="#i-heart"/></svg></span>
             </div>
@@ -892,8 +931,12 @@
       <svg class="icon icon--active"><use href="#i-volume"/></svg>
       <span class="sound-label">sound off</span>
     </button>
+    <button type="button" class="taskbar__music-btn" id="musicTrayToggle" aria-expanded="false" aria-controls="nowPlayingWidget" aria-label="Toggle music player popup" title="Show / hide music player">
+      <svg class="icon"><use href="#i-volume"/></svg>
+    </button>
     <span class="taskbar__online"><i class="dot dot--lime"></i>online</span>
     <span class="taskbar__clock"><strong data-clock>--:--</strong><small>PHT</small></span>
+    <button type="button" class="taskbar__show-desktop" id="showDesktopBtn" aria-label="Show desktop" title="Show Desktop (minimize all windows)"></button>
   </div>
 
   <div class="start-menu" id="startMenu" hidden>
@@ -901,20 +944,19 @@
       <img src="assets/sprites/avatar-still.webp" alt="" width="360" height="360">
       <div>
         <strong>kurizu<span>.exe</span></strong>
-        <span><i class="dot dot--lime"></i>running · online</span>
+        <span><i class="dot dot--lime"></i>kurizu.OS · desktop edition</span>
       </div>
     </div>
-    <p class="start-menu__label">jump to</p>
-    <nav class="start-menu__nav">
-      <a href="#home"><svg class="icon"><use href="#i-desktop"/></svg>home</a>
-      <a href="#about"><svg class="icon"><use href="#i-heart"/></svg>about me</a>
-      <a href="#work"><svg class="icon"><use href="#i-folder"/></svg>selected work</a>
-      <a href="#media"><svg class="icon"><use href="#i-play"/></svg>motion &amp; art</a>
-      <a href="#contact"><svg class="icon"><use href="#i-mail"/></svg>say hi</a>
-    </nav>
+    <div class="start-menu__search-wrap">
+      <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+      <input type="search" id="startMenuSearch" class="start-menu__search" placeholder="search apps, art, games, terminal..." autocomplete="off" aria-label="Search installed apps and folders">
+    </div>
+    <p class="start-menu__label" id="startMenuSectionLabel">all apps &amp; folders</p>
+    <div class="start-menu__programs" id="startMenuPrograms" role="menu" aria-label="Installed apps and folders"></div>
     <div class="start-menu__footer">
+      <button type="button" class="text-btn" id="startShowDesktop"><svg class="icon"><use href="#i-desktop"/></svg>show desktop</button>
       <button type="button" class="text-btn" data-sound-toggle aria-pressed="false"><span class="sound-label">sound off</span> <svg class="icon sound-icon icon--idle"><use href="#i-volume-off"/></svg><svg class="icon sound-icon icon--active"><use href="#i-volume"/></svg></button>
-      <button type="button" class="text-btn" id="startRestart"><svg class="icon"><use href="#i-refresh"/></svg>soft reset</button>
+      <button type="button" class="text-btn" id="startRestart"><svg class="icon"><use href="#i-refresh"/></svg>reset</button>
     </div>
   </div>
 
@@ -944,12 +986,30 @@
     </div>
   </dialog>
 
+  <!-- ============ KURIZU.dropship Desktop Window ============ -->
+  <div class="window window--big dropship-window" id="dropshipWindow" aria-label="KURIZU.dropship local file sharing app">
+    <div class="window__bar">
+      <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="window__title"><svg class="icon"><use href="#i-send"/></svg>kurizu.dropship</span>
+      <span class="window__badge">LOCAL WI-FI DROP</span>
+    </div>
+    <div class="dropship-win__toolbar">
+      <span class="dropship-win__url"><svg class="icon"><use href="#i-globe"/></svg>kurizu://dropship/room</span>
+      <div class="dropship-win__actions">
+        <button type="button" class="btn btn--small" id="dropshipInfoBtn"><svg class="icon"><use href="#i-star"/></svg>project info &amp; reviews</button>
+        <a class="btn btn--small btn--primary" href="dropship/index.html" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg>open in new tab</a>
+      </div>
+    </div>
+    <div class="dropship-win__frame">
+      <iframe id="dropshipIframe" title="KURIZU.dropship — local file sharing" src="about:blank" loading="lazy"></iframe>
+    </div>
+  </div>
+
   <dialog class="modal" id="projectDialog" aria-labelledby="projectDialogTitle">
-    <div class="window modal__window">
+    <div class="window modal__window" id="appWindow">
       <div class="window__bar">
         <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span class="window__title"><svg class="icon"><use href="#i-folder"/></svg>case_study.exe</span>
-        <button type="button" class="window__close" data-close-dialog aria-label="Close case study"><svg class="icon"><use href="#i-close"/></svg></button>
+        <span class="window__title"><svg class="icon"><use href="#i-folder"/></svg><span id="appWindowTitleText">case_study.exe</span></span>
       </div>
       <div class="modal__scroll" id="projectContent"></div>
     </div>
@@ -1025,8 +1085,8 @@
   <script src="slider.js"></script>
   <script src="tooltip.js"></script>
   <script src="button.js"></script>
-  <script src="js/site.config.js?v=interactive2"></script>
-  <script src="js/main.js?v=interactive6"></script>
+  <script src="js/site.config.js?v=interactive17"></script>
+  <script src="js/main.js?v=interactive17"></script>
   <script src="game/three.min.js"></script>
   <script src="game/GLTFLoader.js"></script>
   <script src="game/player_model_data.js"></script>

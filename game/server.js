@@ -12,8 +12,12 @@
 "use strict";
 const http = require("http");
 const fs = require("fs");
+const fsp = fs.promises;
+const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
+const { Transform } = require("stream");
+const { pipeline } = require("stream/promises");
 
 const PORT = Number(process.env.PORT) || 3000;
 const ROOT = __dirname;
@@ -126,12 +130,378 @@ function handleReviewsApi(req, res) {
   sendJson(res, 405, { error: "Method not allowed" });
 }
 
+/* ------------------------------ KURIZU.dropship API (SSE + File Relay for Netlify) ------------------------------ */
+const DS_UPLOAD_DIR = path.join(os.tmpdir(), "kurizu-dropship-uploads");
+try { fs.mkdirSync(DS_UPLOAD_DIR, { recursive: true }); } catch (e) {}
+
+const DS_T0 = Date.now();
+const DS_MAX_FILE_BYTES = 250 * 1024 * 1024; // 250 MB per file on cloud relay (4 GB locally)
+const DS_MAX_FILES = 50;
+const DS_AVATARS = ["mascot", "avatar", "pet", "idle", "dance"];
+const DS_TYPES = ["desktop", "laptop", "phone", "tablet", "console", "tv", "unknown"];
+const dsDevices = new Map();   // deviceId -> device
+const dsTransfers = new Map(); // transferId -> transfer
+const dsFiles = new Map();     // fileId -> file
+
+function dsCorsHeaders(extra = {}) {
+  return Object.assign({
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Device-Id, X-File-Name, X-File-Type",
+    "Cache-Control": "no-store"
+  }, extra);
+}
+
+function dsJson(res, status, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, dsCorsHeaders({
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body)
+  }));
+  res.end(body);
+}
+
+function dsFail(res, status, msg) {
+  dsJson(res, status, { ok: false, error: msg });
+}
+
+function dsClientIp(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "lan")
+    .split(",")[0]
+    .trim()
+    .replace(/^::ffff:/, "") || "lan";
+}
+
+function dsRoomOf(req, queryRoom) {
+  const r = String(queryRoom || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+  if (r) return "room:" + r;
+  const ip = dsClientIp(req);
+  if (ip === "127.0.0.1" || ip === "::1" || ip.startsWith("192.168.") || ip.startsWith("10.")) return "lan:local";
+  return "ip:" + ip;
+}
+
+function dsPublicDevice(d) {
+  return { id: d.id, name: d.name, avatar: d.avatar, type: d.type, ip: d.ip };
+}
+
+function dsPublicFile(f) {
+  return { id: f.id, name: f.name, size: f.size, type: f.type };
+}
+
+function dsPublicTransfer(t) {
+  return {
+    id: t.id,
+    fromId: t.fromId,
+    toId: t.toId,
+    from: t.from,
+    to: t.to,
+    files: (t.files || []).map(dsPublicFile),
+    message: t.message,
+    status: t.status,
+    createdAt: t.createdAt,
+    respondedAt: t.respondedAt || null
+  };
+}
+
+function dsDeviceList(room) {
+  return [...dsDevices.values()]
+    .filter(d => !d.gone && (!room || d.room === room))
+    .map(dsPublicDevice)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function dsSseSend(device, event, data) {
+  if (!device || !device.res || device.res.writableEnded) return;
+  try {
+    device.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch (e) {}
+}
+
+function dsBroadcastDevices(room) {
+  const payload = { devices: dsDeviceList(room) };
+  for (const d of dsDevices.values()) {
+    if (!room || d.room === room) dsSseSend(d, "devices", payload);
+  }
+}
+
+function dsReadJson(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on("data", chunk => {
+      size += chunk.length;
+      if (size > limit) { reject(new Error("Request body too large")); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (!chunks.length) return resolve({});
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
+      catch (e) { reject(new Error("Invalid JSON")); }
+    });
+    req.on("error", reject);
+  });
+}
+
+async function handleDropshipApi(req, res, pathname, searchParams) {
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, dsCorsHeaders());
+    res.end();
+    return;
+  }
+
+  // 1. SSE Presence (/api/events)
+  if (pathname === "/api/events" && req.method === "GET") {
+    const rawId = String(searchParams.get("deviceId") || "").trim();
+    const id = /^[A-Za-z0-9_-]{6,64}$/.test(rawId) ? rawId : crypto.randomUUID();
+    const room = dsRoomOf(req, searchParams.get("room"));
+    const now = Date.now();
+
+    res.writeHead(200, dsCorsHeaders({
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no"
+    }));
+    res.write("retry: 2500\n\n");
+
+    const prev = dsDevices.get(id);
+    if (prev && prev.timer) { clearTimeout(prev.timer); prev.timer = null; }
+    if (prev && prev.res && prev.res !== res && !prev.res.writableEnded) {
+      try { prev.res.end(); } catch (e) {}
+    }
+
+    const cleanName = String(searchParams.get("name") || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 32) || `purple-${id.slice(0, 4)}`;
+    const av = DS_AVATARS.includes(searchParams.get("avatar")) ? searchParams.get("avatar") : DS_AVATARS[0];
+    const tp = DS_TYPES.includes(searchParams.get("type")) ? searchParams.get("type") : "unknown";
+
+    const device = {
+      id,
+      name: cleanName,
+      avatar: av,
+      type: tp,
+      ip: dsClientIp(req),
+      room,
+      res,
+      connectedAt: prev?.connectedAt || now,
+      lastSeen: now,
+      gone: false,
+      timer: null
+    };
+    dsDevices.set(id, device);
+
+    const related = [...dsTransfers.values()]
+      .filter(t => t.fromId === id || t.toId === id)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 40)
+      .map(dsPublicTransfer);
+
+    dsSseSend(device, "hello", {
+      self: dsPublicDevice(device),
+      devices: dsDeviceList(room),
+      avatars: DS_AVATARS,
+      limits: { maxFileBytes: DS_MAX_FILE_BYTES, maxTransferBytes: DS_MAX_FILE_BYTES * 2, maxFiles: DS_MAX_FILES, maxNoteChars: 2000 },
+      server: { name: "KURIZU.DROPSHIP", port: PORT, startedAt: DS_T0 },
+      transfers: related
+    });
+
+    dsBroadcastDevices(room);
+
+    const ping = setInterval(() => {
+      if (res.writableEnded) return;
+      try { res.write(`: ping ${Date.now()}\n\n`); } catch (e) {}
+    }, 20000);
+
+    req.on("close", () => {
+      clearInterval(ping);
+      const cur = dsDevices.get(id);
+      if (!cur || cur.res !== res) return;
+      cur.timer = setTimeout(() => {
+        const still = dsDevices.get(id);
+        if (still && still.res === res) {
+          dsDevices.delete(id);
+          dsBroadcastDevices(room);
+        }
+      }, 3000);
+    });
+    return;
+  }
+
+  // 2. Profile update (/api/profile or /api/me)
+  if ((pathname === "/api/profile" || pathname === "/api/me") && req.method === "POST") {
+    const id = req.headers["x-device-id"];
+    const device = dsDevices.get(id);
+    if (!device) return dsFail(res, 401, "This device is not connected.");
+    let body;
+    try { body = await dsReadJson(req); } catch (e) { return dsFail(res, 400, e.message); }
+    if (body.name !== undefined) {
+      const n = String(body.name || "").trim().slice(0, 32);
+      if (!n) return dsFail(res, 400, "Give your device a name first.");
+      device.name = n;
+    }
+    if (body.avatar !== undefined && DS_AVATARS.includes(body.avatar)) device.avatar = body.avatar;
+    dsBroadcastDevices(device.room);
+    return dsJson(res, 200, { ok: true, self: dsPublicDevice(device) });
+  }
+
+  // 3. File upload (/api/upload)
+  if (pathname === "/api/upload" && req.method === "POST") {
+    const sender = dsDevices.get(req.headers["x-device-id"]);
+    if (!sender) return dsFail(res, 401, "This device is not connected.");
+    const to = searchParams.get("to");
+    if (!to || to === sender.id) return dsFail(res, 400, "Pick another device.");
+    if (!dsDevices.get(to)) return dsFail(res, 409, "That device went offline.");
+
+    let decodedName = "file";
+    try { decodedName = decodeURIComponent(String(req.headers["x-file-name"] || "file")); }
+    catch (e) { decodedName = String(req.headers["x-file-name"] || "file"); }
+    const name = decodedName.replace(/[\\/<>:"|?*\u0000-\u001f]/g, "_").trim().slice(0, 160) || "file";
+    const type = String(req.headers["x-file-type"] || "application/octet-stream").slice(0, 120);
+
+    const fileId = crypto.randomUUID();
+    const partial = path.join(DS_UPLOAD_DIR, `${fileId}.part`);
+    const final = path.join(DS_UPLOAD_DIR, fileId);
+    let received = 0;
+
+    const limiter = new Transform({
+      transform(chunk, _enc, cb) {
+        received += chunk.length;
+        if (received > DS_MAX_FILE_BYTES) { cb(new Error("File exceeds relay size limit.")); return; }
+        cb(null, chunk);
+      }
+    });
+
+    try {
+      await pipeline(req, limiter, fs.createWriteStream(partial, { flags: "wx" }));
+      if (received === 0) {
+        await fsp.rm(partial, { force: true }).catch(() => {});
+        return dsFail(res, 400, "That file is empty.");
+      }
+      await fsp.rename(partial, final);
+    } catch (e) {
+      await fsp.rm(partial, { force: true }).catch(() => {});
+      if (!res.writableEnded) dsFail(res, 400, e.message || "Upload failed.");
+      return;
+    }
+
+    const file = { id: fileId, ownerId: sender.id, name, size: received, type, path: final, transferId: null, createdAt: Date.now() };
+    dsFiles.set(fileId, file);
+    return dsJson(res, 200, { ok: true, file: dsPublicFile(file) });
+  }
+
+  // 4. Send Offer (/api/offer)
+  if (pathname === "/api/offer" && req.method === "POST") {
+    const sender = dsDevices.get(req.headers["x-device-id"]);
+    if (!sender) return dsFail(res, 401, "This device is not connected.");
+    let body;
+    try { body = await dsReadJson(req); } catch (e) { return dsFail(res, 400, e.message); }
+    const recipient = dsDevices.get(String(body.to || ""));
+    if (!recipient) return dsFail(res, 409, "That device went offline.");
+    if (recipient.id === sender.id) return dsFail(res, 400, "You cannot send to yourself.");
+
+    const message = String(body.message || "").trim().slice(0, 2000);
+    const incomingIds = Array.isArray(body.fileIds) ? body.fileIds : [];
+    if (!incomingIds.length && !message) return dsFail(res, 400, "Add a file or a note first.");
+
+    const selected = [];
+    for (const fid of incomingIds) {
+      const f = dsFiles.get(fid);
+      if (!f || f.ownerId !== sender.id || f.transferId) return dsFail(res, 400, "One of those files is no longer available.");
+      selected.push(f);
+    }
+
+    const transfer = {
+      id: crypto.randomUUID(),
+      fromId: sender.id,
+      toId: recipient.id,
+      from: dsPublicDevice(sender),
+      to: dsPublicDevice(recipient),
+      files: selected.map(dsPublicFile),
+      message,
+      status: "pending",
+      createdAt: Date.now(),
+      respondedAt: null
+    };
+    for (const f of selected) f.transferId = transfer.id;
+    dsTransfers.set(transfer.id, transfer);
+
+    dsSseSend(recipient, "offer", { transfer: dsPublicTransfer(transfer) });
+    return dsJson(res, 200, { ok: true, transfer: dsPublicTransfer(transfer) });
+  }
+
+  // 5. Respond to Offer (/api/respond)
+  if (pathname === "/api/respond" && req.method === "POST") {
+    const device = dsDevices.get(req.headers["x-device-id"]);
+    if (!device) return dsFail(res, 401, "This device is not connected.");
+    let body;
+    try { body = await dsReadJson(req); } catch (e) { return dsFail(res, 400, e.message); }
+    const transfer = dsTransfers.get(String(body.transferId || ""));
+    if (!transfer) return dsFail(res, 404, "That transfer no longer exists.");
+    if (transfer.toId !== device.id) return dsFail(res, 403, "That transfer is not for you.");
+    if (transfer.status !== "pending") return dsJson(res, 200, { ok: true, transfer: dsPublicTransfer(transfer), unchanged: true });
+
+    const action = body.action === "accept" ? "accepted" : "declined";
+    transfer.status = action;
+    transfer.respondedAt = Date.now();
+
+    if (action === "declined") {
+      for (const meta of transfer.files) {
+        const f = dsFiles.get(meta.id);
+        if (f) { dsFiles.delete(f.id); fsp.rm(f.path, { force: true }).catch(() => {}); }
+      }
+    }
+
+    const payload = { transfer: dsPublicTransfer(transfer), by: dsPublicDevice(device) };
+    const senderDevice = dsDevices.get(transfer.fromId);
+    if (senderDevice) dsSseSend(senderDevice, "transfer-update", payload);
+    dsSseSend(device, "transfer-update", payload);
+    return dsJson(res, 200, { ok: true, transfer: dsPublicTransfer(transfer) });
+  }
+
+  // 6. Download File (/api/file/:id)
+  if (pathname.startsWith("/api/file/") && req.method === "GET") {
+    const fileId = decodeURIComponent(pathname.slice("/api/file/".length));
+    const file = dsFiles.get(fileId);
+    if (!file) return dsFail(res, 404, "This file has expired or was removed.");
+    let stat;
+    try { stat = await fsp.stat(file.path); } catch (e) { return dsFail(res, 404, "File no longer on disk."); }
+    const inline = searchParams.get("inline") === "1" && file.type.startsWith("image/");
+    const safeName = file.name.replace(/["\\\r\n]/g, "_");
+    res.writeHead(200, dsCorsHeaders({
+      "Content-Type": file.type || "application/octet-stream",
+      "Content-Length": stat.size,
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(file.name)}`
+    }));
+    fs.createReadStream(file.path).on("error", () => res.destroy()).pipe(res);
+    return;
+  }
+
+  dsFail(res, 404, "Not found");
+}
+
+// Periodic cleanup of old temporary dropship uploads (>1 hour old)
+setInterval(() => {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [fid, f] of dsFiles.entries()) {
+    if (f.createdAt < cutoff) {
+      dsFiles.delete(fid);
+      fsp.rm(f.path, { force: true }).catch(() => {});
+    }
+  }
+}, 10 * 60 * 1000).unref();
+
 /* ------------------------------ static files ------------------------------ */
 const server = http.createServer((req, res) => {
+  let parsedUrl;
+  try { parsedUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`); }
+  catch (e) { res.writeHead(400); res.end(); return; }
   let url = "/";
-  try { url = decodeURIComponent((req.url || "/").split("?")[0]); } catch (e) { res.writeHead(400); res.end(); return; }
+  try { url = decodeURIComponent(parsedUrl.pathname); } catch (e) { res.writeHead(400); res.end(); return; }
   if (url === "/health") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("ok"); return; }
   if (url === "/api/reviews") { handleReviewsApi(req, res); return; }
+  if (url === "/api/events" || url === "/api/profile" || url === "/api/me" || url === "/api/upload" || url === "/api/offer" || url === "/api/respond" || url.startsWith("/api/file/")) {
+    handleDropshipApi(req, res, url, parsedUrl.searchParams);
+    return;
+  }
   if (url === "/") url = "/index.html";
   const file = path.join(ROOT, path.normalize(url));
   const base = path.basename(file);

@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KURIZU.DROPSHIP — local file sharing with extra purple</title>
+  <meta name="description" content="A tiny LocalSend-inspired file drop for your local network. Pick a nearby device, toss a file, add a note. No cloud, no accounts, no install — just purple.">
+  <meta name="author" content="Kurizu">
+  <meta name="theme-color" content="#2f0a44">
+  <meta property="og:title" content="KURIZU.DROPSHIP — local file sharing">
+  <meta property="og:description" content="Drop files to nearby devices over your Wi-Fi. No cloud, no accounts, no install.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css?v=win3">
+</head>
+<body>
+  <a class="skip-link" href="#app">skip to the app</a>
+
+  <!-- ============ icon sprite ============ -->
+  <svg class="svg-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-heart" viewBox="0 0 12 11"><path d="M1 1h3v1h1v1h2V2h1V1h3v1h1v1h1v3h-1v1h-1v1h-1v1H9v1H8v1H5V9H4V8H3V7H2V6H1V5H0V2h1z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 10 10"><path d="M4 0h2v4h4v2H6v4H4V6H0V4h4z"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M10 0h2v8h8v2h-8v8h-2v-8H2V8h8z"/><rect x="17" y="2" width="2" height="2"/><rect x="18" y="1" width="2" height="2"/><rect x="4" y="18" width="2" height="2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9M7 14l5-5 5 5M4 4h16"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M2 5h7l2 2h11v13H2z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2.5h8l4 4v15H6z"/><path d="M14 2.5v4h4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 18 5.5-5 4 3.5 3-2.5 4 4"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="5" width="14" height="14" rx="2"/><path d="m16.5 10 5-3v10l-5-3z"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="5" rx="1"/><path d="M4 9v11h16V9M9.5 13h5"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 12.5 5.2 5.2L20 6.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14h1M14 20h1M18 18h3v3h-3z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 6.3M20 4v7h-7"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .7A11.3 11.3 0 0 0 .7 12c0 5 3.2 9.2 7.7 10.7.6.1.8-.2.8-.6v-2c-3.1.7-3.8-1.3-3.8-1.3-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.3.9.1-.7.4-1.2.7-1.5-2.5-.3-5.1-1.3-5.1-5.6 0-1.2.4-2.2 1.1-3-.1-.3-.5-1.4.1-3 0 0 .9-.3 3.1 1.2a10.7 10.7 0 0 1 5.7 0c2.2-1.5 3.1-1.2 3.1-1.2.6 1.6.2 2.7.1 3 .7.8 1.1 1.8 1.1 3 0 4.3-2.6 5.3-5.1 5.6.4.3.8 1 .8 2.1v3.1c0 .4.2.7.8.6A11.3 11.3 0 0 0 23.3 12 11.3 11.3 0 0 0 12 .7Z"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4 10 14"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4.5" y="10" width="15" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13.5a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L11 5.4"/><path d="M14 10.5a5 5 0 0 0-7.1 0l-2.1 2.1a5 5 0 0 0 7.1 7.1l1.1-1.1"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 8.5a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0M8.5 15.5a6 6 0 0 1 7 0"/><circle cx="12" cy="19" r="1.4" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-desktop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="1.5"/><path d="M9 21h6M12 17v4"/></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="11" rx="1.5"/><path d="M2 19h20M9.5 19h5"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10 18h4"/></symbol>
+    <symbol id="i-tablet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3.5" y="3" width="17" height="18" rx="2.5"/><path d="M10 18h4"/></symbol>
+    <symbol id="i-gamepad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10a5 5 0 0 1 4.6 6.9l-1.2 3.2a2.4 2.4 0 0 1-4.1.6L14.6 15H9.4l-1.7 2.7a2.4 2.4 0 0 1-4.1-.6l-1.2-3.2A5 5 0 0 1 7 7Z"/><path d="M7.5 10v4M5.5 12h4M16 11h.01M18.5 13h.01"/></symbol>
+    <symbol id="i-tv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="12" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 4v16M4 12h16"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M9 6V3.5h6V6M6.5 6l1 15h9l1-15M10 10v7M14 10v7"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="m14.5 5.5 4 4"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a6 6 0 0 1 0 8M19.5 5.5a9.5 9.5 0 0 1 0 13"/></symbol>
+    <symbol id="i-volume-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="m17 9 5 6M22 9l-5 6"/></symbol>
+    <symbol id="i-arrow-r" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M13 5l7 7-7 7"/></symbol>
+    <symbol id="i-arrow-dl" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M6 11l6 6 6-6M4 21h16"/></symbol>
+    <symbol id="i-arrow-ur" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 2.5 21 6v6c0 5-3.8 8.6-9 9.5-5.2-.9-9-4.5-9-9.5V6z"/><path d="m8.5 12 2.4 2.4 4.8-5"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-8 8H4l-2 2V4a2 2 0 0 1 2-2h13a8 8 0 0 1 8 8Z"/><path d="M7 8h10M7 12h7"/></symbol>
+  </svg>
+
+  <div class="crt" aria-hidden="true"></div>
+
+  <!-- ============ top bar ============ -->
+  <header class="topbar" id="top">
+    <div class="topbar__inner">
+      <a class="brand" href="#top" aria-label="KURIZU.DROPSHIP — back to top">
+        <span class="brand__mark"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="brand__word">KURIZU<span>.DROPSHIP</span></span>
+      </a>
+
+      <nav class="mainnav" aria-label="Primary navigation">
+        <a href="#app"><span>01</span>the app</a>
+        <a href="#how"><span>02</span>how it works</a>
+        <a href="#about"><span>03</span>about</a>
+      </nav>
+
+      <div class="topbar__tools">
+        <span class="lan-pill" id="lanPill" title="This page only exists on your local network">
+          <span class="dot dot--lime" id="lanDot"></span>
+          <span id="lanPillText">LAN only</span>
+        </span>
+        <button type="button" class="icon-btn sound-btn" id="soundToggle" aria-pressed="true" aria-label="Turn sound off" title="Sound">
+          <svg class="icon icon--on"><use href="#i-volume"/></svg>
+          <svg class="icon icon--off"><use href="#i-volume-off"/></svg>
+        </button>
+        <a class="icon-btn github-btn" href="https://github.com/localsend/localsend" target="_blank" rel="noopener" aria-label="LocalSend on GitHub" title="Inspired by LocalSend">
+          <svg class="icon"><use href="#i-github"/></svg>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ============ hero ============ -->
+    <section class="hero" aria-labelledby="heroTitle">
+      <div class="hero__bg" aria-hidden="true">
+        <svg class="pixel-cloud pixel-cloud--1" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+        <svg class="pixel-cloud pixel-cloud--2" viewBox="0 0 240 90"><path fill="#5c2c90" d="M8 82h28V62h18V42h30v8h16V32h34v10h12V26h38v26h16v10h24v20h16v10H8z"/><path fill="#7d4cb5" d="M20 82h26V66h18V48h24v8h18V38h28v10h14V34h28v24h14v10h26v14h22v6H20z"/></svg>
+        <span class="float float--h1"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="float float--h2"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="float float--s1"><svg class="icon"><use href="#i-star"/></svg></span>
+        <span class="float float--s2"><svg class="icon"><use href="#i-sparkle"/></svg></span>
+      </div>
+
+      <div class="container hero__inner">
+        <div class="hero__copy">
+          <p class="eyebrow"><span class="eyebrow__num">✦</span> airdrop energy · no cloud required</p>
+          <h1 id="heroTitle">send files to the <span class="text-pink">other side</span> of the room<span class="title-dot">.</span></h1>
+          <p class="hero__sub">A tiny local-network drop zone with LocalSend energy. Pick a device, toss a file, add a note. Your bytes never take a trip through someone else's server.</p>
+          <div class="hero__actions">
+            <a class="btn btn--primary" href="#app"><svg class="icon"><use href="#i-heart"/></svg>start sharing</a>
+            <a class="btn btn--ghost" href="#how">how it works <svg class="icon"><use href="#i-arrow-r"/></svg></a>
+          </div>
+          <ul class="hero__facts" aria-label="Quick facts">
+            <li><span class="dot dot--lime"></span>same wi-fi</li>
+            <li><span class="dot dot--pink"></span>no accounts</li>
+            <li><span class="dot dot--cyan"></span>4 gb per file</li>
+            <li><span class="dot dot--yellow"></span>100% purple</li>
+          </ul>
+        </div>
+
+        <div class="hero__mascot">
+          <div class="speech-bubble" data-float>
+            <span class="speech-bubble__main">drop it</span>
+            <span class="speech-bubble__sub">like it's hot ♡</span>
+          </div>
+          <div class="mascot-wrap">
+            <span class="mascot-checker" aria-hidden="true"></span>
+            <img src="assets/sprites/mascot.webp" alt="Kurizu's purple chibi mascot wearing a headset" width="640" height="600" fetchpriority="high">
+            <span class="sticker sticker--mascot" aria-hidden="true">no cloud club</span>
+          </div>
+          <span class="sticker sticker--rotate" aria-hidden="true">lan only, bestie</span>
+        </div>
+      </div>
+
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee__track">
+          <span>no cloud</span><svg class="icon"><use href="#i-heart"/></svg>
+          <span>no accounts</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>no upload limit</span><svg class="icon"><use href="#i-heart"/></svg>
+          <span>just wi-fi</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>send it over</span><svg class="icon"><use href="#i-heart"/></svg>
+          <span>no cloud</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>no accounts</span><svg class="icon"><use href="#i-heart"/></svg>
+          <span>no upload limit</span><svg class="icon"><use href="#i-star"/></svg>
+          <span>just wi-fi</span><svg class="icon"><use href="#i-heart"/></svg>
+          <span>send it over</span><svg class="icon"><use href="#i-star"/></svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ the app ============ -->
+    <section class="section section--app" id="app" aria-labelledby="appTitle">
+      <div class="container container--wide">
+        <h2 class="sr-only" id="appTitle">Nearby devices and file transfer</h2>
+
+        <div class="app-topline" data-reveal>
+          <p class="eyebrow eyebrow--dark"><span class="eyebrow__num">01</span> the drop zone</p>
+          <p class="app-topline__note">keep this tab open on the computer. open the link on everything else.</p>
+        </div>
+
+        <div class="window window--big window--app" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-heart"/></svg>kurizu.dropship</span>
+            <span class="window__badge" id="windowBadge">LAN ONLY · PORT 53317</span>
+          </div>
+
+          <div class="app-body">
+            <!-- you + link -->
+            <aside class="app-side" aria-label="This device">
+              <section class="you-card" aria-labelledby="youTitle">
+                <div class="you-card__head">
+                  <h3 id="youTitle">this device</h3>
+                  <span class="online-tag" id="connTag"><span class="dot dot--lime"></span>online</span>
+                </div>
+                <div class="you-card__id">
+                  <button class="avatar avatar--lg" id="avatarBtn" type="button" title="Shuffle your avatar" aria-label="Shuffle your avatar">
+                    <img id="myAvatar" src="assets/sprites/mascot.webp" alt="" width="96" height="96">
+                    <span class="avatar__pip" aria-hidden="true"></span>
+                    <span class="avatar__shuffle" aria-hidden="true"><svg class="icon"><use href="#i-refresh"/></svg></span>
+                  </button>
+                  <div class="you-card__fields">
+                    <label class="field-label" for="deviceName">device name</label>
+                    <input id="deviceName" class="name-input" maxlength="32" value="loading..." spellcheck="false" autocomplete="off" aria-label="Your device name">
+                    <span class="you-card__meta"><svg class="icon" id="myTypeIcon"><use href="#i-desktop"/></svg><span id="myType">desktop</span></span>
+                  </div>
+                </div>
+                <p class="you-card__hint">click your avatar to shuffle it. this name is what everyone else sees.</p>
+              </section>
+
+              <section class="share-card" aria-labelledby="shareTitle">
+                <p class="card-label" id="shareTitle"><svg class="icon"><use href="#i-link"/></svg>this app's address</p>
+                <div class="share-url">
+                  <code id="shareUrl">finding the wi-fi...</code>
+                  <button class="share-url__btn" id="copyLink" type="button" aria-label="Copy the app address" title="Copy link"><svg class="icon"><use href="#i-copy"/></svg></button>
+                </div>
+                <div class="share-card__actions">
+                  <button class="btn btn--small btn--primary" id="showQr" type="button"><svg class="icon"><use href="#i-qr"/></svg>show QR</button>
+                  <button class="btn btn--small btn--ghost" id="copyLink2" type="button"><svg class="icon"><use href="#i-copy"/></svg>copy link</button>
+                </div>
+                <p class="share-card__hint">open this on your phone or laptop — same wi-fi, same room, no setup.</p>
+              </section>
+
+              <div class="side-note">
+                <span class="side-note__heart" aria-hidden="true"><svg class="icon"><use href="#i-heart"/></svg></span>
+                <p><strong>psst.</strong> these devices only exist on your network. nothing is uploaded anywhere else.</p>
+              </div>
+            </aside>
+
+            <!-- devices + history -->
+            <div class="app-main">
+              <div class="app-main__head">
+                <div>
+                  <p class="eyebrow eyebrow--dark">nearby</p>
+                  <h3>devices in the room</h3>
+                </div>
+                <span class="count-pill" id="deviceCount">0 online</span>
+              </div>
+
+              <div id="deviceGrid" class="device-grid" aria-live="polite"></div>
+
+              <div class="log-head">
+                <div>
+                  <p class="eyebrow eyebrow--dark">transfer log</p>
+                  <h3>recent handoffs</h3>
+                </div>
+                <button class="text-btn" id="clearLog" type="button">clear finished</button>
+              </div>
+              <div id="transferLog" class="transfer-log" aria-live="polite"></div>
+            </div>
+
+            <!-- send tray -->
+            <aside class="app-tray" id="sendTray" aria-label="Send files to a device">
+              <div class="tray-head">
+                <p class="eyebrow eyebrow--dark">send something</p>
+                <button class="tray-close" id="trayClose" type="button" aria-label="Close send panel"><svg class="icon"><use href="#i-close"/></svg></button>
+              </div>
+
+              <div id="trayRecipient" class="tray-recipient"></div>
+
+              <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Drop files here, or press to browse">
+                <span class="dropzone__icon" aria-hidden="true"><svg class="icon"><use href="#i-upload"/></svg></span>
+                <strong>drop files here</strong>
+                <span>or <u>browse your computer</u></span>
+                <small>up to 4 GB each · 50 files at a time</small>
+                <input type="file" id="fileInput" multiple hidden>
+              </div>
+
+              <ul class="file-list" id="fileList"></ul>
+
+              <label class="note-field" for="noteInput">
+                <span>add a note <em>(optional)</em></span>
+                <textarea id="noteInput" maxlength="2000" rows="2" placeholder="a link, a message, a tiny secret..."></textarea>
+              </label>
+
+              <button class="btn btn--primary btn--block" id="sendBtn" type="button" disabled>
+                <svg class="icon"><use href="#i-send"/></svg><span id="sendBtnText">send it</span><b class="send-btn__count" id="sendCount">0</b>
+              </button>
+
+              <div class="progress" id="sendProgress" hidden aria-live="polite">
+                <div class="progress__label"><span id="progressLabel">uploading...</span><b id="progressPct">0%</b></div>
+                <div class="progress__track"><span id="progressBar"></span></div>
+              </div>
+
+              <p class="tray-hint" id="trayHint">pick a device first, then toss your files in.</p>
+            </aside>
+          </div>
+
+          <div class="statusbar">
+            <span class="statusbar__item"><span class="dot dot--lime" id="statusDot"></span><b id="statusDevices">0 devices</b>&nbsp;nearby</span>
+            <span class="statusbar__item statusbar__center">no cloud · no accounts · just wi-fi</span>
+            <span class="statusbar__item"><svg class="icon"><use href="#i-clock"/></svg><span id="statusClock">--:--</span></span>
+          </div>
+        </div>
+
+        <div class="app-underbar" data-reveal>
+          <p><svg class="icon"><use href="#i-shield"/></svg>files live on this computer (or host) and disappear after 24 hours.</p>
+          <button class="nice-btn" id="niceBtn" type="button" title="Press the heart to be nice"><svg class="icon"><use href="#i-heart"/></svg>press to be nice <b id="niceCount">0</b></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ how it works ============ -->
+    <section class="section section--how" id="how" aria-labelledby="howTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow"><span class="eyebrow__num">02</span> three tiny steps</p>
+            <h2 class="section-title" id="howTitle">how it works<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">No apps to install, no accounts to forget, no files taking a detour through a data center.</p>
+        </header>
+
+        <div class="steps">
+          <article class="step" data-reveal>
+            <span class="step__num">01</span>
+            <span class="step__icon step__icon--lime"><svg class="icon"><use href="#i-wifi"/></svg></span>
+            <h3>open it everywhere</h3>
+            <p>Start the app on one computer. Scan the QR or open the link on your phone, tablet or other laptop — as long as you're on the same Wi-Fi.</p>
+            <span class="step__tag">same network · no install</span>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step__num">02</span>
+            <span class="step__icon step__icon--pink"><svg class="icon"><use href="#i-send"/></svg></span>
+            <h3>pick a device</h3>
+            <p>Everyone shows up as a cute little card. Choose a device, drop in your files, add a note if you're feeling chatty, and hit send.</p>
+            <span class="step__tag">files · notes · hearts</span>
+          </article>
+          <article class="step" data-reveal>
+            <span class="step__num">03</span>
+            <span class="step__icon step__icon--cyan"><svg class="icon"><use href="#i-download"/></svg></span>
+            <h3>accept &amp; keep</h3>
+            <p>The other side gets a proper little "incoming transfer" window. They accept, save what they need, and that's it. No cloud touched.</p>
+            <span class="step__tag">you stay in control</span>
+          </article>
+        </div>
+
+        <div class="how-note" data-reveal>
+          <span class="how-note__heart" aria-hidden="true"><svg class="icon"><use href="#i-heart"/></svg></span>
+          <p><strong>the fine print:</strong> this is a local-network app, not a secure vault. Use it on Wi-Fi you trust, and don't send your tax returns over the café guest network.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ about ============ -->
+    <section class="section section--about" id="about" aria-labelledby="aboutTitle">
+      <div class="container">
+        <header class="section-head" data-reveal>
+          <div>
+            <p class="eyebrow eyebrow--dark"><span class="eyebrow__num">03</span> the readme</p>
+            <h2 class="section-title" id="aboutTitle">localsend, but purple<span class="title-dot">.</span></h2>
+          </div>
+          <p class="section-sub">A themed little love letter to LocalSend — the open-source, cross-platform AirDrop alternative — rebuilt as a browser drop zone.</p>
+        </header>
+
+        <div class="window window--big about-window" data-reveal>
+          <div class="window__bar">
+            <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="window__title"><svg class="icon"><use href="#i-file"/></svg>readme.txt</span>
+            <span class="window__badge">READ-ONLY</span>
+          </div>
+
+          <div class="about-grid">
+            <div class="about-copy">
+              <p class="about-kicker">hello neighbor,</p>
+              <h3>this is <span class="text-pink">KURIZU.DROPSHIP</span> <span class="text-hand">:3</span></h3>
+              <p>LocalSend is the app I wish every operating system shipped with: nearby file sharing that just works, with no login and no cloud. This is my version of that idea, wearing my portfolio's purple pixel pajamas.</p>
+              <p>Start the tiny Node server, open the link on another device, and you'll see it appear in the room. Files stream straight to this computer, wait for the other side to accept, and then download with a click. Notes work too — sometimes you just need to send a link and a heart.</p>
+              <div class="about-actions">
+                <a class="btn btn--primary btn--small" href="https://localsend.org" target="_blank" rel="noopener"><svg class="icon"><use href="#i-heart"/></svg>visit LocalSend</a>
+                <a class="btn btn--ghost btn--small" href="https://github.com/localsend/localsend" target="_blank" rel="noopener"><svg class="icon"><use href="#i-github"/></svg>original repo</a>
+              </div>
+            </div>
+
+            <div class="about-side">
+              <dl class="spec-list">
+                <div><dt>stack</dt><dd>node.js · vanilla js · no dependencies</dd></div>
+                <div><dt>scope</dt><dd>one shared Wi-Fi network</dd></div>
+                <div><dt>limit</dt><dd>4 GB per file · 8 GB per send</dd></div>
+                <div><dt>storage</dt><dd>data/uploads · auto-clean in 24h</dd></div>
+                <div><dt>encryption</dt><dd>none — LAN trust only</dd></div>
+              </dl>
+              <div class="disclaimer">
+                <svg class="icon"><use href="#i-lock"/></svg>
+                <p>Anyone who can reach this address can open the app. Keep it on your home network, and close the terminal when you're done sharing.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="about-stats">
+            <div class="stat"><strong>0</strong><span>clouds involved</span></div>
+            <div class="stat"><strong>∞</strong><span>purple shades</span></div>
+            <div class="stat"><strong>1</strong><span>tiny server</span></div>
+            <div class="stat"><strong>♡</strong><span>in every transfer</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <a class="brand brand--footer" href="#top">
+        <span class="brand__mark"><svg class="icon"><use href="#i-heart"/></svg></span>
+        <span class="brand__word">KURIZU<span>.DROPSHIP</span></span>
+      </a>
+      <p>made with spite &amp; sparkles · inspired by <a href="https://localsend.org" target="_blank" rel="noopener">LocalSend</a> · not affiliated, just a fan</p>
+      <p class="footer__meta">no trackers · no cookies · no nonsense</p>
+    </div>
+  </footer>
+
+  <!-- ============ incoming transfer window ============ -->
+  <dialog class="dialog" id="incomingDialog" aria-labelledby="incomingTitle">
+    <div class="window window--dialog">
+      <div class="window__bar">
+        <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="window__title" id="incomingTitle"><svg class="icon"><use href="#i-download"/></svg>incoming_transfer.exe</span>
+        <span class="window__badge" id="incomingBadge">ACTION NEEDED</span>
+      </div>
+      <div class="dialog__body" id="incomingBody"></div>
+    </div>
+  </dialog>
+
+  <!-- ============ qr window ============ -->
+  <dialog class="dialog dialog--qr" id="qrDialog" aria-labelledby="qrTitle">
+    <div class="window window--dialog">
+      <div class="window__bar">
+        <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="window__title" id="qrTitle"><svg class="icon"><use href="#i-qr"/></svg>scan_me.exe</span>
+        <button class="window__close" id="qrClose" type="button" aria-label="Close QR window"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="dialog__body qr-body">
+        <p class="eyebrow eyebrow--dark">one more device</p>
+        <h3>scan me on your phone</h3>
+        <div class="qr-frame"><img id="qrImage" alt="QR code for this app's address" width="256" height="256"></div>
+        <code class="qr-url" id="qrUrl"></code>
+        <p class="qr-hint">same Wi-Fi required. if the camera opens a browser, you're exactly where you need to be.</p>
+        <button class="btn btn--primary btn--block" id="qrDone" type="button"><svg class="icon"><use href="#i-heart"/></svg>nice, thanks</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="tray-overlay" id="trayOverlay" hidden></div>
+  <div class="toast-layer" id="toastLayer" aria-live="polite"></div>
+  <div class="heart-layer" id="heartLayer" aria-hidden="true"></div>
+
+  <noscript>
+    <div class="noscript">This little app needs JavaScript to find devices. Enable it and refresh ♡</div>
+  </noscript>
+
+  <script src="js/qrcode.js"></script>
+  <script src="js/app.js?v=win4"></script>
+</body>
+</html>

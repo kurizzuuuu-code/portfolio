@@ -5700,24 +5700,34 @@ body.is-party .window {
   width: 54px;
   height: 54px;
   border-radius: 14px;
-  background: #220c3d;
+  background: var(--icon-bg, linear-gradient(145deg, #4c1d95, #220c3d));
   border: 2px solid #fff;
-  box-shadow: 3px 3px 0 rgba(12, 4, 24, 0.65);
+  box-shadow: 3px 3px 0 rgba(12, 4, 24, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.14s;
+  transition: transform 0.14s, box-shadow 0.14s;
 }
 .desktop-icon:hover .desktop-icon__frame {
-  transform: translateY(-2px) scale(1.04);
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 4px 4px 0 rgba(12, 4, 24, 0.78), inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
-.desktop-icon__frame img {
+.desktop-icon__art {
   width: 100%;
   height: 100%;
-  object-fit: cover;
   border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 5px;
+}
+.desktop-icon__art svg {
+  width: 100%;
+  height: 100%;
   display: block;
+  filter: drop-shadow(0 2px 2px rgba(14, 3, 28, 0.35));
 }
 .desktop-icon__ext {
   position: absolute;
@@ -5903,6 +5913,1132 @@ body.is-party .window {
 .taskbar__tray-btn.is-closed-pill .taskbar__tray-dot {
   background: #ff5ea8;
 }
+
+/* ============================================================
+   FULL-SCREEN WINDOWS DESKTOP OS MODE (NO PAGE SCROLL)
+   ============================================================ */
+html:has(body.is-desktop-os),
+body.is-desktop-os {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+}
+
+body.is-desktop-os > main > .hero,
+body.is-desktop-os > main > .section,
+body.is-desktop-os > .footer {
+  display: none !important;
+}
+
+.os-desktop {
+  position: fixed;
+  inset: 58px 0 var(--taskbar-h, 54px) 0;
+  z-index: 6;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 75% 24%, rgba(255, 110, 199, 0.22), transparent 42%),
+    radial-gradient(circle at 22% 78%, rgba(168, 85, 247, 0.28), transparent 48%),
+    radial-gradient(circle at 50% 50%, rgba(92, 36, 156, 0.35), transparent 70%),
+    linear-gradient(145deg, #2a0c4e 0%, #3b1469 48%, #1e0738 100%);
+}
+
+/* Subtle retro desktop grid & wallpaper watermark */
+.os-desktop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(233, 213, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(233, 213, 255, 0.06) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.os-desktop::after {
+  content: "KURIZU.OS // DESKTOP EDITION";
+  position: absolute;
+  right: 24px;
+  top: 18px;
+  pointer-events: none;
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: rgba(235, 215, 255, 0.28);
+  text-shadow: 0 2px 0 rgba(12, 3, 24, 0.5);
+}
+
+/* Multi-column Windows Desktop Shortcut Icons Grid on the left */
+.os-desktop__icons {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px 10px;
+  padding: 4px;
+  max-width: 60vw;
+  pointer-events: none;
+}
+
+.os-desktop__icons .desktop-icon {
+  pointer-events: auto;
+  width: 84px;
+  max-width: 84px;
+  flex: 0 0 auto;
+}
+
+/* Floating Draggable OS Windows inside #osDesktop */
+.os-floating-win {
+  position: absolute !important;
+  top: 20px;
+  left: clamp(200px, 23vw, 350px);
+  width: min(880px, calc(100vw - 230px));
+  max-height: calc(100vh - 146px);
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  box-shadow: 0 20px 55px rgba(8, 2, 20, 0.62), 6px 6px 0 var(--ink) !important;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.os-floating-win.is-focused {
+  border-color: var(--ink) !important;
+  box-shadow: 0 0 0 2px #ffd84d, 0 24px 64px rgba(8, 2, 20, 0.75), 7px 7px 0 var(--ink) !important;
+}
+
+/* Per-window default cascade geometry: kurizu.exe centered in middle, profile.card on the right */
+.os-floating-win[data-win-id="browser"] {
+  --browser-w: clamp(460px, calc(100vw - 690px), 585px);
+  top: 28px;
+  width: var(--browser-w);
+  left: clamp(285px, calc(295px + (100vw - 665px - var(--browser-w)) / 2), 680px);
+}
+.os-floating-win[data-win-id="work"] {
+  top: 16px;
+  left: clamp(190px, 21vw, 320px);
+  width: min(950px, calc(100vw - 215px));
+}
+.os-floating-win[data-win-id="gallery"] {
+  top: 20px;
+  left: clamp(200px, 22vw, 335px);
+  width: min(920px, calc(100vw - 225px));
+}
+.os-floating-win[data-win-id="kurizu3d"] {
+  top: 22px;
+  left: clamp(205px, 22.5vw, 345px);
+  width: min(900px, calc(100vw - 230px));
+}
+.os-floating-win[data-win-id="arcade"] {
+  top: 18px;
+  left: clamp(195px, 21.5vw, 330px);
+  width: min(910px, calc(100vw - 220px));
+}
+.os-floating-win[data-win-id="about"] {
+  top: 24px;
+  left: clamp(205px, 22vw, 340px);
+  width: min(890px, calc(100vw - 230px));
+}
+.os-floating-win[data-win-id="reel"] {
+  top: 28px;
+  left: clamp(225px, 24vw, 370px);
+  width: min(820px, calc(100vw - 250px));
+}
+.os-floating-win[data-win-id="contact"] {
+  top: 24px;
+  left: clamp(210px, 23vw, 355px);
+  width: min(860px, calc(100vw - 235px));
+}
+.os-floating-win[data-win-id="profile"] {
+  top: 34px;
+  left: auto !important;
+  right: clamp(22px, 2.8vw, 48px);
+  width: clamp(305px, 23.5vw, 345px);
+}
+
+/* Keep window chrome pinned while inner body scrolls smoothly */
+.os-floating-win > .window__bar,
+.os-floating-win > .browser__tabs,
+.os-floating-win > .browser__bar,
+.os-floating-win > .explorer__toolbar,
+.os-floating-win > .gallery-toolbar,
+.os-floating-win > .explorer__status,
+.os-floating-win > .gallery-status,
+.os-floating-win > .contact-status,
+.os-floating-win > .reel__bar,
+.os-floating-win > .arcade__foot {
+  flex: 0 0 auto;
+}
+
+.os-floating-win > .browser__body,
+.os-floating-win > .explorer__body,
+.os-floating-win > .gallery,
+.os-floating-win > .about-grid,
+.os-floating-win > .contact-grid,
+.os-floating-win > .arcade,
+.os-floating-win > .model-stage,
+.os-floating-win > .reel__screen,
+.os-floating-win > .desktop-launchpad__body,
+.os-floating-win.profile-card > .profile-card__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* In full Desktop OS mode, minimized windows hide to the taskbar like real Windows */
+body.is-desktop-os .os-floating-win.is-minimized,
+body.is-desktop-os .os-floating-win.is-closed {
+  display: none !important;
+}
+
+/* Maximized window fills the entire desktop area between topbar and taskbar */
+body.is-desktop-os .os-floating-win.is-maximized {
+  position: fixed !important;
+  inset: 62px 10px calc(var(--taskbar-h, 54px) + 8px) 10px !important;
+  width: auto !important;
+  max-width: none !important;
+  height: auto !important;
+  max-height: none !important;
+  transform: none !important;
+  z-index: 75 !important;
+}
+
+/* Floating Music Player widget in the bottom-right desktop corner (toggled by taskbar speaker button) */
+.os-desktop__music {
+  position: absolute !important;
+  right: 16px;
+  bottom: 12px;
+  z-index: 78;
+  width: min(345px, calc(100vw - 32px));
+  margin: 0 !important;
+  box-shadow: 0 18px 44px rgba(10, 2, 24, 0.68), 5px 5px 0 var(--ink);
+  animation: pop-in 0.16s ease-out;
+}
+.os-desktop__music.is-hidden {
+  display: none !important;
+}
+
+/* Animated Desktop Wallpaper Layer */
+.os-desktop__wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.os-bg-grid {
+  position: absolute;
+  inset: -72px;
+  background-image:
+    linear-gradient(rgba(233, 213, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(233, 213, 255, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+  animation: os-grid-scroll 14s linear infinite !important;
+  animation-duration: 14s !important;
+  animation-iteration-count: infinite !important;
+}
+
+@keyframes os-grid-scroll {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(36px, 36px, 0); }
+}
+
+/* Drifting glowing nebula/aurora orbs */
+.os-bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(55px);
+  opacity: 0.52;
+  will-change: transform;
+}
+.os-bg-orb--1 {
+  width: 440px;
+  height: 440px;
+  top: -80px;
+  right: 12%;
+  background: radial-gradient(circle, rgba(255, 94, 168, 0.55) 0%, transparent 70%);
+  animation: os-orb-drift-1 16s ease-in-out infinite alternate !important;
+  animation-duration: 16s !important;
+  animation-iteration-count: infinite !important;
+}
+.os-bg-orb--2 {
+  width: 520px;
+  height: 520px;
+  bottom: -120px;
+  left: 18%;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.6) 0%, transparent 70%);
+  animation: os-orb-drift-2 20s ease-in-out infinite alternate !important;
+  animation-duration: 20s !important;
+  animation-iteration-count: infinite !important;
+}
+.os-bg-orb--3 {
+  width: 360px;
+  height: 360px;
+  top: 28%;
+  left: 48%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.35) 0%, transparent 70%);
+  animation: os-orb-drift-3 18s ease-in-out infinite alternate !important;
+  animation-duration: 18s !important;
+  animation-iteration-count: infinite !important;
+}
+
+@keyframes os-orb-drift-1 {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(-130px, 90px, 0) scale(1.18); }
+}
+@keyframes os-orb-drift-2 {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(140px, -80px, 0) scale(1.15); }
+}
+@keyframes os-orb-drift-3 {
+  0% { transform: translate3d(-60px, -40px, 0) scale(0.92); }
+  100% { transform: translate3d(80px, 60px, 0) scale(1.2); }
+}
+
+/* Glowing crescent moon in the upper sky */
+.os-bg-moon {
+  position: absolute;
+  top: 42px;
+  right: 26%;
+  width: 84px;
+  height: 84px;
+  filter: drop-shadow(0 0 18px rgba(253, 224, 71, 0.45));
+  animation: os-moon-bob 6s ease-in-out infinite alternate !important;
+  animation-duration: 6s !important;
+  animation-iteration-count: infinite !important;
+}
+@keyframes os-moon-bob {
+  0% { transform: translateY(0) rotate(-4deg); }
+  100% { transform: translateY(-10px) rotate(4deg); }
+}
+
+/* Gliding pixel clouds across the desktop horizon */
+.os-bg-cloud {
+  position: absolute;
+  height: auto;
+  opacity: 0.42;
+  filter: drop-shadow(0 6px 0 rgba(18, 4, 34, 0.45));
+  will-change: transform;
+}
+.os-bg-cloud--1 {
+  width: 260px;
+  top: 12%;
+  left: -280px;
+  animation: os-cloud-glide 46s linear infinite !important;
+  animation-duration: 46s !important;
+  animation-delay: -8s !important;
+  animation-iteration-count: infinite !important;
+}
+.os-bg-cloud--2 {
+  width: 320px;
+  bottom: 10%;
+  left: -340px;
+  opacity: 0.34;
+  animation: os-cloud-glide 62s linear infinite !important;
+  animation-duration: 62s !important;
+  animation-delay: -28s !important;
+  animation-iteration-count: infinite !important;
+}
+.os-bg-cloud--3 {
+  width: 210px;
+  top: 46%;
+  left: -240px;
+  opacity: 0.28;
+  animation: os-cloud-glide 54s linear infinite !important;
+  animation-duration: 54s !important;
+  animation-delay: -41s !important;
+  animation-iteration-count: infinite !important;
+}
+@keyframes os-cloud-glide {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(calc(100vw + 380px), 0, 0); }
+}
+
+/* Periodic diagonal shooting stars */
+.os-bg-comet {
+  position: absolute;
+  width: 90px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), #fff 75%, #fde047 100%);
+  border-radius: 999px;
+  filter: drop-shadow(0 0 6px #fde047);
+  opacity: 0;
+  transform: rotate(28deg);
+}
+.os-bg-comet--1 {
+  top: 10%;
+  left: 28%;
+  animation: os-comet-shoot 9s ease-in-out infinite !important;
+  animation-duration: 9s !important;
+  animation-delay: 2s !important;
+  animation-iteration-count: infinite !important;
+}
+.os-bg-comet--2 {
+  top: 26%;
+  left: 55%;
+  animation: os-comet-shoot 13s ease-in-out infinite !important;
+  animation-duration: 13s !important;
+  animation-delay: 7s !important;
+  animation-iteration-count: infinite !important;
+}
+@keyframes os-comet-shoot {
+  0%, 82%, 100% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(28deg) scaleX(0.4);
+  }
+  86% {
+    opacity: 0.95;
+  }
+  94% {
+    opacity: 0;
+    transform: translate3d(260px, 138px, 0) rotate(28deg) scaleX(1.1);
+  }
+}
+
+/* Floating & twinkling pixel hearts, stars & sparkles */
+.os-bg-float {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.55;
+  filter: drop-shadow(0 2px 0 rgba(15, 3, 28, 0.6));
+  animation: os-float-bob 4.5s ease-in-out infinite alternate !important;
+  animation-duration: 4.5s !important;
+  animation-iteration-count: infinite !important;
+}
+.os-bg-float .icon {
+  width: 18px;
+  height: 18px;
+}
+.os-bg-float--1 { top: 14%; left: 32%; color: #ff5ea8; animation-duration: 4.2s !important; }
+.os-bg-float--2 { top: 22%; left: 68%; color: #fde047; animation-duration: 3.6s !important; animation-delay: -1.2s !important; }
+.os-bg-float--3 { top: 68%; left: 36%; color: #bef264; animation-duration: 5.1s !important; animation-delay: -2.4s !important; }
+.os-bg-float--4 { top: 76%; left: 64%; color: #ff8fd8; animation-duration: 4.8s !important; animation-delay: -0.8s !important; }
+.os-bg-float--5 { top: 38%; left: 27%; color: #c084fc; animation-duration: 3.9s !important; animation-delay: -1.9s !important; }
+.os-bg-float--6 { top: 16%; left: 52%; color: #38bdf8; animation-duration: 4.6s !important; animation-delay: -3.1s !important; }
+.os-bg-float--7 { top: 58%; left: 74%; color: #ff5ea8; animation-duration: 5.3s !important; animation-delay: -1.5s !important; }
+.os-bg-float--8 { top: 84%; left: 48%; color: #fde047; animation-duration: 4.0s !important; animation-delay: -2.7s !important; }
+
+@keyframes os-float-bob {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.9) rotate(-8deg);
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.78;
+  }
+  100% {
+    transform: translate3d(0, -14px, 0) scale(1.15) rotate(8deg);
+    opacity: 0.5;
+  }
+}
+
+/* Taskbar Dedicated Music Player Popup Toggle Icon Button (Bottom Right) */
+.taskbar__music-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 9px;
+  border: 2px solid rgba(235, 215, 255, 0.45);
+  background: linear-gradient(180deg, #6b21a8, #4c1d95);
+  color: #ffffff;
+  box-shadow: 0 2px 0 rgba(12, 3, 24, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  transition: transform 0.12s, background 0.14s, border-color 0.14s, box-shadow 0.14s;
+}
+.taskbar__music-btn .icon {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  color: #ffffff;
+}
+.taskbar__music-btn:hover {
+  background: linear-gradient(180deg, #7e22ce, #5b21b6);
+  border-color: var(--lime);
+  transform: translateY(-1px);
+}
+.taskbar__music-btn.is-active,
+.taskbar__music-btn[aria-expanded="true"] {
+  background: linear-gradient(180deg, #9333ea, #6b21a8);
+  border-color: #ffd84d;
+  box-shadow: 0 0 0 2px rgba(255, 216, 77, 0.32), 0 2px 0 rgba(12, 3, 24, 0.55);
+}
+
+/* Searchable Windows Start Menu */
+.start-menu {
+  width: 340px;
+}
+.start-menu__search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.start-menu__search-wrap .icon {
+  position: absolute;
+  left: 11px;
+  font-size: 13px;
+  color: var(--pink);
+  pointer-events: none;
+}
+.start-menu__search {
+  width: 100%;
+  padding: 8px 10px 8px 32px;
+  border-radius: 9px;
+  border: 2px solid rgba(220, 196, 247, 0.35);
+  background: rgba(18, 4, 32, 0.65);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+.start-menu__search::placeholder {
+  color: rgba(217, 191, 245, 0.6);
+}
+.start-menu__search:focus {
+  border-color: var(--lime);
+  box-shadow: 0 0 0 3px rgba(185, 255, 102, 0.2);
+}
+
+.start-menu__programs {
+  display: grid;
+  gap: 5px;
+  max-height: 295px;
+  overflow-y: auto;
+  padding-right: 3px;
+  overscroll-behavior: contain;
+}
+.start-prog-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  color: #f4eaff;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(220, 196, 247, 0.15);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s, transform 0.12s;
+}
+.start-prog-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--lime);
+  transform: translateX(2px);
+}
+.start-prog-btn__art {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 8px;
+  border: 1.5px solid #fff;
+  background: var(--icon-bg, linear-gradient(145deg, #4c1d95, #220c3d));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  box-shadow: 2px 2px 0 rgba(12, 4, 24, 0.5);
+}
+.start-prog-btn__art svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.start-prog-btn__text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.start-prog-btn__text strong {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.start-prog-btn__text small {
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  color: #cdb4e8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.start-prog-btn__ext {
+  flex: none;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--ext-bg, #a855f7);
+  color: #fff;
+  border: 1.5px solid rgba(18, 4, 32, 0.8);
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  font-weight: 700;
+}
+.start-menu__empty {
+  margin: 12px 0;
+  text-align: center;
+  font-family: var(--font-pixel);
+  font-size: 7.5px;
+  color: #cdb4e8;
+}
+
+/* Windows Taskbar Open / Minimized Window Tabs & Show Desktop Sliver */
+.taskbar__tab-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(220, 196, 247, 0.3);
+  overflow: hidden;
+  transition: background 0.14s, border-color 0.14s;
+}
+.taskbar__tab-group.is-active-tab {
+  background: rgba(185, 255, 102, 0.2);
+  border-color: var(--lime);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+.taskbar__tab-group.is-min-tab {
+  border-style: dashed;
+  opacity: 0.82;
+}
+.taskbar__tab-group .taskbar__tray-btn {
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  padding: 5px 8px 5px 10px;
+}
+.taskbar__tab-group .taskbar__tray-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  transform: none;
+}
+.taskbar__tray-btn.is-active-pill .taskbar__tray-dot {
+  background: var(--lime);
+  box-shadow: 0 0 6px var(--lime);
+}
+.taskbar__tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 26px;
+  border: 0;
+  border-left: 1px solid rgba(220, 196, 247, 0.2);
+  background: transparent;
+  color: rgba(245, 235, 255, 0.75);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.taskbar__tab-close:hover {
+  background: #ff5ea8;
+  color: #fff;
+}
+
+.taskbar__show-desktop {
+  width: 10px;
+  height: 36px;
+  margin-left: 6px;
+  border-radius: 4px;
+  border: 1.5px solid rgba(220, 196, 247, 0.38);
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.taskbar__show-desktop:hover {
+  background: var(--lime);
+  border-color: var(--ink);
+}
+
+@media (max-width: 780px) {
+  .os-desktop__icons {
+    max-width: 100%;
+    right: 12px;
+  }
+  .os-floating-win {
+    left: 10px !important;
+    right: 10px !important;
+    top: 12px !important;
+    width: calc(100vw - 20px) !important;
+    max-height: calc(100vh - 136px) !important;
+  }
+  .os-desktop__music {
+    display: none;
+  }
+}
+
+/* ============================================================
+   WISTERIA TELEPORT PORTAL VFX & INTERACTIVE YES / NO BUBBLE
+   ============================================================ */
+.pet__anim-wrap.is-teleporting-out {
+  animation: pet-teleport-out 0.23s cubic-bezier(0.55, 0.05, 0.67, 0.19) forwards !important;
+  animation-duration: 0.23s !important;
+  animation-iteration-count: 1 !important;
+}
+
+.pet__anim-wrap.is-teleporting-in {
+  animation: pet-teleport-in 0.42s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards !important;
+  animation-duration: 0.42s !important;
+  animation-iteration-count: 1 !important;
+}
+
+@keyframes pet-teleport-out {
+  0% {
+    transform: scale(1, 1);
+    filter: brightness(1) drop-shadow(0 0 0 transparent);
+    opacity: 1;
+  }
+  45% {
+    transform: scale(1.25, 0.72);
+    filter: brightness(1.8) hue-rotate(45deg) drop-shadow(0 0 18px #38bdf8);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-42px) scale(0.12, 1.95);
+    filter: brightness(3) drop-shadow(0 0 28px #ff5ea8);
+    opacity: 0;
+  }
+}
+
+@keyframes pet-teleport-in {
+  0% {
+    transform: translateY(-48px) scale(0.15, 1.9);
+    filter: brightness(2.8) drop-shadow(0 0 28px #bef264);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(6px) scale(1.2, 0.82);
+    filter: brightness(1.5) drop-shadow(0 0 18px #ff5ea8);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(-10px) scale(0.94, 1.06);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+    filter: brightness(1) drop-shadow(0 0 0 transparent);
+    opacity: 1;
+  }
+}
+
+/* Expanding Magical Portal Rings + Core Flash */
+.teleport-vfx {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 9998;
+}
+.teleport-vfx__core {
+  position: absolute;
+  left: -48px;
+  top: -48px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #bef264 32%, #ff5ea8 65%, transparent 74%);
+  mix-blend-mode: screen;
+  animation: teleport-core-flash 0.48s ease-out forwards !important;
+  animation-duration: 0.48s !important;
+  animation-iteration-count: 1 !important;
+}
+.teleport-vfx__ring {
+  position: absolute;
+  left: -60px;
+  top: -60px;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 3.5px dashed #38bdf8;
+  box-shadow: 0 0 18px #38bdf8, inset 0 0 14px #ff5ea8;
+  animation: teleport-ring-expand 0.62s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  animation-duration: 0.62s !important;
+  animation-iteration-count: 1 !important;
+}
+.teleport-vfx__ring--outer {
+  border: 3px solid #fde047;
+  box-shadow: 0 0 22px #ff5ea8;
+  animation-duration: 0.72s !important;
+}
+
+@keyframes teleport-core-flash {
+  0% { transform: scale(0.2); opacity: 1; }
+  40% { transform: scale(1.35); opacity: 0.95; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+@keyframes teleport-ring-expand {
+  0% {
+    transform: scale(0.18) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.85) rotate(110deg);
+    opacity: 0;
+  }
+}
+
+/* Radial Sparkle / Bolt / Star Particles */
+.teleport-particle {
+  position: fixed;
+  width: 20px;
+  height: 20px;
+  margin-left: -10px;
+  margin-top: -10px;
+  pointer-events: none;
+  z-index: 9999;
+  fill: currentColor;
+  filter: drop-shadow(0 0 6px currentColor);
+  animation: teleport-particle-fly 0.68s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  animation-duration: 0.68s !important;
+  animation-iteration-count: 1 !important;
+}
+
+@keyframes teleport-particle-fly {
+  0% {
+    transform: translate3d(0, 0, 0) scale(0.4) rotate(0deg);
+    opacity: 1;
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--tx, 60px), var(--ty, -60px), 0) scale(1.25) rotate(var(--rot, 180deg));
+    opacity: 0;
+  }
+}
+
+/* Interactive Yes / No Choice Speech Bubble */
+.pet__bubble.has-choice {
+  pointer-events: auto !important;
+  width: 248px;
+  max-width: 265px;
+  padding: 11px 13px;
+  background: linear-gradient(180deg, #fff9ff 0%, #f3e3ff 100%);
+  border: 2.5px solid var(--ink);
+  box-shadow: 0 6px 0 var(--ink), 0 18px 34px rgba(18, 3, 34, 0.48);
+  cursor: default;
+}
+.pet__bubble.has-choice.is-visible {
+  transform: translate(-50%, 0) scale(1.12);
+}
+.pet__ask-text {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.38;
+  color: var(--ink);
+  margin-bottom: 9px;
+}
+.pet__ask-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.pet__ask-btn {
+  padding: 5px 12px;
+  border-radius: 9px;
+  border: 2px solid var(--ink);
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 2.5px 0 var(--ink);
+  transition: transform 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.pet__ask-btn--yes {
+  background: linear-gradient(180deg, #ddffab, var(--lime));
+  color: var(--ink);
+}
+.pet__ask-btn--yes:hover {
+  background: linear-gradient(180deg, #ffe98f, var(--yellow));
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 0 var(--ink);
+}
+.pet__ask-btn--no {
+  background: #ead7ff;
+  color: var(--ink-soft);
+}
+.pet__ask-btn--no:hover {
+  background: var(--pink);
+  color: var(--ink);
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 0 var(--ink);
+}
+
+/* ============================================================
+   FLOATING DESKTOP APP WINDOWS (KURIZU.DROPSHIP & CASE STUDIES)
+   ============================================================ */
+.os-floating-win[data-win-id="dropship"] {
+  top: 18px;
+  left: clamp(190px, 21vw, 320px);
+  width: min(980px, calc(100vw - 215px));
+  height: calc(100vh - 150px);
+  max-height: calc(100vh - 146px);
+}
+
+.os-floating-win[data-win-id="app"] {
+  top: 22px;
+  left: clamp(210px, 23vw, 355px);
+  width: min(860px, calc(100vw - 235px));
+  max-height: calc(100vh - 148px);
+}
+
+.os-floating-win[data-win-id="launchpad"] {
+  top: 46px;
+  left: clamp(230px, 26vw, 410px);
+  width: min(560px, calc(100vw - 250px));
+  max-height: calc(100vh - 160px);
+}
+
+.os-floating-win[data-win-id="launchpad"] .desktop-launchpad__body {
+  padding: 20px 18px 14px;
+}
+
+.os-floating-win[data-win-id="launchpad"] .desktop-icons {
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 16px 12px;
+}
+
+.os-floating-win > .modal__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dropship-win__toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 7px 12px;
+  background: #ead7ff;
+  border-bottom: 2.5px solid var(--ink);
+}
+.dropship-win__url {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 2px solid var(--ink);
+  background: var(--paper);
+  font-family: var(--font-pixel);
+  font-size: 7.5px;
+  color: var(--ink);
+}
+.dropship-win__url .icon {
+  color: var(--grape);
+}
+.dropship-win__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dropship-win__frame {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  background: #220838;
+}
+.dropship-win__frame iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+/* ============================================================
+   MOBILE PHONE & TABLET RESPONSIVE DESKTOP OS (<= 860px)
+   ============================================================ */
+@media (max-width: 860px) {
+  .os-desktop {
+    inset: 54px 0 var(--taskbar-h, 52px) 0;
+  }
+
+  .os-desktop::after {
+    font-size: 7px;
+    right: 12px;
+    top: 8px;
+    opacity: 0.5;
+  }
+
+  /* Phone Homescreen 4-column scrollable app icon grid */
+  .os-desktop__icons {
+    position: absolute;
+    inset: 0;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+    align-content: start;
+    justify-items: center;
+    gap: 10px 6px;
+    padding: 12px 10px 105px;
+    overflow-y: auto;
+    pointer-events: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .os-desktop__icons .desktop-icon {
+    width: 76px;
+    max-width: 76px;
+  }
+
+  /* Make every open floating window fit the phone screen cleanly */
+  body.is-desktop-os .os-floating-win,
+  body.is-desktop-os .os-floating-win[data-win-id] {
+    left: 8px !important;
+    right: 8px !important;
+    top: 8px !important;
+    width: calc(100vw - 16px) !important;
+    min-width: 0 !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: calc(100dvh - 122px) !important;
+    transform: none !important;
+  }
+
+  body.is-desktop-os .os-floating-win[data-win-id="dropship"] {
+    height: calc(100dvh - 122px) !important;
+  }
+
+  body.is-desktop-os .os-floating-win.is-maximized {
+    inset: 56px 4px calc(var(--taskbar-h, 52px) + 4px) 4px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+  }
+
+  /* Keep all browser tabs accessible via horizontal scroll on mobile */
+  .browser__tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .browser__tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .browser__tab--ghost {
+    display: inline-flex !important;
+  }
+  .browser__tab {
+    flex: 0 0 auto;
+  }
+
+  /* Stack inner window grids cleanly on narrow phone windows */
+  .os-floating-win .about-grid,
+  .os-floating-win .contact-grid,
+  .os-floating-win .explorer__body {
+    grid-template-columns: 1fr !important;
+  }
+  .os-floating-win .explorer__sidebar {
+    border-right: 0;
+    border-bottom: 2px solid var(--ink);
+    padding: 8px 10px;
+  }
+  .os-floating-win .folder-list {
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 2px;
+  }
+  .os-floating-win .folder-btn {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  /* Scale Wisteria pet down on phone screens so she doesn't block UI */
+  .pet {
+    padding-right: 8px;
+  }
+  .pet__stage img {
+    height: 112px !important;
+  }
+  .pet__hud {
+    transform: scale(0.84);
+    transform-origin: bottom center;
+    margin-bottom: 2px;
+  }
+  .pet__bubble {
+    max-width: 195px;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+  .pet__bubble.is-visible {
+    transform: translate(-50%, 0) scale(1.02) !important;
+  }
+  .pet__bubble.has-choice {
+    width: 210px;
+    max-width: 78vw;
+    padding: 9px 10px;
+  }
+  .pet__ask-text {
+    font-size: 11px;
+    margin-bottom: 7px;
+  }
+
+  /* Mobile Music Player Popup when toggled via taskbar speaker icon */
+  .os-desktop__music {
+    display: grid !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    width: auto !important;
+  }
+  .os-desktop__music.is-hidden {
+    display: none !important;
+  }
+
+  /* Streamlined Mobile Taskbar */
+  .taskbar__app[href="#work"],
+  .taskbar__app[href="#media"],
+  .taskbar__app[href="#contact"],
+  #sfxToggle,
+  .taskbar__online,
+  #helpTooltip {
+    display: none !important;
+  }
+  .taskbar__tray {
+    max-width: 44vw;
+  }
+  .taskbar__tray-btn {
+    padding: 4px 7px !important;
+    font-size: 7px;
+  }
+  .start-menu {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: calc(100vw - 16px);
+  }
+  .start-menu__programs {
+    max-height: 52dvh;
+  }
+}
+
+
+
+
 
 
 

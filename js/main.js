@@ -623,10 +623,19 @@
     initCaseTilt();
     initCaseReviews(project.id);
 
-    if (!openDialog(projectDialog)) return;
-
-    const scroll = $(".modal__scroll", projectDialog);
-    if (scroll) scroll.scrollTop = 0;
+    const fileTitle = (APP_EXTENSIONS[project.id] && APP_EXTENSIONS[project.id].file) || `${project.id}.exe`;
+    const titleEl = $("#appWindowTitleText");
+    if (titleEl) titleEl.textContent = fileTitle;
+    const appWinInfo = managedWindows.get("app");
+    if (appWinInfo) {
+      appWinInfo.title = fileTitle;
+      openDesktopWindow("app");
+      const scroll = $("#projectContent");
+      if (scroll) scroll.scrollTop = 0;
+    } else if (openDialog(projectDialog)) {
+      const scroll = $(".modal__scroll", projectDialog);
+      if (scroll) scroll.scrollTop = 0;
+    }
 
     if (options.hash !== false) {
       try {
@@ -1995,6 +2004,8 @@
 
   function initDraggableWindows() {
     $$("[data-draggable]").forEach((win) => {
+      if (win.dataset.dragBound === "1") return;
+      win.dataset.dragBound = "1";
       const handle = $("[data-drag-handle]", win) || win;
       let dragging = false;
       let startX = 0;
@@ -2224,7 +2235,7 @@
   initHeroBrowser();
 
   /* ============================================================
-     DESKTOP APP SHORTCUT ICONS & OS WINDOW MANAGER (MINIMIZE / MAXIMIZE / CLOSE)
+     WINDOWS-STYLE DESKTOP OS: ICONS, FLOATING WINDOWS, TASKBAR & START SEARCH
      ============================================================ */
   const APP_EXTENSIONS = {
     aipet: { file: "AIPet.exe", ext: ".EXE", color: "#a855f7" },
@@ -2234,11 +2245,308 @@
     "forest-run": { file: "forest_run.exe", ext: ".GAME", color: "#10b981" },
     "ai-blocker": { file: "ai_blocker.crx", ext: ".CRX", color: "#3b82f6" },
     "dns-changer": { file: "dns_ph.apk", ext: ".APK", color: "#06b6d4" },
-    lanshare: { file: "lanshare.exe", ext: ".EXE", color: "#8b5cf6" },
+    lanshare: { file: "kurizu.dropship", ext: ".APP", color: "#8b5cf6" },
     firesword: { file: "firesword.mc", ext: ".MOD", color: "#f97316" },
   };
 
+  /* Bespoke vector/pixel app icons for all desktop shortcuts (no photo thumbnails) */
+  const CUSTOM_APP_ICONS = {
+    "win-launchpad": {
+      bg: "linear-gradient(145deg, #6d28d9, #2e1065)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M5 12a3 3 0 0 1 3-3h11l3 4h18a3 3 0 0 1 3 3v20a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V12Z" fill="#c084fc" stroke="#1e0936" stroke-width="2.5"/>
+        <rect x="9" y="13" width="11" height="10" rx="2" fill="#bef264" stroke="#1e0936" stroke-width="2"/>
+        <rect x="19" y="11" width="11" height="11" rx="2" fill="#ff5ea8" stroke="#1e0936" stroke-width="2"/>
+        <rect x="28" y="13" width="11" height="10" rx="2" fill="#38bdf8" stroke="#1e0936" stroke-width="2"/>
+        <path d="M5 20h38v16a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V20Z" fill="#a855f7" stroke="#1e0936" stroke-width="2.5"/>
+        <rect x="15" y="25" width="5" height="5" rx="1" fill="#fde047" stroke="#1e0936" stroke-width="1.5"/>
+        <rect x="22" y="25" width="5" height="5" rx="1" fill="#bef264" stroke="#1e0936" stroke-width="1.5"/>
+        <rect x="29" y="25" width="5" height="5" rx="1" fill="#ff8fd8" stroke="#1e0936" stroke-width="1.5"/>
+      </svg>`,
+    },
+    "win-work": {
+      bg: "linear-gradient(145deg, #4c1d95, #2e1065)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M6 13a3 3 0 0 1 3-3h10l3 4h17a3 3 0 0 1 3 3v18a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V13Z" fill="#fbbf24" stroke="#1e0936" stroke-width="2.5"/>
+        <rect x="10" y="15" width="28" height="14" rx="2" fill="#fef3c7" stroke="#1e0936" stroke-width="2"/>
+        <path d="M6 20h36v15a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V20Z" fill="#f59e0b" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="m19 25-3 3.5 3 3.5M29 25l3 3.5-3 3.5M25.5 24l-3 9" stroke="#1e0936" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+    },
+    "win-gallery": {
+      bg: "linear-gradient(145deg, #831843, #500724)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 8C14.6 8 7 15 7 23.6 7 32.2 14.3 39 23 39c2.7 0 4.5-1.9 4.5-4.1 0-1.1-.5-2-.5-3 0-1.6 1.3-2.9 3-2.9h3.4c4.3 0 7.6-3.4 7.6-7.8C41 13.7 33.4 8 24 8Z" fill="#fde68a" stroke="#1e0936" stroke-width="2.5"/>
+        <circle cx="15.5" cy="20" r="2.8" fill="#ff5ea8" stroke="#1e0936" stroke-width="1.6"/>
+        <circle cx="22" cy="15" r="2.8" fill="#38bdf8" stroke="#1e0936" stroke-width="1.6"/>
+        <circle cx="29.5" cy="16.5" r="2.8" fill="#a855f7" stroke="#1e0936" stroke-width="1.6"/>
+        <circle cx="33.5" cy="22.5" r="2.5" fill="#4ade80" stroke="#1e0936" stroke-width="1.6"/>
+        <circle cx="16.5" cy="28" r="2.5" fill="#fb923c" stroke="#1e0936" stroke-width="1.6"/>
+        <circle cx="22.5" cy="33" r="2.4" fill="#831843" stroke="#1e0936" stroke-width="1.6"/>
+      </svg>`,
+    },
+    "win-kurizu3d": {
+      bg: "linear-gradient(145deg, #701a75, #3b0764)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 7 39 15.5v17L24 41 9 32.5v-17L24 7Z" fill="#e879f9" stroke="#1e0936" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M24 7 39 15.5 24 24 9 15.5 24 7Z" fill="#f5d0fe" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M24 24v17L9 32.5v-17L24 24Z" fill="#d946ef" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M24 24 39 15.5v17L24 41V24Z" fill="#a21caf" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+        <circle cx="24" cy="24" r="2.6" fill="#bef264" stroke="#1e0936" stroke-width="1.6"/>
+      </svg>`,
+    },
+    "win-about": {
+      bg: "linear-gradient(145deg, #065f46, #064e3b)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M11 8h19l8 8v24a2 2 0 0 1-2 2H11a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Z" fill="#fef9c3" stroke="#1e0936" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M30 8v8h8" fill="#fde047" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+        <rect x="13" y="18" width="13" height="8" rx="2" fill="#1e0936"/>
+        <path d="m15.5 20.5 2.2 1.7-2.2 1.8M19.5 24h3" stroke="#4ade80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M14 31h20M14 35.5h14" stroke="#1e0936" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>`,
+    },
+    "win-reel": {
+      bg: "linear-gradient(145deg, #9d174d, #4c0519)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="7" y="17" width="34" height="23" rx="3" fill="#311042" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="M7 11a2 2 0 0 1 2-2h30a2 2 0 0 1 2 2v6H7v-6Z" fill="#f472b6" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="m13 9 4 8M23 9l4 8M33 9l4 8" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="m20 23 11 5.5L20 34V23Z" fill="#bef264" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+      </svg>`,
+    },
+    "win-contact": {
+      bg: "linear-gradient(145deg, #155e75, #083344)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="6" y="13" width="36" height="24" rx="3" fill="#e0f2fe" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="m7 14 17 13L41 14" fill="#7dd3fc"/>
+        <path d="m7 14 17 13L41 14" stroke="#1e0936" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M24 22.5c-1.8-2-4.8-1.5-4.8 1.2 0 2.5 4.8 5.3 4.8 5.3s4.8-2.8 4.8-5.3c0-2.7-3-3.2-4.8-1.2Z" fill="#ff5ea8" stroke="#1e0936" stroke-width="1.8"/>
+      </svg>`,
+    },
+    "win-browser": {
+      bg: "linear-gradient(145deg, #6d28d9, #3b0764)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="6" y="9" width="36" height="30" rx="4" fill="#f3e8ff" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="M6 13a4 4 0 0 1 4-4h28a4 4 0 0 1 4 4v4H6v-4Z" fill="#c084fc" stroke="#1e0936" stroke-width="2.5"/>
+        <circle cx="11" cy="13" r="1.5" fill="#ff5ea8"/>
+        <circle cx="15.5" cy="13" r="1.5" fill="#fbbf24"/>
+        <circle cx="20" cy="13" r="1.5" fill="#4ade80"/>
+        <circle cx="24" cy="28" r="8" fill="#a855f7" stroke="#1e0936" stroke-width="2.2"/>
+        <ellipse cx="24" cy="28" rx="3.8" ry="8" stroke="#fef08a" stroke-width="1.8"/>
+        <path d="M16.5 28h15" stroke="#fef08a" stroke-width="1.8"/>
+      </svg>`,
+    },
+    "win-profile": {
+      bg: "linear-gradient(145deg, #b45309, #451a03)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="7" y="10" width="34" height="28" rx="4" fill="#fef3c7" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="M7 14a4 4 0 0 1 4-4h26a4 4 0 0 1 4 4v4H7v-4Z" fill="#f59e0b" stroke="#1e0936" stroke-width="2.5"/>
+        <circle cx="17" cy="26" r="4.2" fill="#c084fc" stroke="#1e0936" stroke-width="2"/>
+        <path d="M11.5 34.5c1-3 3-4.2 5.5-4.2s4.5 1.2 5.5 4.2" fill="#c084fc" stroke="#1e0936" stroke-width="2" stroke-linecap="round"/>
+        <path d="M26 24h10M26 28.5h7" stroke="#1e0936" stroke-width="2.3" stroke-linecap="round"/>
+        <circle cx="34.5" cy="32.5" r="4" fill="#bef264" stroke="#1e0936" stroke-width="1.8"/>
+        <path d="m32.8 32.5 1.2 1.3 2.4-2.4" stroke="#1e0936" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+    },
+    aipet: {
+      bg: "linear-gradient(145deg, #7e22ce, #3b0764)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="m11 20 2-11 8 6h6l8-6 2 11v14a6 6 0 0 1-6 6H17a6 6 0 0 1-6-6V20Z" fill="#d8b4fe" stroke="#1e0936" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="m14 17 1-5 4 3M34 17l-1-5-4 3" fill="#ff8fd8"/>
+        <circle cx="18.5" cy="26" r="2.2" fill="#1e0936"/>
+        <circle cx="29.5" cy="26" r="2.2" fill="#1e0936"/>
+        <ellipse cx="15" cy="29" rx="2" ry="1.2" fill="#ff5ea8"/>
+        <ellipse cx="33" cy="29" rx="2" ry="1.2" fill="#ff5ea8"/>
+        <path d="M21 29.5c1 1.4 2 1.4 3 0 1 1.4 2 1.4 3 0" stroke="#1e0936" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+    },
+    pixify: {
+      bg: "linear-gradient(145deg, #86198f, #3b0764)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="8" y="14" width="10" height="10" fill="#ff5ea8" stroke="#1e0936" stroke-width="2.2"/>
+        <rect x="18" y="14" width="10" height="10" fill="#c084fc" stroke="#1e0936" stroke-width="2.2"/>
+        <rect x="8" y="24" width="10" height="10" fill="#38bdf8" stroke="#1e0936" stroke-width="2.2"/>
+        <rect x="18" y="24" width="10" height="10" fill="#fde047" stroke="#1e0936" stroke-width="2.2"/>
+        <path d="m24 28 14-14 3 3-14 14-3-3Z" fill="#bef264" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M37 8v5M34.5 10.5h5" stroke="#fde047" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>`,
+    },
+    wobble: {
+      bg: "linear-gradient(145deg, #9a3412, #431407)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="7" y="9" width="34" height="30" rx="5" fill="#1e1b4b" stroke="#1e0936" stroke-width="2.5"/>
+        <path d="M11 24c3-9 6-9 9 0s6 9 9 0 5-9 8 0" stroke="#bef264" stroke-width="3" stroke-linecap="round"/>
+        <path d="M11 29c3-6 6-6 9 0s6 6 9 0 5-6 8 0" stroke="#ff5ea8" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="20" cy="14" r="2.2" fill="#fbbf24"/>
+        <circle cx="28" cy="14" r="2.2" fill="#38bdf8"/>
+      </svg>`,
+    },
+    malfoy: {
+      bg: "linear-gradient(145deg, #7f1d1d, #311042)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M29.5 10.5a13.5 13.5 0 1 0 9 22.8 11 11 0 0 1-9-22.8Z" fill="#fde047" stroke="#1e0936" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="m23 19-4 7h5l-2 7 7-8h-5l3-6h-4Z" fill="#ff5ea8" stroke="#1e0936" stroke-width="1.8" stroke-linejoin="round"/>
+        <circle cx="34" cy="15" r="2" fill="#bef264"/>
+        <circle cx="14" cy="14" r="1.6" fill="#f5d0fe"/>
+      </svg>`,
+    },
+    "forest-run": {
+      bg: "linear-gradient(145deg, #065f46, #1e1b4b)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="m17 9 9 12h-5l6 10H11l6-10h-5l5-12Z" fill="#34d399" stroke="#1e0936" stroke-width="2.3" stroke-linejoin="round"/>
+        <path d="m31 12 8 11h-4l5 9H24l5-9h-4l6-11Z" fill="#10b981" stroke="#1e0936" stroke-width="2.3" stroke-linejoin="round"/>
+        <rect x="13" y="27" width="22" height="12" rx="6" fill="#c084fc" stroke="#1e0936" stroke-width="2.4"/>
+        <path d="M19 31v4M17 33h4" stroke="#1e0936" stroke-width="2.2" stroke-linecap="round"/>
+        <circle cx="28" cy="32" r="1.5" fill="#fde047"/>
+        <circle cx="31" cy="34" r="1.5" fill="#ff5ea8"/>
+      </svg>`,
+    },
+    "ai-blocker": {
+      bg: "linear-gradient(145deg, #991b1b, #450a0a)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M24 7 38 12v11c0 9.5-6 16-14 19-8-3-14-9.5-14-19V12L24 7Z" fill="#ef4444" stroke="#1e0936" stroke-width="2.5" stroke-linejoin="round"/>
+        <rect x="16" y="17" width="16" height="13" rx="3" fill="#fef2f2" stroke="#1e0936" stroke-width="2.2"/>
+        <circle cx="21" cy="23.5" r="1.8" fill="#1e0936"/>
+        <circle cx="27" cy="23.5" r="1.8" fill="#1e0936"/>
+        <path d="m14 33 20-19" stroke="#fde047" stroke-width="3.4" stroke-linecap="round"/>
+      </svg>`,
+    },
+    "dns-changer": {
+      bg: "linear-gradient(145deg, #0369a1, #1e1b4b)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <circle cx="24" cy="24" r="15" fill="#38bdf8" stroke="#1e0936" stroke-width="2.5"/>
+        <ellipse cx="24" cy="24" rx="7" ry="15" stroke="#1e0936" stroke-width="2"/>
+        <path d="M9 24h30" stroke="#1e0936" stroke-width="2"/>
+        <path d="m26 11-9 14h7l-2 12 11-15h-7l2-11Z" fill="#fde047" stroke="#1e0936" stroke-width="2.2" stroke-linejoin="round"/>
+      </svg>`,
+    },
+    lanshare: {
+      bg: "linear-gradient(145deg, #5b21b6, #1e1b4b)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="6" y="10" width="16" height="12" rx="2" fill="#c084fc" stroke="#1e0936" stroke-width="2.3"/>
+        <rect x="26" y="25" width="16" height="12" rx="2" fill="#38bdf8" stroke="#1e0936" stroke-width="2.3"/>
+        <path d="M26 15h10l-3-3M36 15l-3 3" stroke="#bef264" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M22 32H12l3-3M12 32l3 3" stroke="#fde047" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`,
+    },
+    firesword: {
+      bg: "linear-gradient(145deg, #9a3412, #311042)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <path d="M28 9c3 4-1 7 2 10 3-2 5-6 5-6 3 5 1 11-3 15-4 4-11 4-15 0-4-4-3-11 2-15 0 0 0 4 3 4 1-3 3-6 6-8Z" fill="#fb923c"/>
+        <path d="m35 10 3 3-17 17-3-3L35 10Z" fill="#fde047" stroke="#1e0936" stroke-width="2.3" stroke-linejoin="round"/>
+        <path d="m13 25 10 10M15 33l-5 5" stroke="#1e0936" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="10" cy="38" r="2.5" fill="#ef4444" stroke="#1e0936" stroke-width="1.8"/>
+      </svg>`,
+    },
+  };
+
+  function getCustomAppIcon(id) {
+    return CUSTOM_APP_ICONS[id] || CUSTOM_APP_ICONS["win-work"];
+  }
+
   function getDesktopShortcutItems() {
+    const systemItems = [
+      {
+        id: "win-launchpad",
+        kind: "os-win",
+        targetWin: "launchpad",
+        title: "My Apps Folder",
+        subtitle: "9 Apps Made by Kurizu",
+        file: "my_apps.dir",
+        ext: "DIR",
+        color: "#a855f7",
+        image: "assets/sprites/idle-still.webp",
+      },
+      {
+        id: "win-work",
+        kind: "os-win",
+        targetWin: "work",
+        title: "Projects Explorer",
+        subtitle: "Case Studies & Details",
+        file: "projects.exe",
+        ext: ".EXE",
+        color: "#8b5cf6",
+        image: "assets/sprites/idle-still.webp",
+      },
+      {
+        id: "win-gallery",
+        kind: "os-win",
+        targetWin: "gallery",
+        title: "Art Gallery",
+        subtitle: "57 Hand-drawn Pieces & Sketches",
+        file: "art_gallery.exe",
+        ext: ".ART",
+        color: "#f43f5e",
+        image: "assets/arts/digital/wisteria-night.webp",
+      },
+      {
+        id: "win-kurizu3d",
+        kind: "os-win",
+        targetWin: "kurizu3d",
+        title: "Kurizu 3D Rig",
+        subtitle: "Interactive WebGL Character",
+        file: "kurizu_3d.exe",
+        ext: ".3D",
+        color: "#d946ef",
+        image: "assets/sprites/mascot-still.webp",
+      },
+      {
+        id: "win-about",
+        kind: "os-win",
+        targetWin: "about",
+        title: "About & Terminal",
+        subtitle: "Bio, Toolkit & Shell",
+        file: "about_me.txt",
+        ext: ".TXT",
+        color: "#22c55e",
+        image: "assets/sprites/avatar-still.webp",
+      },
+      {
+        id: "win-reel",
+        kind: "os-win",
+        targetWin: "reel",
+        title: "Showreel.mp4",
+        subtitle: "2026 Motion & Video Montage",
+        file: "showreel.mp4",
+        ext: ".MP4",
+        color: "#ec4899",
+        image: "assets/images/malfoy-desktop.webp",
+      },
+      {
+        id: "win-contact",
+        kind: "os-win",
+        targetWin: "contact",
+        title: "Say Hi / Contact",
+        subtitle: "Socials, Links & Collabs",
+        file: "contact.exe",
+        ext: ".MSG",
+        color: "#06b6d4",
+        image: "assets/sprites/pet-still.webp",
+      },
+      {
+        id: "win-browser",
+        kind: "os-win",
+        targetWin: "browser",
+        title: "kurizu.exe Browser",
+        subtitle: "Welcome & 3am Lab Workbench",
+        file: "kurizu.exe",
+        ext: ".WWW",
+        color: "#a855f7",
+        image: "assets/sprites/dance-still.webp",
+      },
+      {
+        id: "win-profile",
+        kind: "os-win",
+        targetWin: "profile",
+        title: "Official Account",
+        subtitle: "Verified Profile Card",
+        file: "profile.card",
+        ext: ".ID",
+        color: "#eab308",
+        image: "assets/sprites/avatar.webp",
+      },
+    ];
+
     const projectApps = (config.projects || []).map((p) => {
       const meta = APP_EXTENSIONS[p.id] || { file: `${p.id}.exe`, ext: ".APP", color: "#a855f7" };
       return {
@@ -2250,126 +2558,84 @@
         ext: meta.ext,
         color: meta.color,
         image: p.image,
+        tags: (p.tags || []).join(" "),
       };
     });
-    // Add 3D Avatar Viewer & Terminal system shortcuts
-    projectApps.push(
-      {
-        id: "kurizu3d",
-        kind: "scroll-win",
-        targetWin: "kurizu3d",
-        targetSelector: "#kurizu3d",
-        title: "Kurizu 3D Rig",
-        subtitle: "Interactive WebGL Avatar",
-        file: "kurizu_3d.exe",
-        ext: ".3D",
-        color: "#d946ef",
-        image: "assets/sprites/mascot-still.webp",
-      },
-      {
-        id: "terminal-app",
-        kind: "terminal",
-        targetWin: "about",
-        targetSelector: "#interactiveTerminal",
-        title: "Terminal",
-        subtitle: "Interactive Shell",
-        file: "terminal.sh",
-        ext: ".CMD",
-        color: "#22c55e",
-        image: "assets/sprites/idle-still.webp",
-      },
-      {
-        id: "gallery-app",
-        kind: "scroll-win",
-        targetWin: "gallery",
-        targetSelector: ".gallery-window",
-        title: "Art Gallery",
-        subtitle: "57 Hand-drawn Pieces",
-        file: "gallery.exe",
-        ext: ".ART",
-        color: "#f43f5e",
-        image: "assets/arts/digital/wisteria-night.webp",
-      }
-    );
-    return projectApps;
+
+    return [...systemItems, ...projectApps];
   }
 
   function launchDesktopApp(item) {
     playSfx("powerup");
-    if (item.kind === "project" || item.kind === "game-or-case") {
-      openProject(item.id);
-      toast(`launching ${item.file}… ✨`);
-    } else if (item.kind === "terminal") {
-      restoreWindowById("about");
-      $("#interactiveTerminal")?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
-      window.setTimeout(() => $("#terminalInput")?.focus(), 420);
-      toast("opened terminal.sh — type help!");
-    } else if (item.kind === "scroll-win") {
-      if (item.targetWin) restoreWindowById(item.targetWin);
-      const el = $(item.targetSelector);
-      if (el) el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
+    if (item.kind === "os-win") {
+      openDesktopWindow(item.targetWin);
       toast(`opened ${item.file} ✨`);
+    } else if (item.kind === "game-or-case" && item.id === "forest-run") {
+      openDesktopWindow("arcade");
+      toast("opened forest_run.exe arcade cabinet ✨");
+    } else if (item.id === "lanshare") {
+      openDesktopWindow("dropship");
+      toast("opened kurizu.dropship desktop window ✨");
+    } else if (item.kind === "project" || item.kind === "game-or-case") {
+      openProject(item.id);
+      toast(`opened ${item.file} window ✨`);
+    } else if (item.kind === "terminal") {
+      openDesktopWindow("about");
+      window.setTimeout(() => $("#terminalInput")?.focus(), 180);
+      toast("opened terminal.sh — type help!");
     }
   }
 
   const desktopIconOffsets = new Map();
 
   function initDesktopAppIcons() {
-    const grids = [$("#desktopAppsGrid"), $("#browserAppsGrid")].filter(Boolean);
+    const osGrid = $("#osDesktopIcons");
+    const folderGrids = [$("#desktopAppsGrid"), $("#browserAppsGrid")].filter(Boolean);
+    const grids = [osGrid, ...folderGrids].filter(Boolean);
     if (!grids.length) return;
-    const items = getDesktopShortcutItems();
+    const allItems = getDesktopShortcutItems();
+    // Main desktop shows only the folders & system icons (including the my_apps.dir folder);
+    // Opening my_apps.dir reveals the 9 apps made by Kurizu!
+    const desktopOnlyItems = allItems.filter((item) => item.kind === "os-win");
+    const myAppsOnlyItems = allItems.filter((item) => item.kind !== "os-win");
     const statusEl = $("#desktopSelectionStatus");
 
-    const markup = items.map((item) => `
-      <button type="button" class="desktop-icon" role="listitem" data-app-id="${esc(item.id)}" title="${esc(item.title)} — ${esc(item.subtitle)} (Double-click or tap to open)">
-        <span class="desktop-icon__frame">
-          <img src="${esc(item.image)}" alt="${esc(item.title)}" width="56" height="56" loading="lazy" draggable="false">
+    const renderIconButtons = (list) => list.map((item) => {
+      const iconMeta = getCustomAppIcon(item.id);
+      return `
+      <button type="button" class="desktop-icon" role="listitem" data-app-id="${esc(item.id)}" title="${esc(item.title)} — ${esc(item.subtitle)} (Click to open)">
+        <span class="desktop-icon__frame" style="--icon-bg:${esc(iconMeta.bg)}">
+          <span class="desktop-icon__art">${iconMeta.svg}</span>
           <span class="desktop-icon__ext" style="--ext-bg:${esc(item.color)}">${esc(item.ext)}</span>
           <span class="desktop-icon__shortcut" aria-hidden="true">↗</span>
         </span>
         <span class="desktop-icon__label">${esc(item.file)}</span>
       </button>
-    `).join("");
+    `;
+    }).join("");
 
-    grids.forEach((grid) => {
-      grid.innerHTML = markup;
+    if (osGrid) osGrid.innerHTML = renderIconButtons(desktopOnlyItems);
+    const myAppsMarkup = renderIconButtons(myAppsOnlyItems);
+    folderGrids.forEach((grid) => {
+      grid.innerHTML = myAppsMarkup;
     });
 
-    let selectedId = null;
-    let lastClickId = null;
-    let lastClickTime = 0;
-
     grids.forEach((grid) => {
-      // Selection + single-tap/double-click launch
       grid.addEventListener("click", (e) => {
         const btn = e.target.closest(".desktop-icon[data-app-id]");
         if (!btn || btn.dataset.justDragged === "1") return;
         const appId = btn.dataset.appId;
-        const item = items.find((x) => x.id === appId);
+        const item = allItems.find((x) => x.id === appId);
         if (!item) return;
 
-        const now = Date.now();
-        const isTouch = window.matchMedia("(pointer: coarse)").matches;
-        const isDouble = (lastClickId === appId && now - lastClickTime < 550) || isTouch;
-
         $$(".desktop-icon").forEach((ic) => ic.classList.toggle("is-selected", ic.dataset.appId === appId));
-        selectedId = appId;
-        lastClickId = appId;
-        lastClickTime = now;
-
         if (statusEl) {
-          statusEl.textContent = `${item.file} — ${item.subtitle} · click again to launch`;
+          statusEl.textContent = `Opened: ${item.file} — ${item.subtitle}`;
         }
-
-        if (isDouble) {
-          launchDesktopApp(item);
-          lastClickId = null;
-        } else {
-          playSfx("click");
-        }
+        launchDesktopApp(item);
       });
 
-      // Drag icons around inside the desktop grid
+      // Drag icons around on the desktop
       $$(".desktop-icon", grid).forEach((iconBtn) => {
         let dragging = false;
         let moved = false;
@@ -2413,84 +2679,244 @@
       });
     });
 
-    // Deselect when clicking outside
     document.addEventListener("click", (e) => {
       if (!e.target.closest(".desktop-icon")) {
         $$(".desktop-icon.is-selected").forEach((ic) => ic.classList.remove("is-selected"));
-        selectedId = null;
       }
     });
   }
 
-  // Track managed desktop windows for minimize / maximize / close
+  // Track managed desktop windows for floating OS window management
   const managedWindows = new Map();
+  let focusedWinId = "browser";
+
+  function focusDesktopWindow(id) {
+    const info = managedWindows.get(id);
+    if (!info) return;
+    topZ += 1;
+    info.el.style.zIndex = String(topZ);
+    focusedWinId = id;
+    managedWindows.forEach((w, wid) => {
+      w.el.classList.toggle("is-focused", wid === id && !w.el.classList.contains("is-minimized") && !w.el.classList.contains("is-closed"));
+    });
+    updateTaskbarTray();
+  }
+
+  function openDesktopWindow(id) {
+    const info = managedWindows.get(id);
+    if (!info) return;
+    // On mobile phones, auto-minimize other open windows so only 1 window is shown at a time
+    if (window.innerWidth <= 860) {
+      managedWindows.forEach((w, wid) => {
+        if (wid !== id && !w.el.classList.contains("is-closed")) {
+          w.el.classList.add("is-minimized");
+          w.el.classList.remove("is-focused", "is-maximized");
+        }
+      });
+    }
+    info.el.classList.remove("is-closed", "is-minimized");
+    focusDesktopWindow(id);
+    if (id === "kurizu3d") {
+      window.setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
+    } else if (id === "dropship") {
+      const frame = $("#dropshipIframe");
+      if (frame && (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank")) {
+        frame.src = "dropship/index.html?windowed=1";
+      }
+    }
+  }
+
+  function restoreWindowById(id) {
+    openDesktopWindow(id);
+  }
 
   function updateTaskbarTray() {
     const tray = $("#taskbarTray");
     if (!tray) return;
     const pills = [];
     managedWindows.forEach((info, id) => {
-      const isMin = info.el.classList.contains("is-minimized");
       const isClosed = info.el.classList.contains("is-closed");
-      if (isMin || isClosed) {
-        pills.push(`
-          <button type="button" class="taskbar__tray-btn ${isClosed ? "is-closed-pill" : "is-min-pill"}" data-restore-win="${esc(id)}" title="Click to restore ${esc(info.title)}">
+      if (isClosed) return; // Closed windows leave the taskbar just like Windows OS!
+      const isMin = info.el.classList.contains("is-minimized");
+      const isFocused = focusedWinId === id && !isMin;
+      pills.push(`
+        <div class="taskbar__tab-group ${isFocused ? "is-active-tab" : ""} ${isMin ? "is-min-tab" : ""}">
+          <button type="button" class="taskbar__tray-btn ${isFocused ? "is-active-pill" : ""} ${isMin ? "is-min-pill" : ""}" data-taskbar-win="${esc(id)}" title="${isMin ? "Restore" : (isFocused ? "Minimize" : "Focus")} ${esc(info.title)}">
             <span class="taskbar__tray-dot"></span>
             <span>${esc(info.title)}</span>
           </button>
-        `);
-      }
+          <button type="button" class="taskbar__tab-close" data-taskbar-close="${esc(id)}" aria-label="Close ${esc(info.title)}" title="Close ${esc(info.title)}">×</button>
+        </div>
+      `);
     });
     tray.innerHTML = pills.join("");
   }
 
-  function restoreWindowById(id, scroll = false) {
-    const info = managedWindows.get(id);
-    if (!info) return;
-    const wasHidden = info.el.classList.contains("is-minimized") || info.el.classList.contains("is-closed");
-    info.el.classList.remove("is-minimized", "is-closed");
-    updateTaskbarTray();
-    if (wasHidden) playSfx("pop");
-    if (scroll) {
-      info.el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "center" });
-    }
-  }
-
   function restoreAllDesktopWindows() {
-    managedWindows.forEach((info) => {
-      info.el.classList.remove("is-minimized", "is-closed", "is-maximized");
+    managedWindows.forEach((info, id) => {
+      info.el.classList.remove("is-minimized", "is-maximized");
+      // Return to clean initial desktop: kurizu.exe in the middle + profile.card on the right
+      if (id === "browser" || id === "profile") info.el.classList.remove("is-closed");
+      else info.el.classList.add("is-closed");
+      info.el.style.transform = "";
     });
+    draggableOffsets.clear();
     document.body.classList.remove("has-maximized-window");
     desktopIconOffsets.forEach((_, iconEl) => {
       iconEl.style.transform = "";
     });
     desktopIconOffsets.clear();
+    focusDesktopWindow("browser");
+    playSfx("pop");
+    toast("desktop reset to clean workspace ✨");
+  }
+
+  function toggleShowDesktop() {
+    const anyOpenVisible = Array.from(managedWindows.values()).some(
+      (info) => !info.el.classList.contains("is-closed") && !info.el.classList.contains("is-minimized")
+    );
+    managedWindows.forEach((info) => {
+      if (!info.el.classList.contains("is-closed")) {
+        info.el.classList.remove("is-maximized");
+        info.el.classList.toggle("is-minimized", anyOpenVisible);
+      }
+    });
+    document.body.classList.remove("has-maximized-window");
+    playSfx("pop");
     updateTaskbarTray();
-    resetAllDraggableWindows();
+    toast(anyOpenVisible ? "showing clean desktop ✨" : "restored open windows ✨");
+  }
+
+  function initStartMenuPrograms() {
+    const listEl = $("#startMenuPrograms");
+    const searchInput = $("#startMenuSearch");
+    const labelEl = $("#startMenuSectionLabel");
+    if (!listEl) return;
+
+    const allItems = getDesktopShortcutItems();
+
+    function renderStartItems(query = "") {
+      const q = query.trim().toLowerCase();
+      const filtered = q
+        ? allItems.filter((it) => `${it.title} ${it.subtitle} ${it.file} ${it.tags || ""}`.toLowerCase().includes(q))
+        : allItems;
+
+      if (labelEl) {
+        labelEl.textContent = q ? `search results (${filtered.length})` : "all apps & desktop folders";
+      }
+
+      if (!filtered.length) {
+        listEl.innerHTML = `<p class="start-menu__empty">no apps matching "${esc(query)}"</p>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map((it) => {
+        const iconMeta = getCustomAppIcon(it.id);
+        return `
+        <button type="button" class="start-prog-btn" role="menuitem" data-start-app="${esc(it.id)}">
+          <span class="start-prog-btn__art" style="--icon-bg:${esc(iconMeta.bg)}">${iconMeta.svg}</span>
+          <span class="start-prog-btn__text">
+            <strong>${esc(it.title)}</strong>
+            <small>${esc(it.subtitle)}</small>
+          </span>
+          <span class="start-prog-btn__ext" style="--ext-bg:${esc(it.color)}">${esc(it.ext)}</span>
+        </button>
+      `;
+      }).join("");
+    }
+
+    renderStartItems();
+
+    searchInput?.addEventListener("input", () => {
+      renderStartItems(searchInput.value);
+    });
+
+    searchInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const firstBtn = listEl.querySelector(".start-prog-btn[data-start-app]");
+        if (firstBtn) firstBtn.click();
+      }
+    });
+
+    listEl.addEventListener("click", (e) => {
+      const btn = e.target.closest(".start-prog-btn[data-start-app]");
+      if (!btn) return;
+      const item = allItems.find((x) => x.id === btn.dataset.startApp);
+      if (!item) return;
+      launchDesktopApp(item);
+      const sm = $("#startMenu");
+      const st = $("#startToggle");
+      if (sm) sm.hidden = true;
+      if (st) st.setAttribute("aria-expanded", "false");
+    });
+
+    $("#startToggle")?.addEventListener("click", () => {
+      window.setTimeout(() => {
+        const sm = $("#startMenu");
+        if (sm && !sm.hidden && searchInput) {
+          searchInput.value = "";
+          renderStartItems("");
+          searchInput.focus();
+        }
+      }, 40);
+    });
   }
 
   function initDesktopWindowManager() {
+    const osLayer = $("#osDesktop");
     const windowSpecs = [
-      { id: "browser", sel: "#heroBrowser", title: "kurizu.exe", barSel: "#browserTabs" },
-      { id: "launchpad", sel: "#desktopLaunchpad", title: "my_apps.dir" },
-      { id: "profile", sel: ".profile-card", title: "official_account" },
-      { id: "about", sel: ".about-window", title: "about_me.txt" },
-      { id: "work", sel: ".explorer", title: "projects.exe" },
-      { id: "arcade", sel: ".arcade-window", title: "forest_run.exe" },
-      { id: "reel", sel: "#reel", title: "showreel.mp4" },
-      { id: "kurizu3d", sel: "#kurizu3d", title: "kurizu_avatar_3d.exe" },
-      { id: "gallery", sel: ".gallery-window", title: "art_gallery.exe" },
-      { id: "contact", sel: ".contact-window", title: "new_message.exe" },
+      { id: "browser", sel: "#heroBrowser", title: "kurizu.exe", barSel: "#browserTabs", startOpen: true },
+      { id: "work", sel: ".explorer", title: "projects.exe", startOpen: false },
+      { id: "gallery", sel: ".gallery-window", title: "art_gallery.exe", startOpen: false },
+      { id: "kurizu3d", sel: "#kurizu3d", title: "kurizu_3d.exe", startOpen: false },
+      { id: "arcade", sel: ".arcade-window", title: "forest_run.exe", startOpen: false },
+      { id: "about", sel: ".about-window", title: "about_me.txt", startOpen: false },
+      { id: "reel", sel: "#reel", title: "showreel.mp4", startOpen: false },
+      { id: "contact", sel: ".contact-window", title: "contact.exe", startOpen: false },
+      { id: "profile", sel: ".profile-card", title: "profile.card", startOpen: true },
+      { id: "dropship", sel: "#dropshipWindow", title: "kurizu.dropship", startOpen: false },
+      { id: "app", sel: "#appWindow", title: "case_study.exe", startOpen: false },
+      { id: "launchpad", sel: "#desktopLaunchpad", title: "my_apps.dir", startOpen: false },
     ];
 
-    windowSpecs.forEach((spec) => {
+    windowSpecs.forEach((spec, index) => {
       const win = $(spec.sel);
       if (!win) return;
       const bar = spec.barSel ? $(spec.barSel, win) : $(".window__bar", win);
       if (!bar) return;
 
       win.dataset.winId = spec.id;
-      managedWindows.set(spec.id, { id: spec.id, el: win, bar, title: spec.title });
+      win.classList.add("os-floating-win");
+      win.removeAttribute("data-reveal");
+      win.classList.add("is-visible");
+      // Move window into the fixed Desktop OS workspace layer so parent sections don't clip or scroll
+      if (osLayer && win.parentElement !== osLayer) {
+        osLayer.appendChild(win);
+      }
+
+      if (!spec.startOpen) {
+        win.classList.add("is-closed");
+      } else {
+        topZ += 1;
+        win.style.zIndex = String(topZ);
+        win.classList.add("is-focused");
+      }
+
+      managedWindows.set(spec.id, { id: spec.id, el: win, bar, title: spec.title, idx: index });
+
+      // Make window draggable by its titlebar if not already marked data-draggable
+      if (!win.hasAttribute("data-draggable")) {
+        win.setAttribute("data-draggable", spec.id);
+        bar.setAttribute("data-drag-handle", "");
+      }
+
+      // Clicking anywhere on the window brings it to the front!
+      win.addEventListener("pointerdown", () => {
+        if (!win.classList.contains("is-closed") && !win.classList.contains("is-minimized")) {
+          focusDesktopWindow(spec.id);
+        }
+      });
 
       // Make the 3 retro traffic dots interactive (dot 1 = close, dot 2 = minimize, dot 3 = maximize)
       const dots = $(".win-dots", bar);
@@ -2498,7 +2924,7 @@
         dots.removeAttribute("aria-hidden");
         const dotItems = $$("i", dots);
         if (dotItems[0]) { dotItems[0].title = "Close window"; dotItems[0].dataset.winAct = "close"; }
-        if (dotItems[1]) { dotItems[1].title = "Minimize window"; dotItems[1].dataset.winAct = "minimize"; }
+        if (dotItems[1]) { dotItems[1].title = "Minimize to taskbar"; dotItems[1].dataset.winAct = "minimize"; }
         if (dotItems[2]) { dotItems[2].title = "Maximize / restore"; dotItems[2].dataset.winAct = "maximize"; }
       }
 
@@ -2507,81 +2933,150 @@
         const ctrls = document.createElement("div");
         ctrls.className = "win-controls";
         ctrls.innerHTML = `
-          <button type="button" class="win-ctrl win-ctrl--min" data-win-act="minimize" aria-label="Minimize ${esc(spec.title)}" title="Minimize">—</button>
+          <button type="button" class="win-ctrl win-ctrl--min" data-win-act="minimize" aria-label="Minimize ${esc(spec.title)}" title="Minimize to taskbar">—</button>
           <button type="button" class="win-ctrl win-ctrl--max" data-win-act="maximize" aria-label="Maximize or restore ${esc(spec.title)}" title="Maximize / Restore">□</button>
-          <button type="button" class="win-ctrl win-ctrl--close" data-win-act="close" aria-label="Close ${esc(spec.title)}" title="Close to taskbar">×</button>
+          <button type="button" class="win-ctrl win-ctrl--close" data-win-act="close" aria-label="Close ${esc(spec.title)}" title="Close window">×</button>
         `;
         bar.appendChild(ctrls);
       }
 
       bar.addEventListener("click", (e) => {
         const actEl = e.target.closest("[data-win-act]");
-        if (!actEl) {
-          // Clicking anywhere on a minimized titlebar un-minimizes it!
-          if (win.classList.contains("is-minimized") && !e.target.closest("button, a, input")) {
-            win.classList.remove("is-minimized");
-            playSfx("pop");
-            updateTaskbarTray();
-          }
-          return;
-        }
+        if (!actEl) return;
         e.stopPropagation();
         const act = actEl.dataset.winAct;
 
         if (act === "minimize") {
-          win.classList.remove("is-maximized");
+          win.classList.remove("is-maximized", "is-focused");
           document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
-          const min = win.classList.toggle("is-minimized");
+          win.classList.add("is-minimized");
           playSfx("pop");
           updateTaskbarTray();
-          toast(min ? `minimized ${spec.title} (click bar or taskbar to restore)` : `restored ${spec.title} ✨`);
+          toast(`minimized ${spec.title} to taskbar`);
         } else if (act === "maximize") {
           win.classList.remove("is-minimized");
           const max = win.classList.toggle("is-maximized");
           document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
+          focusDesktopWindow(spec.id);
           playSfx("pop");
-          updateTaskbarTray();
           if (spec.id === "kurizu3d") window.setTimeout(() => window.dispatchEvent(new Event("resize")), 60);
         } else if (act === "close") {
-          win.classList.remove("is-maximized", "is-minimized");
+          win.classList.remove("is-maximized", "is-minimized", "is-focused");
           document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
           win.classList.add("is-closed");
           playSfx("pop");
           updateTaskbarTray();
-          toast(`closed ${spec.title} — click its taskbar pill or icon to reopen ✨`);
         }
       });
     });
 
-    // Restore from taskbar tray pills
+    // Move the floating Music Player widget onto the desktop surface corner (toggled by bottom-right taskbar icon)
+    const musicWidget = $(".now-playing");
+    const musicTrayBtn = $("#musicTrayToggle");
+    if (osLayer && musicWidget) {
+      musicWidget.classList.add("os-desktop__music", "is-hidden");
+      osLayer.appendChild(musicWidget);
+
+      const setMusicPopupOpen = (open) => {
+        musicWidget.classList.toggle("is-hidden", !open);
+        musicTrayBtn?.classList.toggle("is-active", open);
+        musicTrayBtn?.setAttribute("aria-expanded", String(open));
+        playSfx("pop");
+      };
+
+      musicTrayBtn?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpen = !musicWidget.classList.contains("is-hidden");
+        setMusicPopupOpen(!isOpen);
+      });
+    }
+
+    // Keep kurizu.exe focused as the primary active window on initial load
+    // On mobile phones, minimize profile.card to the taskbar so it doesn't overlap kurizu.exe
+    if (window.innerWidth <= 860) {
+      const prof = managedWindows.get("profile");
+      if (prof) prof.el.classList.add("is-minimized");
+    }
+    focusDesktopWindow("browser");
+
+    $("#dropshipInfoBtn")?.addEventListener("click", () => {
+      openProject("lanshare");
+    });
+
+    // Re-bind draggable behavior now that all floating windows have data-draggable
+    initDraggableWindows();
+    updateTaskbarTray();
+
+    // Taskbar tab clicks (minimize if focused, otherwise restore & focus) and × close button
     $("#taskbarTray")?.addEventListener("click", (e) => {
-      const btn = e.target.closest("[data-restore-win]");
+      const closeBtn = e.target.closest("[data-taskbar-close]");
+      if (closeBtn) {
+        e.stopPropagation();
+        const id = closeBtn.dataset.taskbarClose;
+        const info = managedWindows.get(id);
+        if (info) {
+          info.el.classList.remove("is-maximized", "is-minimized", "is-focused");
+          info.el.classList.add("is-closed");
+          playSfx("pop");
+          updateTaskbarTray();
+        }
+        return;
+      }
+      const btn = e.target.closest("[data-taskbar-win]");
       if (!btn) return;
-      const id = btn.dataset.restoreWin;
-      restoreWindowById(id, true);
-      toast(`restored ${managedWindows.get(id)?.title || "window"} ✨`);
+      const id = btn.dataset.taskbarWin;
+      const info = managedWindows.get(id);
+      if (!info) return;
+      const isMin = info.el.classList.contains("is-minimized");
+      const isFocused = focusedWinId === id && !isMin;
+      if (isFocused) {
+        info.el.classList.add("is-minimized");
+        info.el.classList.remove("is-focused", "is-maximized");
+        playSfx("pop");
+        updateTaskbarTray();
+      } else {
+        openDesktopWindow(id);
+        playSfx("pop");
+      }
     });
 
-    // Restore all button in Desktop Launchpad & Start Menu soft reset
-    $("#desktopRestoreAllBtn")?.addEventListener("click", () => {
-      restoreAllDesktopWindows();
+    $("#desktopRestoreAllBtn")?.addEventListener("click", restoreAllDesktopWindows);
+    $("#showDesktopBtn")?.addEventListener("click", toggleShowDesktop);
+    $("#startShowDesktop")?.addEventListener("click", () => {
+      toggleShowDesktop();
+      const sm = $("#startMenu");
+      if (sm) sm.hidden = true;
     });
 
-    // Clicking nav links (#about, #work, #arcade, #media, #contact, #home) automatically restores any closed/minimized windows in that section!
+    // Intercept #hash navigation links (#about, #work, #arcade, #media, #contact, #home, #kurizu3d) to open floating desktop windows instead of scrolling!
     document.addEventListener("click", (e) => {
       const link = e.target.closest('a[href^="#"]');
       if (!link) return;
       const hash = link.getAttribute("href");
       const map = {
-        "#home": ["browser", "launchpad", "profile"],
-        "#about": ["about"],
-        "#work": ["work"],
-        "#arcade": ["arcade"],
-        "#media": ["reel", "kurizu3d", "gallery"],
-        "#contact": ["contact"],
+        "#home": "browser",
+        "#about": "about",
+        "#work": "work",
+        "#arcade": "arcade",
+        "#media": "gallery",
+        "#reel": "reel",
+        "#kurizu3d": "kurizu3d",
+        "#contact": "contact",
       };
       if (map[hash]) {
-        map[hash].forEach((id) => restoreWindowById(id, false));
+        e.preventDefault();
+        if (window.innerWidth <= 860 && hash === "#home" && link.classList.contains("taskbar__app")) {
+          toggleShowDesktop();
+        } else {
+          openDesktopWindow(map[hash]);
+          playSfx("pop");
+        }
+        const sm = $("#startMenu");
+        if (sm) sm.hidden = true;
+        const mm = $("#mobileMenu");
+        if (mm && mm.getAttribute("aria-hidden") === "false") {
+          $("#menuToggle")?.click();
+        }
       }
     });
 
@@ -2600,6 +3095,7 @@
 
   initDesktopAppIcons();
   initDesktopWindowManager();
+  initStartMenuPrograms();
 
   /* ============================================================
      PARTY MODE + INTERACTIVE TERMINAL (about_me.txt)
@@ -2746,6 +3242,9 @@
   let petBubbleTimer = 0;
   let petBounceTimer = 0;
   let petActionTimer = 0;
+  let petTeleportTimer = 0;
+  let petChoiceActive = false;
+  let lastPromptIdx = -1;
   let petRAF = 0;
   let petDir = 1;
   let petX = 0;
@@ -2807,7 +3306,10 @@
     window.clearTimeout(petBubbleTimer);
     window.clearTimeout(petBounceTimer);
     window.clearTimeout(petActionTimer);
-    if (petAnimWrap) petAnimWrap.classList.remove("is-bouncing");
+    window.clearTimeout(petTeleportTimer);
+    petChoiceActive = false;
+    petBubble?.classList.remove("has-choice");
+    if (petAnimWrap) petAnimWrap.classList.remove("is-bouncing", "is-teleporting-out", "is-teleporting-in");
     if (petImg) petImg.classList.remove("is-bouncing");
     if (petStage) petStage.classList.remove("is-bouncing");
   };
@@ -2831,12 +3333,258 @@
     if (petStage && petX === 0 && petY === 0) petStage.style.transform = "";
   };
 
-  function petSay(text) {
+  function petSay(text, duration = 2800) {
     if (!petBubble) return;
+    petChoiceActive = false;
+    petBubble.classList.remove("has-choice");
     petBubble.textContent = text;
     petBubble.classList.add("is-visible");
     window.clearTimeout(petBubbleTimer);
-    petBubbleTimer = window.setTimeout(() => petBubble.classList.remove("is-visible"), 2800);
+    petBubbleTimer = window.setTimeout(() => petBubble.classList.remove("is-visible"), duration);
+  }
+
+  /* Magical Pixel Portal + Sparkle Burst VFX on Wisteria Teleport */
+  function spawnTeleportVfx(originX, originY) {
+    const layer = $("#cursorHearts");
+    if (!layer) return;
+    const cx = originX ?? window.innerWidth / 2;
+    const cy = originY ?? window.innerHeight / 2;
+
+    // 1. Expanding portal ring + flash core
+    const portal = document.createElement("div");
+    portal.className = "teleport-vfx";
+    portal.style.left = `${Math.round(cx)}px`;
+    portal.style.top = `${Math.round(cy)}px`;
+    portal.innerHTML = `<span class="teleport-vfx__core"></span><span class="teleport-vfx__ring"></span><span class="teleport-vfx__ring teleport-vfx__ring--outer"></span>`;
+    layer.appendChild(portal);
+    window.setTimeout(() => portal.remove(), 750);
+
+    // 2. Radial burst of glowing pixel sparkles, bolts & stars
+    const colors = ["#bef264", "#38bdf8", "#ff5ea8", "#fde047", "#e879f9", "#ffffff"];
+    const icons = ["#i-sparkle", "#i-star", "#i-bolt", "#i-heart"];
+    const count = 14;
+    for (let i = 0; i < count; i++) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      p.setAttribute("class", "teleport-particle");
+      p.setAttribute("viewBox", "0 0 24 24");
+      const angle = (Math.PI * 2 * i) / count + (Math.random() * 0.35 - 0.175);
+      const dist = 48 + Math.random() * 76;
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist;
+      p.style.left = `${Math.round(cx)}px`;
+      p.style.top = `${Math.round(cy)}px`;
+      p.style.color = colors[i % colors.length];
+      p.style.setProperty("--tx", `${dx.toFixed(1)}px`);
+      p.style.setProperty("--ty", `${dy.toFixed(1)}px`);
+      p.style.setProperty("--rot", `${Math.round((Math.random() - 0.5) * 260)}deg`);
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", icons[i % icons.length]);
+      p.appendChild(use);
+      layer.appendChild(p);
+      window.setTimeout(() => p.remove(), 720);
+    }
+  }
+
+  const PET_TELEPORT_PROMPTS = [
+    {
+      question: "⚡ *zwoop!* hey human! would you like to play Do Not Stop (forest_run.exe)? 🎮",
+      yesReply: "yay!! opening the arcade cabinet! don't stop running! ✨",
+      act: () => openDesktopWindow("arcade"),
+    },
+    {
+      question: "✨ *poof!* wanna spin Kurizu's 3D rigged character model in 360°? 🧊",
+      yesReply: "ta-da!! try the flip jump and turntable controls! ♡",
+      act: () => openDesktopWindow("kurizu3d"),
+    },
+    {
+      question: "🎨 *blink!* would you like to explore Kurizu's 57 hand-drawn artworks & pixel sketches?",
+      yesReply: "opening art_gallery.exe! so many purple pixels ♡",
+      act: () => openDesktopWindow("gallery"),
+    },
+    {
+      question: "📁 *warp!* wanna check out all 9 apps & projects in projects.exe?",
+      yesReply: "here's projects.exe! click any app to rate or leave a comment ✨",
+      act: () => openDesktopWindow("work"),
+    },
+    {
+      question: "🧪 *zap!* would you like to try KURIZU.pixify (pixel art cleaner & vectorizer)?",
+      yesReply: "opening pixify! crispy pixel grids incoming ✨",
+      act: () => openProject("pixify"),
+    },
+    {
+      question: "〰️ *boing!* wanna try Wobble Studio and paint bouncy motion onto drawings?",
+      yesReply: "wobble wobble!! everything looks better when it jiggles ♡",
+      act: () => openProject("wobble"),
+    },
+    {
+      question: "🌙 *shazam!* dare to inspect Malfoy.exe — the polite desktop prank?",
+      yesReply: "hehe remember the secret password: 'i love you malfoid'!",
+      act: () => openProject("malfoy"),
+    },
+    {
+      question: "💖 *sparkle!* wanna make it rain hearts and stars across the desktop right now?",
+      yesReply: "HEART STORM ACTIVATED!! ♡♡♡",
+      act: () => {
+        playSfx("powerup");
+        spawnHeartRain(48);
+      },
+    },
+    {
+      question: "🎉 *pop!* would you like to toggle Party Mode on the desktop?",
+      yesReply: "untz untz!! party vibes engaged! ✨",
+      act: () => {
+        const partyBtn = document.querySelector('[data-lab-action="party"]');
+        if (partyBtn) partyBtn.click();
+        else spawnHeartRain(36);
+      },
+    },
+    {
+      question: "🎬 *flash!* wanna watch the 2026 motion showreel.mp4 together?",
+      yesReply: "grab some pixel popcorn! 🍿✨",
+      act: () => openDesktopWindow("reel"),
+    },
+    {
+      question: "📡 *beam!* wanna try KURIZU.dropship — local Wi-Fi file & note sharing?",
+      yesReply: "opening KURIZU.dropship! no cloud, just purple Wi-Fi magic ✨",
+      act: () => openProject("lanshare"),
+    },
+    {
+      question: "🍪 *poof!* i teleported all this way! will you feed me a pixel cookie snack?",
+      yesReply: "NOM NOM NOM!! best human on the internet ♡",
+      act: () => feedPet(),
+    },
+  ];
+
+  const PET_NO_REPLIES = [
+    "oki doki! maybe next teleport~ ♡",
+    "fair enough! i'll just vibe right here :3",
+    "no worries human! poke me if you need me ✨",
+    " Roger that! keeping watch over your desktop ♡",
+  ];
+
+  function petAskChoice(promptItem) {
+    if (!petBubble || !promptItem) return;
+    petChoiceActive = true;
+    window.clearTimeout(petBubbleTimer);
+    petBubble.classList.add("is-visible", "has-choice");
+    petBubble.innerHTML = `
+      <div class="pet__ask-text">${esc(promptItem.question)}</div>
+      <div class="pet__ask-actions">
+        <button type="button" class="pet__ask-btn pet__ask-btn--yes" data-pet-choice="yes">yes! ✨</button>
+        <button type="button" class="pet__ask-btn pet__ask-btn--no" data-pet-choice="no">no</button>
+      </div>
+    `;
+
+    // Auto-dismiss after 14s if ignored
+    petBubbleTimer = window.setTimeout(() => {
+      if (!petChoiceActive) return;
+      petChoiceActive = false;
+      petBubble.classList.remove("is-visible", "has-choice");
+    }, 14000);
+  }
+
+  petBubble?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-pet-choice]");
+    if (!btn) return;
+    e.stopPropagation();
+    const choice = btn.dataset.petChoice;
+    const currentPrompt = PET_TELEPORT_PROMPTS[lastPromptIdx] || PET_TELEPORT_PROMPTS[0];
+    petChoiceActive = false;
+    petBubble.classList.remove("has-choice");
+
+    if (choice === "yes" && currentPrompt) {
+      playSfx("coin");
+      updatePetHappyUI(8);
+      triggerPetBounce();
+      if (petStage) {
+        const r = petStage.getBoundingClientRect();
+        spawnHeartShower(r.left + r.width / 2, r.top + r.height / 3, 12);
+      }
+      currentPrompt.act?.();
+      if (currentPrompt.act !== feedPet) {
+        petSay(currentPrompt.yesReply || "yay!! let's go! ✨", 3400);
+      }
+    } else {
+      playSfx("pop");
+      petSay(petPick(PET_NO_REPLIES), 2600);
+    }
+    scheduleNextPetTeleport(16000 + Math.random() * 9000);
+  });
+
+  function scheduleNextPetTeleport(delayMs) {
+    window.clearTimeout(petTeleportTimer);
+    const wait = delayMs ?? (16000 + Math.random() * 10000);
+    petTeleportTimer = window.setTimeout(() => {
+      if (petChatOpen || document.hidden || petChoiceActive) {
+        scheduleNextPetTeleport(8000);
+        return;
+      }
+      teleportPetWithPrompt();
+    }, wait);
+  }
+
+  function teleportPetWithPrompt() {
+    if (!petStage || petChatOpen) return;
+    petStopWalk();
+    petBusy = true;
+
+    // 1. Departure VFX at current position
+    const oldRect = (petAnimWrap || petStage).getBoundingClientRect();
+    spawnTeleportVfx(oldRect.left + oldRect.width / 2, oldRect.top + oldRect.height / 2);
+    playSfx("powerup");
+
+    if (petAnimWrap) {
+      petAnimWrap.classList.remove("is-teleporting-in", "is-bouncing");
+      petAnimWrap.classList.add("is-teleporting-out");
+    }
+
+    // 2. After 230ms warp-out, relocate left/right along the desktop taskbar floor (petY = 0)
+    window.setTimeout(() => {
+      const vw = window.innerWidth;
+      const isPhone = vw <= 780;
+      const minX = isPhone ? -Math.max(40, vw - 170) : -Math.max(80, vw - 290);
+      const maxX = isPhone ? -28 : -16;
+
+      let nextX = petX;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        nextX = Math.round(minX + Math.random() * (maxX - minX));
+        if (Math.abs(nextX - petX) > (isPhone ? 65 : 150)) break;
+      }
+
+      petX = nextX;
+      petY = 0;
+      petStage.style.transition = "none";
+      petStage.style.transform = `translate3d(${petX}px, 0, 0)`;
+
+      petPlay("action");
+      if (petAnimWrap) {
+        petAnimWrap.classList.remove("is-teleporting-out");
+        petAnimWrap.classList.add("is-teleporting-in");
+        window.setTimeout(() => petAnimWrap.classList.remove("is-teleporting-in"), 420);
+      }
+
+      // 3. Arrival VFX at new position + low (20%) chance to show a Yes/No suggestion bubble
+      const newRect = (petAnimWrap || petStage).getBoundingClientRect();
+      spawnTeleportVfx(newRect.left + newRect.width / 2, newRect.top + newRect.height / 2);
+
+      if (Math.random() < 0.2) {
+        let idx = Math.floor(Math.random() * PET_TELEPORT_PROMPTS.length);
+        if (idx === lastPromptIdx && PET_TELEPORT_PROMPTS.length > 1) {
+          idx = (idx + 1) % PET_TELEPORT_PROMPTS.length;
+        }
+        lastPromptIdx = idx;
+        petAskChoice(PET_TELEPORT_PROMPTS[idx]);
+      } else {
+        petChoiceActive = false;
+        petBubble?.classList.remove("is-visible", "has-choice");
+      }
+
+      window.setTimeout(() => {
+        petBusy = false;
+      }, 450);
+
+      scheduleNextPetTeleport(19000 + Math.random() * 9000);
+    }, 230);
   }
 
   function petPlay(mood) {
@@ -2899,7 +3647,7 @@
   }
 
   function headPat() {
-    if (!finePointer || petBusy || petChatOpen) return;
+    if (!finePointer || petBusy || petChatOpen || petChoiceActive) return;
     petStopWalk();
     petMoodCurrent = "headpat";
     petPlay("headpat");
@@ -2922,7 +3670,7 @@
   }
 
   function petChatty() {
-    if (petBusy || petChatOpen || document.hidden) {
+    if (petBusy || petChatOpen || document.hidden || petChoiceActive) {
       petChattyTimer = window.setTimeout(petChatty, 14000);
       return;
     }
@@ -3367,14 +4115,14 @@
     }
 
     petStage.addEventListener("pointerenter", () => {
-      if (finePointer && !petBusy && !petDragging) {
+      if (finePointer && !petBusy && !petDragging && !petChoiceActive) {
         updatePetHappyUI(2);
         headPat();
       }
     });
 
     petStage.addEventListener("pointerdown", (event) => {
-      if (event.target.closest("#petFeedBtn")) return;
+      if (event.target.closest("#petFeedBtn, #petBubble")) return;
       event.preventDefault();
       cancelAnimationFrame(gravityRAF);
       petDragging = true;
@@ -3422,7 +4170,11 @@
     petStage.addEventListener("pointerup", endPetPointer);
     petStage.addEventListener("pointercancel", endPetPointer);
     petStage.addEventListener("click", (event) => {
-      if (!event.target.closest("#petFeedBtn")) event.preventDefault();
+      if (!event.target.closest("#petFeedBtn, #petBubble")) event.preventDefault();
+    });
+    petStage.addEventListener("dblclick", (event) => {
+      if (event.target.closest("#petFeedBtn, #petBubble")) return;
+      teleportPetWithPrompt();
     });
   }
 
@@ -3434,6 +4186,7 @@
   function initPet() {
     goIdle();
     petChatty();
+    scheduleNextPetTeleport(5500);
   }
 
   if (petRoot) initPet();
