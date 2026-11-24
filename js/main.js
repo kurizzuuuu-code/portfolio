@@ -1400,10 +1400,25 @@
     updatePlayerUI();
   }
 
+  function applyPlayerPitchAndRate(rate = 1) {
+    try {
+      const slow = rate < 0.96;
+      if ("preservesPitch" in player) player.preservesPitch = !slow;
+      if ("mozPreservesPitch" in player) player.mozPreservesPitch = !slow;
+      if ("webkitPreservesPitch" in player) player.webkitPreservesPitch = !slow;
+      player.playbackRate = rate;
+    } catch (_) {}
+  }
+
   function loadTrack(index, autoplay = true) {
     if (!musicTracks.length) return;
     trackIndex = ((index % musicTracks.length) + musicTracks.length) % musicTracks.length;
     player.src = encodeURI(musicTracks[trackIndex].src);
+    if (document.body.classList.contains("is-wisteria-mad")) {
+      applyPlayerPitchAndRate(0.52);
+    } else {
+      applyPlayerPitchAndRate(1);
+    }
     updatePlayerUI();
     if (autoplay) play();
   }
@@ -1439,7 +1454,18 @@
     toast("tap anywhere to start the music ♡");
   }
 
-  player.addEventListener("play", () => { soundOn = true; updatePlayerUI(); });
+  player.addEventListener("play", () => {
+    soundOn = true;
+    if (document.body.classList.contains("is-wisteria-mad")) {
+      applyPlayerPitchAndRate(0.52);
+    }
+    updatePlayerUI();
+  });
+  player.addEventListener("loadedmetadata", () => {
+    if (document.body.classList.contains("is-wisteria-mad")) {
+      applyPlayerPitchAndRate(0.52);
+    }
+  });
   player.addEventListener("pause", () => {
     if (!player.ended) {
       soundOn = false;
@@ -2742,6 +2768,11 @@
   }
 
   function openDesktopWindow(id) {
+    if (document.body.classList.contains("is-wisteria-mad")) {
+      const madInput = $("#madCmdInput");
+      if (madInput) madInput.focus();
+      return;
+    }
     const info = managedWindows.get(id);
     if (!info) return;
     // On mobile phones, auto-minimize other open windows so only 1 window is shown at a time
@@ -3289,14 +3320,26 @@
   let petX = 0;
   let petY = 0;
   let petHappiness = 85;
+  const PET_MAD_KEY = "kurizu.wisteriaMad";
+  const PET_MAD_STARE_SPRITE = "assets/Pet/poke animation/SampleCharacter7_Hurt_2026-11-17-16-32-43.webp";
+  let petIsMad = false;
+  let petPokeCount = 0;
+  let petPokeDecayTimer = 0;
+  let petMadTimers = [];
+  let musicRateTimer = 0;
 
   try {
+    petIsMad = window.localStorage.getItem(PET_MAD_KEY) === "1";
     const savedHappy = parseInt(window.localStorage.getItem("kurizu.petHappy"), 10);
-    if (!Number.isNaN(savedHappy)) petHappiness = Math.min(100, Math.max(20, savedHappy));
+    if (!Number.isNaN(savedHappy)) petHappiness = petIsMad ? 0 : Math.min(100, Math.max(20, savedHappy));
   } catch (_) {}
 
   function updatePetHappyUI(delta = 0) {
-    petHappiness = Math.min(100, Math.max(10, petHappiness + delta));
+    if (petIsMad) {
+      petHappiness = 0;
+    } else {
+      petHappiness = Math.min(100, Math.max(10, petHappiness + delta));
+    }
     try { window.localStorage.setItem("kurizu.petHappy", String(petHappiness)); } catch (_) {}
     const fill = $("#petHappyFill");
     const val = $("#petHappyVal");
@@ -3305,7 +3348,284 @@
   }
   updatePetHappyUI(0);
 
+  function rampMusicPlaybackRate(targetRate, durationMs = 600) {
+    window.clearInterval(musicRateTimer);
+    if (!durationMs) {
+      applyPlayerPitchAndRate(targetRate);
+      return;
+    }
+    const startRate = Number(player.playbackRate) || 1;
+    const steps = 12;
+    let step = 0;
+    musicRateTimer = window.setInterval(() => {
+      step += 1;
+      const t = step / steps;
+      const next = +(startRate + (targetRate - startRate) * t).toFixed(3);
+      applyPlayerPitchAndRate(next);
+      if (step >= steps) {
+        window.clearInterval(musicRateTimer);
+        applyPlayerPitchAndRate(targetRate);
+      }
+    }, Math.max(20, Math.floor(durationMs / steps)));
+  }
+
+  function clearPetMadSequenceTimers() {
+    petMadTimers.forEach((id) => window.clearTimeout(id));
+    petMadTimers = [];
+  }
+
+  function pushMadCmdLine(text, kind = "") {
+    const logEl = $("#madCmdLog");
+    if (!logEl) return;
+    const p = document.createElement("p");
+    p.className = "mad-cmd__line" + (kind ? ` mad-cmd__line--${kind}` : "");
+    p.textContent = text;
+    logEl.appendChild(p);
+    while (logEl.childElementCount > 40) {
+      logEl.firstElementChild?.remove();
+    }
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function closeAllDesktopForMadPet() {
+    if (petChatOpen) chatClose();
+    if (partyMode) togglePartyMode(false);
+    setStartMenu(false);
+    setMobileMenu(false);
+    [gameDialog, projectDialog, lightbox].forEach((dlg) => {
+      try { if (dlg && dlg.open) dlg.close(); } catch (_) {}
+    });
+    managedWindows.forEach((info) => {
+      info.el.classList.remove("is-maximized", "is-minimized", "is-focused");
+      info.el.classList.add("is-closed");
+    });
+    document.body.classList.remove("has-maximized-window");
+    const musicWidget = $(".now-playing");
+    if (musicWidget) musicWidget.classList.add("is-hidden");
+    const tray = $("#taskbarTray");
+    if (tray) tray.innerHTML = "";
+  }
+
+  function setPetSilentStare() {
+    petStopTimers();
+    stopWalk();
+    petChoiceActive = false;
+    if (petBubble) {
+      petBubble.classList.remove("is-visible", "has-choice");
+      petBubble.textContent = "";
+    }
+    if (petImg) {
+      petImg.src = petSrc(PET_MAD_STARE_SPRITE);
+    }
+    // Center Wisteria slightly and lock her on the floor staring straight ahead
+    petY = 0;
+    if (petStage) {
+      petStage.style.transition = "transform 0.35s ease";
+      petStage.style.transform = `translate3d(${Math.round(petX)}px, 0, 0)`;
+    }
+  }
+
+  function triggerPetMadMode(options = {}) {
+    const fromReload = Boolean(options.fromReload);
+    petIsMad = true;
+    try { window.localStorage.setItem(PET_MAD_KEY, "1"); } catch (_) {}
+    updatePetHappyUI(0);
+    clearPetMadSequenceTimers();
+
+    document.body.classList.add("is-wisteria-mad");
+    setPetSilentStare();
+    rampMusicPlaybackRate(0.52, fromReload ? 0 : 750);
+
+    const madCmd = $("#wisteriaMadCmd");
+    const madLog = $("#madCmdLog");
+    const madInput = $("#madCmdInput");
+    if (madLog) madLog.innerHTML = "";
+    if (madCmd) madCmd.hidden = false;
+
+    const desktopIcons = $$("#osDesktopIcons .desktop-icon");
+
+    if (fromReload) {
+      closeAllDesktopForMadPet();
+      document.body.classList.add("is-desktop-wiped");
+      desktopIcons.forEach((ic) => ic.classList.add("is-deleted"));
+      pushMadCmdLine("Microsoft Windows [Version 10.0.26100.1] — WISTERIA_OVERRIDE", "sys");
+      pushMadCmdLine("C:\\WINDOWS\\system32> wisteria_boot_lock.sys", "err");
+      pushMadCmdLine("[NICE TRY] You refreshed the website, but Wisteria is STILL mad.", "warn");
+      pushMadCmdLine("[STATUS] All desktop windows closed. Desktop files deleted. Wallpaper = BLACK.", "err");
+      pushMadCmdLine("[WISTERIA] \"...\" (She is just staring at you in complete silence.)", "sys");
+      pushMadCmdLine("[RECOVERY] Type \"give cookies\" or \"give ram\" below to make her happy again.", "ok");
+      window.setTimeout(() => madInput?.focus(), 120);
+      return;
+    }
+
+    // Live dramatic meltdown sequence when poked too many times!
+    playSfx("error");
+    pushMadCmdLine("C:\\WINDOWS\\system32> wisteria_revenge.bat --force", "err");
+    pushMadCmdLine("[CRITICAL] Poke limit exceeded! Wisteria mood dropped to 0% (FURIOUS).", "warn");
+
+    petMadTimers.push(window.setTimeout(() => {
+      playSfx("error");
+      pushMadCmdLine("C:\\WINDOWS\\system32> taskkill /F /IM explorer_windows.exe", "err");
+      pushMadCmdLine("Closing all open desktop windows ... TERMINATED", "warn");
+      closeAllDesktopForMadPet();
+    }, 380));
+
+    const filesToDelete = [
+      "C:\\kurizu\\desktop\\kurizu.exe",
+      "C:\\kurizu\\desktop\\my_apps.dir",
+      "C:\\kurizu\\desktop\\projects.exe",
+      "C:\\kurizu\\desktop\\aipet.exe",
+      "C:\\kurizu\\desktop\\forest_run.exe",
+      "C:\\kurizu\\desktop\\kurizu_3d.exe",
+      "C:\\kurizu\\desktop\\art_gallery.exe",
+      "C:\\kurizu\\desktop\\kurizu.dropship",
+      "C:\\kurizu\\desktop\\about_me.txt",
+      "C:\\kurizu\\desktop\\contact.exe",
+      "C:\\kurizu\\system\\purple_wallpaper.sys",
+    ];
+
+    filesToDelete.forEach((filePath, idx) => {
+      petMadTimers.push(window.setTimeout(() => {
+        playSfx("error");
+        pushMadCmdLine(`del /F /Q ${filePath} ... DELETED`, "err");
+        const iconEl = desktopIcons[idx];
+        if (iconEl) {
+          iconEl.classList.add("is-deleting");
+          window.setTimeout(() => iconEl.classList.add("is-deleted"), 260);
+        }
+      }, 720 + idx * 170));
+    });
+
+    const finishDelay = 720 + filesToDelete.length * 170 + 180;
+    petMadTimers.push(window.setTimeout(() => {
+      document.body.classList.add("is-desktop-wiped");
+      desktopIcons.forEach((ic) => ic.classList.add("is-deleted"));
+      pushMadCmdLine("------------------------------------------------------------", "sys");
+      pushMadCmdLine("[VOID] Desktop wiped. Wallpaper set to #000000. Audio slowed to 52%.", "warn");
+      pushMadCmdLine("[WISTERIA] \"...\" (She is staring right at you and refuses to speak.)", "sys");
+      pushMadCmdLine("[RECOVERY] Type \"give cookies\" or \"give ram\" to appease her and restore the site.", "ok");
+      madInput?.focus();
+    }, finishDelay));
+  }
+
+  function appeaseMadPet(offeringType = "cookies") {
+    if (!petIsMad) return;
+    clearPetMadSequenceTimers();
+    const isRam = offeringType === "ram";
+    pushMadCmdLine(
+      `[OFFERING ACCEPTED] ${isRam ? "64GB DDR5 RGB RAM sticks" : "Warm batch of purple pixel cookies 🍪"} delivered to Wisteria!`,
+      "ok"
+    );
+    pushMadCmdLine("Restoring C:\\kurizu\\system\\purple_wallpaper.sys ... OK", "ok");
+    pushMadCmdLine("Restoring desktop files, saturation, and audio speed ... OK", "ok");
+    pushMadCmdLine("wisteria.mood = HAPPY (100%) ♡Rebooting desktop...", "ok");
+    playSfx("powerup");
+
+    window.setTimeout(() => {
+      petIsMad = false;
+      petPokeCount = 0;
+      try { window.localStorage.removeItem(PET_MAD_KEY); } catch (_) {}
+
+      const madCmd = $("#wisteriaMadCmd");
+      if (madCmd) madCmd.hidden = true;
+
+      document.body.classList.remove("is-wisteria-mad", "is-desktop-wiped", "is-wisteria-poke-warn");
+      $$("#osDesktopIcons .desktop-icon").forEach((ic) => {
+        ic.classList.remove("is-deleting", "is-deleted");
+      });
+
+      rampMusicPlaybackRate(1, 500);
+      petHappiness = 100;
+      updatePetHappyUI(100);
+      restoreAllDesktopWindows();
+
+      petMoodCurrent = "headpat";
+      petPlay("headpat");
+      triggerPetBounce();
+      if (petStage) {
+        const r = petStage.getBoundingClientRect();
+        spawnHeartShower(r.left + r.width / 2, r.top + r.height / 3, 24);
+      }
+      petSay(
+        isRam
+          ? "munch munch!! ⚡ 64GB of tasty RAM?! okay i forgive you... i brought your desktop back! don't poke me like that again ♡"
+          : "nom nom nom!! 🍪 warm pixel cookies?! okay i forgive you... i brought your desktop back! be nice to me now ♡",
+        5200
+      );
+
+      window.setTimeout(() => {
+        petBusy = false;
+        goIdle();
+        petChatty();
+        scheduleNextPetTeleport(12000);
+      }, 2200);
+    }, 650);
+  }
+
+  function initMadCmdTerminal() {
+    const madCmd = $("#wisteriaMadCmd");
+    const madForm = $("#madCmdForm");
+    const madInput = $("#madCmdInput");
+    const denyCloseBtn = $("#madCmdDenyClose");
+    if (!madCmd || !madForm || !madInput) return;
+
+    function handleMadCommand(raw) {
+      const val = (raw || "").trim();
+      if (!val) return;
+      pushMadCmdLine(`C:\\kurizu\\void> ${val}`, "sys");
+      const q = val.toLowerCase();
+
+      if (/\b(ram|ddr|memory|megabyte|gigabyte)\b/i.test(q)) {
+        appeaseMadPet("ram");
+      } else if (/\b(cookie|cookies|biscuit|snack|treat|food|eat|feed)\b/i.test(q)) {
+        appeaseMadPet("cookies");
+      } else if (/\b(help|\?|commands)\b/i.test(q)) {
+        playSfx("pop");
+        pushMadCmdLine("Available recovery commands: \"give cookies\" or \"give ram\"", "warn");
+      } else if (/\b(sorry|apologize|forgive|please|love)\b/i.test(q)) {
+        playSfx("error");
+        pushMadCmdLine("[WISTERIA] \"...\" (Words aren't enough. She wants snacks: type \"give cookies\" or \"give ram\".)", "warn");
+      } else {
+        playSfx("error");
+        pushMadCmdLine(`'${val}' is not recognized by Wisteria. Type "give cookies" or "give ram" to fix her mood.`, "err");
+      }
+    }
+
+    madForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = madInput.value;
+      madInput.value = "";
+      handleMadCommand(v);
+    });
+
+    madCmd.addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-mad-cmd]");
+      if (chip) {
+        madInput.value = "";
+        handleMadCommand(chip.dataset.madCmd);
+        return;
+      }
+      if (!e.target.closest("button, input")) {
+        madInput.focus();
+      }
+    });
+
+    denyCloseBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      playSfx("error");
+      pushMadCmdLine("[ACCESS DENIED] You cannot close cmd.exe while Wisteria is mad! Type \"give cookies\" or \"give ram\".", "err");
+      madInput.focus();
+    });
+  }
+  initMadCmdTerminal();
+
   function feedPet() {
+    if (petIsMad) {
+      appeaseMadPet("cookies");
+      return;
+    }
+    petPokeCount = 0;
+    rampMusicPlaybackRate(1, 250);
     if (petChatOpen) chatClose();
     petStopWalk();
     updatePetHappyUI(15);
@@ -3373,7 +3693,7 @@
   };
 
   function petSay(text, duration = 2800) {
-    if (!petBubble) return;
+    if (!petBubble || petIsMad) return;
     petChoiceActive = false;
     petBubble.classList.remove("has-choice");
     petBubble.textContent = text;
@@ -3552,8 +3872,10 @@
 
   function scheduleNextPetTeleport(delayMs) {
     window.clearTimeout(petTeleportTimer);
+    if (petIsMad) return;
     const wait = delayMs ?? (16000 + Math.random() * 10000);
     petTeleportTimer = window.setTimeout(() => {
+      if (petIsMad) return;
       if (petChatOpen || document.hidden || petChoiceActive) {
         scheduleNextPetTeleport(8000);
         return;
@@ -3563,7 +3885,7 @@
   }
 
   function teleportPetWithPrompt() {
-    if (!petStage || petChatOpen) return;
+    if (!petStage || petChatOpen || petIsMad) return;
     petStopWalk();
     petBusy = true;
 
@@ -3635,6 +3957,10 @@
   }
 
   function petToIdle() {
+    if (petIsMad) {
+      setPetSilentStare();
+      return;
+    }
     petStopWalk();
     if (petAnimWrap) petAnimWrap.classList.remove("is-bouncing");
     if (petImg) petImg.classList.remove("is-bouncing");
@@ -3643,13 +3969,17 @@
     petBusy = false;
     window.clearTimeout(petIdleTimer);
     petIdleTimer = window.setTimeout(() => {
-      if (petMoodCurrent !== "idle") return;
+      if (petIsMad || petMoodCurrent !== "idle") return;
       if (petBusy || petChatOpen || document.hidden) return;
       goIdle();
     }, 6500 + Math.random() * 9500);
   }
 
   function goIdle() {
+    if (petIsMad) {
+      setPetSilentStare();
+      return;
+    }
     petToIdle();
     if (petPlay("idle")) {
       petBusy = true;
@@ -3686,7 +4016,7 @@
   }
 
   function headPat() {
-    if (!finePointer || petBusy || petChatOpen || petChoiceActive) return;
+    if (petIsMad || !finePointer || petBusy || petChatOpen || petChoiceActive) return;
     petStopWalk();
     petMoodCurrent = "headpat";
     petPlay("headpat");
@@ -3697,18 +4027,65 @@
   }
 
   function poke() {
+    if (petIsMad) {
+      setPetSilentStare();
+      pushMadCmdLine("[!] Wisteria is ignoring your pokes. She is just staring at you. Type \"give cookies\" or \"give ram\".", "warn");
+      $("#madCmdInput")?.focus();
+      return;
+    }
     if (petChatOpen) return;
+
+    petPokeCount += 1;
+    window.clearTimeout(petPokeDecayTimer);
+    petPokeDecayTimer = window.setTimeout(() => {
+      if (!petIsMad) {
+        petPokeCount = 0;
+        rampMusicPlaybackRate(1, 300);
+      }
+    }, 18000);
+
+    updatePetHappyUI(-15);
+
+    // 5th poke snaps Wisteria into full Mad Mode!
+    if (petPokeCount >= 5) {
+      triggerPetMadMode({ fromReload: false });
+      return;
+    }
+
     petStopWalk();
     petMoodCurrent = "poke";
     petPlay("poke");
     triggerPetBounce();
     petBusy = true;
-    petSay(petPick(petBubblesFor("poke")) || "stop poking me!!");
+
+    if (petPokeCount === 3) {
+      playSfx("error");
+      document.body.classList.remove("is-wisteria-poke-warn");
+      void document.body.offsetWidth;
+      document.body.classList.add("is-wisteria-poke-warn");
+      petSay("hey!! i'm serious... stop poking me or i'll get really mad!!", 3200);
+    } else if (petPokeCount === 4) {
+      playSfx("error");
+      document.body.classList.remove("is-wisteria-poke-warn");
+      void document.body.offsetWidth;
+      document.body.classList.add("is-wisteria-poke-warn");
+      if (petImg) petImg.src = petSrc(PET_MAD_STARE_SPRITE);
+      rampMusicPlaybackRate(0.84, 300);
+      petSay("FINAL WARNING. one more poke and i'm deleting your desktop.", 3600);
+    } else {
+      petSay(petPick(petBubblesFor("poke")) || "stop poking me!!");
+    }
+
     window.clearTimeout(petActionTimer);
-    petActionTimer = window.setTimeout(() => { petBusy = false; petToIdle(); }, 1300);
+    petActionTimer = window.setTimeout(() => {
+      if (petIsMad) return;
+      petBusy = false;
+      petToIdle();
+    }, 1300);
   }
 
   function petChatty() {
+    if (petIsMad) return;
     if (petBusy || petChatOpen || document.hidden || petChoiceActive) {
       petChattyTimer = window.setTimeout(petChatty, 14000);
       return;
@@ -4025,6 +4402,12 @@
   }
 
   function chatOpen() {
+    if (petIsMad) {
+      playSfx("error");
+      pushMadCmdLine("[WISTERIA] \"...\" (She refuses to open chat or talk to you. Type \"give cookies\" or \"give ram\" in cmd.exe.)", "warn");
+      $("#madCmdInput")?.focus();
+      return;
+    }
     if (!petChat) return;
     petChatOpen = true;
     petChat.hidden = false;
@@ -4163,6 +4546,10 @@
     petStage.addEventListener("pointerdown", (event) => {
       if (event.target.closest("#petFeedBtn, #petBubble")) return;
       event.preventDefault();
+      if (petIsMad) {
+        poke();
+        return;
+      }
       cancelAnimationFrame(gravityRAF);
       petDragging = true;
       petMoved = false;
@@ -4223,6 +4610,10 @@
   });
 
   function initPet() {
+    if (petIsMad) {
+      triggerPetMadMode({ fromReload: true });
+      return;
+    }
     goIdle();
     petChatty();
     scheduleNextPetTeleport(5500);

@@ -22,7 +22,7 @@
   <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/fonts.css">
-  <link rel="stylesheet" href="css/style.css?v=interactive19">
+  <link rel="stylesheet" href="css/style.css?v=interactive20">
 </head>
 <body class="is-desktop-os">
   <a class="skip-link" href="#main">skip to content</a>
@@ -1077,6 +1077,41 @@
     </div>
   </div>
 
+  <!-- ============ Wisteria Mad Mode Fake CMD Window ============ -->
+  <div class="mad-cmd" id="wisteriaMadCmd" role="dialog" aria-labelledby="madCmdTitle" hidden>
+    <div class="mad-cmd__bar" id="madCmdDragBar">
+      <span class="mad-cmd__title" id="madCmdTitle">
+        <svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg>
+        <span>C:\WINDOWS\system32\cmd.exe — wisteria_revenge.bat</span>
+      </span>
+      <span class="mad-cmd__badge">MOOD: 0% · LOCKED</span>
+      <button type="button" class="mad-cmd__close" id="madCmdDenyClose" aria-label="Close terminal" title="Close">×</button>
+    </div>
+    <div class="mad-cmd__body">
+      <div class="mad-cmd__log" id="madCmdLog" role="log" aria-live="polite"></div>
+      <form class="mad-cmd__form" id="madCmdForm" autocomplete="off">
+        <label class="mad-cmd__prompt" for="madCmdInput">C:\kurizu\void&gt;</label>
+        <input
+          type="text"
+          id="madCmdInput"
+          class="mad-cmd__input"
+          placeholder="type 'give cookies' or 'give ram'..."
+          maxlength="80"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        >
+        <button type="submit" class="mad-cmd__submit">enter</button>
+      </form>
+      <div class="mad-cmd__hints">
+        <span>hint: appease Wisteria by typing</span>
+        <button type="button" class="mad-cmd__chip" data-mad-cmd="give cookies">give cookies</button>
+        <span>or</span>
+        <button type="button" class="mad-cmd__chip" data-mad-cmd="give ram">give ram</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <noscript>
     <div class="noscript">This little desktop needs JavaScript for the project grid, search and case studies. The links and copy still work without it.</div>
@@ -1085,8 +1120,8 @@
   <script src="slider.js"></script>
   <script src="tooltip.js"></script>
   <script src="button.js"></script>
-  <script src="js/site.config.js?v=interactive19"></script>
-  <script src="js/main.js?v=interactive19"></script>
+  <script src="js/site.config.js?v=interactive20"></script>
+  <script src="js/main.js?v=interactive20"></script>
   <script src="game/three.min.js"></script>
   <script src="game/GLTFLoader.js"></script>
   <script src="game/player_model_data.js"></script>

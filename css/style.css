@@ -7313,6 +7313,344 @@ body.is-desktop-os .os-floating-win.is-maximized {
   color: #38bdf8;
 }
 
+/* ============================================================
+   WISTERIA MAD MODE (LOW SATURATION, BLACK WALLPAPER, FAKE CMD & STARE)
+   ============================================================ */
+body.is-wisteria-poke-warn {
+  animation: mad-screen-shake 0.32s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes mad-screen-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20% { transform: translate3d(-5px, 3px, 0); }
+  40% { transform: translate3d(5px, -3px, 0); }
+  60% { transform: translate3d(-4px, -2px, 0); }
+  80% { transform: translate3d(4px, 2px, 0); }
+}
+
+/* Desaturate the entire desktop workspace, topbar, and taskbar when Wisteria is mad */
+body.is-wisteria-mad .topbar,
+body.is-wisteria-mad .taskbar,
+body.is-wisteria-mad .os-desktop {
+  filter: saturate(0.08) contrast(1.14) brightness(0.78);
+  transition: filter 0.7s ease, background 0.7s ease;
+}
+
+/* Turn the desktop wallpaper pitch black and hide happy clouds, moon, hearts & orbs */
+body.is-wisteria-mad .os-desktop {
+  background: #030106 !important;
+}
+
+body.is-wisteria-mad .os-desktop::before {
+  opacity: 0.14;
+}
+
+body.is-wisteria-mad .os-desktop::after {
+  content: "SYSTEM COMPROMISED // WISTERIA_IS_WATCHING_YOU";
+  color: rgba(255, 70, 95, 0.38);
+}
+
+body.is-wisteria-mad .os-desktop__wallpaper {
+  opacity: 0 !important;
+  transition: opacity 0.65s ease;
+}
+
+/* Desktop icon deletion animation & hidden state after wipe */
+.desktop-icon.is-deleting {
+  animation: icon-delete-glitch 0.28s ease forwards !important;
+  pointer-events: none !important;
+}
+
+.desktop-icon.is-deleted,
+body.is-wisteria-mad.is-desktop-wiped .os-desktop__icons .desktop-icon {
+  opacity: 0 !important;
+  transform: scale(0.3) !important;
+  pointer-events: none !important;
+}
+
+@keyframes icon-delete-glitch {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: hue-rotate(0deg);
+  }
+  45% {
+    opacity: 0.85;
+    transform: translate3d(-6px, 2px, 0) scale(1.06) skewX(14deg);
+    filter: invert(1) contrast(2);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(8px, -10px, 0) scale(0.2);
+  }
+}
+
+/* Wisteria silent staring state on the black desktop */
+body.is-wisteria-mad #petHud,
+body.is-wisteria-mad #helpTooltip {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+body.is-wisteria-mad #petImg {
+  filter: saturate(0.18) contrast(1.22) drop-shadow(0 0 18px rgba(255, 38, 78, 0.52)) !important;
+  transition: filter 0.5s ease, transform 0.5s ease;
+  transform: scale(1.08);
+}
+
+body.is-wisteria-mad .pet__bubble {
+  display: none !important;
+}
+
+/* Fake cmd.exe Terminal Window */
+.mad-cmd {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -54%);
+  z-index: 140;
+  width: min(640px, calc(100vw - 24px));
+  max-height: min(460px, calc(100dvh - 135px));
+  display: flex;
+  flex-direction: column;
+  background: #07050a;
+  border: 2px solid #ff3b5c;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 3px rgba(0, 0, 0, 0.92),
+    0 26px 80px rgba(0, 0, 0, 0.92),
+    0 0 38px rgba(255, 45, 85, 0.25);
+  color: #e5e7eb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  overflow: hidden;
+  animation: mad-cmd-pop 0.22s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.mad-cmd[hidden] {
+  display: none !important;
+}
+
+@keyframes mad-cmd-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.88);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -54%) scale(1);
+  }
+}
+
+.mad-cmd__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  background: linear-gradient(90deg, #1b0812, #2b0918);
+  border-bottom: 1.5px solid #ff3b5c;
+  user-select: none;
+}
+
+.mad-cmd__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #ffd6de;
+  font-family: var(--font-pixel);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mad-cmd__title .icon {
+  width: 14px;
+  height: 14px;
+  color: #ff4d6d;
+  flex: 0 0 auto;
+}
+
+.mad-cmd__badge {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(255, 59, 92, 0.22);
+  border: 1px solid #ff3b5c;
+  color: #ff8fa3;
+  font-family: var(--font-pixel);
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.mad-cmd__close {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 90, 115, 0.55);
+  background: rgba(255, 59, 92, 0.18);
+  color: #ffd6de;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mad-cmd__close:hover {
+  background: #ff3b5c;
+  color: #090306;
+}
+
+.mad-cmd__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px 14px;
+  gap: 10px;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.018) 0px,
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    #050308;
+}
+
+.mad-cmd__log {
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 265px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #d1d5db;
+  padding-right: 4px;
+}
+
+.mad-cmd__line {
+  margin: 0;
+  word-break: break-word;
+}
+
+.mad-cmd__line--err {
+  color: #ff4d6d;
+  font-weight: 600;
+}
+
+.mad-cmd__line--warn {
+  color: #fbbf24;
+}
+
+.mad-cmd__line--ok {
+  color: #a3e635;
+  font-weight: 600;
+}
+
+.mad-cmd__line--sys {
+  color: #9ca3af;
+}
+
+.mad-cmd__form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #0d0914;
+  border: 1.5px solid rgba(255, 77, 109, 0.65);
+  border-radius: 6px;
+}
+
+.mad-cmd__prompt {
+  color: #ff4d6d;
+  font-weight: 700;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.mad-cmd__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: #f9fafb;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.mad-cmd__input::placeholder {
+  color: rgba(156, 163, 175, 0.55);
+}
+
+.mad-cmd__submit {
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid #ff4d6d;
+  background: rgba(255, 77, 109, 0.22);
+  color: #ffe4e9;
+  font-family: var(--font-pixel);
+  font-size: 8px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.mad-cmd__submit:hover {
+  background: #ff4d6d;
+  color: #090306;
+}
+
+.mad-cmd__hints {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.mad-cmd__chip {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px dashed rgba(163, 230, 53, 0.65);
+  background: rgba(163, 230, 53, 0.12);
+  color: #d9f99d;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.14s, transform 0.14s;
+}
+
+.mad-cmd__chip:hover {
+  background: #a3e635;
+  color: #0a0f02;
+  border-style: solid;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .mad-cmd {
+    top: 44%;
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 160px);
+  }
+  .mad-cmd__log {
+    min-height: 135px;
+    max-height: 195px;
+    font-size: 11.5px;
+  }
+  .mad-cmd__badge {
+    display: none;
+  }
+}
+
+
 
 
 
