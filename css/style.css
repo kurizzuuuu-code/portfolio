@@ -5920,8 +5920,16 @@ body.is-party .window {
 html:has(body.is-desktop-os),
 body.is-desktop-os {
   height: 100vh !important;
+  height: 100dvh !important;
   max-height: 100vh !important;
+  max-height: 100dvh !important;
   overflow: hidden !important;
+}
+
+/* Pause background wallpaper animations while the 3D game modal is open */
+body:has(#gameDialog[open]) .os-desktop__wallpaper *,
+body:has(#gameDialog[open]) .os-bg-grid {
+  animation-play-state: paused !important;
 }
 
 body.is-desktop-os > main > .hero,
@@ -6906,34 +6914,81 @@ body.is-desktop-os .os-floating-win.is-maximized {
     max-width: 76px;
   }
 
-  /* Make every open floating window fit the phone screen cleanly */
+  /* Make every open floating window fit inside .os-desktop without ever overlapping the bottom taskbar */
   body.is-desktop-os .os-floating-win,
   body.is-desktop-os .os-floating-win[data-win-id] {
-    left: 8px !important;
-    right: 8px !important;
-    top: 8px !important;
-    width: calc(100vw - 16px) !important;
+    left: 6px !important;
+    right: 6px !important;
+    top: 6px !important;
+    bottom: auto !important;
+    width: calc(100% - 12px) !important;
     min-width: 0 !important;
-    max-width: calc(100vw - 16px) !important;
-    max-height: calc(100dvh - 122px) !important;
+    max-width: calc(100% - 12px) !important;
+    max-height: calc(100% - 12px) !important;
     transform: none !important;
   }
 
   body.is-desktop-os .os-floating-win[data-win-id="dropship"] {
-    height: calc(100dvh - 122px) !important;
+    height: calc(100% - 12px) !important;
   }
 
   body.is-desktop-os .os-floating-win.is-maximized {
-    inset: 56px 4px calc(var(--taskbar-h, 52px) + 4px) 4px !important;
-    width: auto !important;
-    max-width: none !important;
-    max-height: none !important;
+    inset: 2px !important;
+    width: calc(100% - 4px) !important;
+    max-width: calc(100% - 4px) !important;
+    max-height: calc(100% - 4px) !important;
+  }
+
+  /* Keep window controls [ — ] [ □ ] [ × ] always pinned and visible on the right of every titlebar & tab bar */
+  .window__bar,
+  .browser__tabs {
+    position: relative;
+  }
+  .window__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .win-controls {
+    flex: 0 0 auto;
+    margin-left: auto;
+    position: sticky;
+    right: 0;
+    z-index: 8;
+    gap: 5px;
+  }
+  .browser__tabs .win-controls {
+    background: linear-gradient(90deg, rgba(139, 72, 205, 0) 0%, #9b5de5 20%, #8b48cd 100%);
+    padding-left: 10px;
+    padding-right: 2px;
+  }
+  .win-ctrl {
+    width: 27px;
+    height: 27px;
+    font-size: 13px;
+    touch-action: manipulation;
+  }
+  .browser__tab-close {
+    width: 20px;
+    height: 20px;
+    font-size: 13px;
+    opacity: 0.9;
+    touch-action: manipulation;
+  }
+  .taskbar__tab-close {
+    width: 26px;
+    height: 28px;
+    font-size: 14px;
+    touch-action: manipulation;
   }
 
   /* Keep all browser tabs accessible via horizontal scroll on mobile */
   .browser__tabs {
     overflow-x: auto;
     scrollbar-width: none;
+    align-items: center;
   }
   .browser__tabs::-webkit-scrollbar {
     display: none;
@@ -7019,7 +7074,12 @@ body.is-desktop-os .os-floating-win.is-maximized {
     display: none !important;
   }
   .taskbar__tray {
-    max-width: 44vw;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+  .taskbar__spacer {
+    display: none;
   }
   .taskbar__tray-btn {
     padding: 4px 7px !important;
@@ -7033,6 +7093,41 @@ body.is-desktop-os .os-floating-win.is-maximized {
   }
   .start-menu__programs {
     max-height: 52dvh;
+  }
+}
+
+/* Extra compact rules for Mobile Phones (<= 600px) so tabs, close buttons & taskbar never crowd */
+@media (max-width: 600px) {
+  .window__bar .win-dots,
+  .browser__tabs .win-dots,
+  .window__bar .window__badge {
+    display: none !important;
+  }
+  .browser__tabs {
+    gap: 3px;
+    padding: 6px 6px 0;
+  }
+  .browser__tab {
+    padding: 5px 6px;
+    font-size: 7px;
+    gap: 4px;
+  }
+  .browser__tab .tab-favicon {
+    display: none;
+  }
+  .browser__tab-plus {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 auto;
+  }
+  .taskbar {
+    padding: 0 6px;
+    gap: 4px;
+  }
+  .taskbar__sep,
+  .taskbar__sound[data-sound-toggle],
+  .taskbar__clock {
+    display: none !important;
   }
 }
 

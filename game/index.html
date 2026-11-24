@@ -1170,16 +1170,22 @@
   }
 
   function init() {
+    const IS_MOBILE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (window.innerWidth <= 900 && ("ontouchstart" in window || navigator.maxTouchPoints > 0));
+    window.__IS_MOBILE_GAME = IS_MOBILE;
+    if (IS_MOBILE) {
+      RETRO_FILTER.enabled = false;
+      BLOOM.enabled = false;
+    }
     scene = new THREE.Scene();
     fogLinear = new THREE.Fog(0x5a52b0, 30, 120);   // Phase 4 keeps its own linear fog
     fogExp = new THREE.FogExp2(0x4a2fa8, 0.015);     // runner modes: deep violet exponential fog
     scene.fog = fogExp;
     scene.background = createSkyTexture();
-    camera = new THREE.PerspectiveCamera(baseFov, innerWidth / innerHeight, 0.1, 240);
+    camera = new THREE.PerspectiveCamera(baseFov, innerWidth / innerHeight, 0.1, IS_MOBILE ? 165 : 240);
     camera.position.set(0, baseCameraY, baseCameraZ);
 
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+      renderer = new THREE.WebGLRenderer({ antialias: !IS_MOBILE, powerPreference: "high-performance" });
     } catch (e1) {
       try {
         renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "default" });
@@ -1191,9 +1197,9 @@
         }
       }
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.65));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.0 : 1.65));
     renderer.setSize(innerWidth, innerHeight);
-    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.enabled = !IS_MOBILE;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1204,7 +1210,7 @@
     scene.add(hemiLight);
     sunLight = new THREE.DirectionalLight(0xc4adff, 1.35);
     sunLight.position.set(-14, 24, 4);
-    sunLight.castShadow = true;
+    sunLight.castShadow = !IS_MOBILE;
     sunLight.shadow.mapSize.set(1024, 1024);
     sunLight.shadow.camera.left = -19;
     sunLight.shadow.camera.right = 19;
@@ -1635,10 +1641,11 @@
   const riverGeometry = new THREE.PlaneGeometry(26, 18).rotateX(-Math.PI / 2);
 
   function createTrack() {
+    const isMob = !!window.__IS_MOBILE_GAME;
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(320, 320), materials.ground);
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, -0.12, -50);
-    ground.receiveShadow = true;
+    ground.receiveShadow = !isMob;
     scene.add(ground);
 
     for (let i = 0; i < 10; i++) {
@@ -1652,22 +1659,24 @@
       group.add(new THREE.Mesh(makeLilyGeometry(i * 31 + 7), materials.lily));
       for (const side of [-1, 1]) {
         createForestEyes(group, side * (8.2 + Math.random() * 3.5), 0.7 + Math.random() * 1.6, -5.5 + Math.random() * 3);
-        createForestEyes(group, side * (9.0 + Math.random() * 3.8), 0.8 + Math.random() * 1.5, 3 + Math.random() * 3);
+        if (!isMob) createForestEyes(group, side * (9.0 + Math.random() * 3.8), 0.8 + Math.random() * 1.5, 3 + Math.random() * 3);
         createTree(group, side * (6.6 + Math.random() * 1.3), -5.5 + Math.random() * 3,
           7.3 + Math.random() * 2.9, 0.38 + Math.random() * 0.15, false, true);
         createTree(group, side * (6.9 + Math.random() * 1.6), 2.2 + Math.random() * 3.8,
-          6.8 + Math.random() * 2.8, 0.35 + Math.random() * 0.14, false, true);
+          6.8 + Math.random() * 2.8, 0.35 + Math.random() * 0.14, false, !isMob);
         createTree(group, side * (11.2 + Math.random() * 3.6), -6.5 + Math.random() * 4,
           8.5 + Math.random() * 3.4, 0.4 + Math.random() * 0.2);
-        createTree(group, side * (11.5 + Math.random() * 3.8), 3 + Math.random() * 3.8,
-          9 + Math.random() * 3.5, 0.42 + Math.random() * 0.22);
-        createTree(group, side * (17.5 + Math.random() * 6), -6 + Math.random() * 5,
-          10 + Math.random() * 5, 0.4, true);
-        createTree(group, side * (19 + Math.random() * 7), 1 + Math.random() * 6,
-          10.5 + Math.random() * 5, 0.42, true);
-        createTree(group, side * (25 + Math.random() * 9), -3 + Math.random() * 8,
-          11 + Math.random() * 5.5, 0.45, true);
-        for (let j = 0; j < 4; j++) createSilhouetteTree(group, side * (12 + Math.random() * 30), -8.5 + (j + Math.random()) * 4.2);
+        if (!isMob) {
+          createTree(group, side * (11.5 + Math.random() * 3.8), 3 + Math.random() * 3.8,
+            9 + Math.random() * 3.5, 0.42 + Math.random() * 0.22);
+          createTree(group, side * (17.5 + Math.random() * 6), -6 + Math.random() * 5,
+            10 + Math.random() * 5, 0.4, true);
+          createTree(group, side * (19 + Math.random() * 7), 1 + Math.random() * 6,
+            10.5 + Math.random() * 5, 0.42, true);
+          createTree(group, side * (25 + Math.random() * 9), -3 + Math.random() * 8,
+            11 + Math.random() * 5.5, 0.45, true);
+        }
+        for (let j = 0; j < (isMob ? 1 : 4); j++) createSilhouetteTree(group, side * (12 + Math.random() * 30), -8.5 + (j + Math.random()) * 4.2);
 
         for (let j = 0; j < 3; j++) {
           const z = -7 + j * 6 + Math.random();
@@ -3094,8 +3103,9 @@
       if (hideSpots.length > before) n++;
     }
 
-    for (let i = 0; i < 110; i++) {
-      const ang = (i / 110) * Math.PI * 2;
+    const borderTrees = window.__IS_MOBILE_GAME ? 55 : 110;
+    for (let i = 0; i < borderTrees; i++) {
+      const ang = (i / borderTrees) * Math.PI * 2;
       const rad = 58 + (i % 5) * 3.5;
       const x = Math.cos(ang) * rad, z = Math.sin(ang) * rad;
       const dh = 10 + (i % 4) * 2.2;
@@ -3104,7 +3114,7 @@
       mesh(phase4Group, coneGeometry, p4Leaf, x, dh * 1.15, z, 2.5, dh * 0.65, 2.5);
     }
 
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < (window.__IS_MOBILE_GAME ? 45 : 80); i++) {
       const ang = (i * 2.1) % (Math.PI * 2);
       const rad = 5 + ((i * 11) % 56);
       const x = Math.cos(ang) * rad, z = Math.sin(ang) * rad;
@@ -3116,14 +3126,15 @@
       mesh(phase4Group, grassGeometry, phase4GrassMat, x + 0.3, 0, z + 0.3, 0.8, 0.9, 0.8);
     }
 
-    // dense, tall purple grass: ~2600 clumps merged into ONE mesh (blades fade from dark roots to bright lilac tips)
+    // dense, tall purple grass: merged into ONE mesh (lighter clump count on mobile for 60fps)
     {
       let gs = 4242;
       const grng = () => (gs = (gs * 1664525 + 1013904223) >>> 0) / 4294967296;
       const pos = [], col = [];
       const cBase = new THREE.Color(0x24104e), cTipA = new THREE.Color(0x9a55ee), cTipB = new THREE.Color(0xcba0ff);
       const push = (c) => col.push(c.r, c.g, c.b);
-      for (let n = 0, tries = 0; n < 2600 && tries < 6000; tries++) {
+      const maxClumps = window.__IS_MOBILE_GAME ? 900 : 2600;
+      for (let n = 0, tries = 0; n < maxClumps && tries < 6000; tries++) {
         const a2 = grng() * Math.PI * 2, d = 2 + Math.sqrt(grng()) * 66;
         const x = Math.cos(a2) * d, z = Math.sin(a2) * d;
         if (Math.hypot(x, z - 8) < 2.5 || Math.hypot(x - termX, z - termZ) < 4) continue;
@@ -7281,7 +7292,8 @@
   }
   function animate(now) {
     requestAnimationFrame(animate);
-    const dt = Math.min(0.05, Math.max(0, (now - lastTime) / 1000));
+    // Allow dt up to 0.125s (8 FPS floor) so mobile frame drops never cause slow-motion gameplay
+    const dt = Math.min(0.125, Math.max(0, (now - lastTime) / 1000));
     lastTime = now;
     bgm.update(dt);
     // never keep the mouse captured outside live Phase 4 play (menus, game over, win screen)
@@ -7306,7 +7318,7 @@
           updatePhase4Game(dt);
           audio.music(dt, 16, 1.0);
         } else {
-          const steps = Math.max(1, Math.ceil(dt * 90));
+          const steps = Math.min(4, Math.max(1, Math.ceil(dt * (window.__IS_MOBILE_GAME ? 50 : 90))));
           for (let i = 0; i < steps; i++) {
             updateGame(dt / steps);
             if (state !== "playing" || inPhase4) break;
@@ -7602,7 +7614,7 @@
     camera.aspect = aspect;
     camera.fov = baseFov;
     camera.updateProjectionMatrix();
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.65));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, window.__IS_MOBILE_GAME ? 1.0 : 1.65));
     if (fireflyUniforms) fireflyUniforms.uPx.value = renderer.getPixelRatio();
     renderer.setSize(width, height);
   }

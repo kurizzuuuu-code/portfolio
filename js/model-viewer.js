@@ -602,9 +602,15 @@
       setLightPreset: (idx) => { applyLightPreset(idx); },
       getModel: () => characterModel
     };
+    const winEl = document.getElementById("kurizu3d");
+    const gameDlg = document.getElementById("gameDialog");
     function animate() {
       requestAnimationFrame(animate);
       const dt = clock.getDelta();
+      // Skip 3D rendering when kurizu_3d.exe window is closed/minimized or game modal is open
+      if (document.hidden || (winEl && (winEl.classList.contains("is-closed") || winEl.classList.contains("is-minimized"))) || (gameDlg && gameDlg.open)) {
+        return;
+      }
 
       if (mixer && isPlaying) mixer.update(dt);
 
