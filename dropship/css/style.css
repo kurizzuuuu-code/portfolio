@@ -2631,4 +2631,35 @@ body.is-windowed .statusbar {
   }
 }
 
+/* Cross-Wi-Fi Room Code Pairing Box */
+.room-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1.5px dashed rgba(47, 10, 68, 0.22);
+}
+
+.room-box .field-label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.room-box .field-label em {
+  font-style: normal;
+  opacity: 0.72;
+}
+
+.room-box__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.room-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px !important;
+  padding: 5px 8px !important;
+}
+
+
 

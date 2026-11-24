@@ -11,7 +11,7 @@
   <meta property="og:description" content="Drop files to nearby devices over your Wi-Fi. No cloud, no accounts, no install.">
   <meta property="og:type" content="website">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css?v=win3">
+  <link rel="stylesheet" href="css/style.css?v=win5">
 </head>
 <body>
   <a class="skip-link" href="#app">skip to the app</a>
@@ -114,9 +114,9 @@
             <a class="btn btn--ghost" href="#how">how it works <svg class="icon"><use href="#i-arrow-r"/></svg></a>
           </div>
           <ul class="hero__facts" aria-label="Quick facts">
-            <li><span class="dot dot--lime"></span>same wi-fi</li>
+            <li><span class="dot dot--lime"></span>same or different wi-fi</li>
             <li><span class="dot dot--pink"></span>no accounts</li>
-            <li><span class="dot dot--cyan"></span>4 gb per file</li>
+            <li><span class="dot dot--cyan"></span>25 gb per file (P2P)</li>
             <li><span class="dot dot--yellow"></span>100% purple</li>
           </ul>
         </div>
@@ -188,7 +188,15 @@
                     <span class="you-card__meta"><svg class="icon" id="myTypeIcon"><use href="#i-desktop"/></svg><span id="myType">desktop</span></span>
                   </div>
                 </div>
-                <p class="you-card__hint">click your avatar to shuffle it. this name is what everyone else sees.</p>
+                <div class="room-box" id="roomBox">
+                  <label class="field-label" for="roomCodeInput">cross-wi-fi room code <em>(connect any PC)</em></label>
+                  <div class="room-box__row">
+                    <input id="roomCodeInput" class="name-input room-input" maxlength="24" placeholder="same wi-fi (or type code)" spellcheck="false" autocomplete="off" aria-label="Room code for connecting across different Wi-Fi networks">
+                    <button class="btn btn--small btn--primary" id="roomJoinBtn" type="button">join</button>
+                    <button class="btn btn--small btn--ghost" id="roomGenBtn" type="button" title="Generate a room code to share with someone on another Wi-Fi">new</button>
+                  </div>
+                  <p class="you-card__hint" id="roomHintText">same room code = connect across any Wi-Fi &amp; send up to 25 GB P2P!</p>
+                </div>
               </section>
 
               <section class="share-card" aria-labelledby="shareTitle">
@@ -245,7 +253,7 @@
                 <span class="dropzone__icon" aria-hidden="true"><svg class="icon"><use href="#i-upload"/></svg></span>
                 <strong>drop files here</strong>
                 <span>or <u>browse your computer</u></span>
-                <small>up to 4 GB each · 50 files at a time</small>
+                <small>up to 25 GB each (WebRTC P2P) · 50 files at a time</small>
                 <input type="file" id="fileInput" multiple hidden>
               </div>
 
@@ -357,11 +365,11 @@
 
             <div class="about-side">
               <dl class="spec-list">
-                <div><dt>stack</dt><dd>node.js · vanilla js · no dependencies</dd></div>
-                <div><dt>scope</dt><dd>one shared Wi-Fi network</dd></div>
-                <div><dt>limit</dt><dd>4 GB per file · 8 GB per send</dd></div>
-                <div><dt>storage</dt><dd>data/uploads · auto-clean in 24h</dd></div>
-                <div><dt>encryption</dt><dd>none — LAN trust only</dd></div>
+                <div><dt>stack</dt><dd>webrtc p2p · node.js · vanilla js</dd></div>
+                <div><dt>scope</dt><dd>same Wi-Fi or any Wi-Fi via Room Code</dd></div>
+                <div><dt>limit</dt><dd>25 GB per file (P2P direct stream)</dd></div>
+                <div><dt>storage</dt><dd>direct PC-to-PC (zero cloud storage)</dd></div>
+                <div><dt>encryption</dt><dd>WebRTC DTLS end-to-end encrypted</dd></div>
               </dl>
               <div class="disclaimer">
                 <svg class="icon"><use href="#i-lock"/></svg>
@@ -432,6 +440,6 @@
   </noscript>
 
   <script src="js/qrcode.js"></script>
-  <script src="js/app.js?v=win4"></script>
+  <script src="js/app.js?v=win5"></script>
 </body>
 </html>

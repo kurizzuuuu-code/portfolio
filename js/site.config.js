@@ -784,14 +784,14 @@ window.KURIZU = {
       blurb:
         "A LocalSend-inspired file drop for your local network — scan a QR code, pick a nearby device, and toss files or notes across the room. No cloud, no accounts, 100% purple.",
       description:
-        "KURIZU.dropship is a LocalSend-inspired local file-sharing app rebuilt as a zero-dependency Node.js + browser drop zone wearing my portfolio's purple pixel theme. Open it on one computer, scan the generated QR code on your phone or tablet on the same Wi-Fi, pick a nearby device, and stream up to 50 files (4 GB each) or text notes directly across the room with an incoming_transfer.exe accept/decline window.",
+        "KURIZU.dropship is a LocalSend-inspired file-sharing app rebuilt with WebRTC P2P direct streaming + a zero-dependency Node.js signaling server wearing my portfolio's purple pixel theme. Use it on the same Wi-Fi automatically or pair across different Wi-Fi networks anywhere using a Room Code, and stream files up to 25 GB each directly PC-to-PC with zero cloud storage limits.",
       highlights: [
-        "Nearby devices appear automatically on the same Wi-Fi via Server-Sent Events (SSE)",
-        "Send up to 50 files (4 GB each) with live progress or quick text notes",
-        "Receiver gets an incoming_transfer.exe prompt to accept or decline before saving",
-        "Built-in QR code generator, custom device names & avatars, and zero npm dependencies",
+        "Direct WebRTC Peer-to-Peer (P2P) 64 KB chunk streaming — send files up to 25 GB each with zero server storage",
+        "Cross-Wi-Fi Room Code pairing so you can send files to another person's PC on a different Wi-Fi network",
+        "Same-Wi-Fi automatic discovery via Server-Sent Events (SSE) + built-in QR code & room link generator",
+        "Native FileSystemWritableFileStream direct-to-disk saving so multi-GB files never fill up browser RAM",
       ],
-      tags: ["Node.js", "JavaScript", "SSE", "Local Network"],
+      tags: ["WebRTC P2P", "Node.js", "JavaScript", "SSE"],
       gallery: [
         "assets/images/project-lanshare.webp",
       ],
@@ -804,15 +804,16 @@ window.KURIZU = {
       ],
       devlogs: [
         {
-          version: "v1.3.0",
-          tag: "latest · netlify + render",
-          title: "Cloud Relay Pairing Codes, Windowed Desktop Mode & Compact UI",
+          version: "v2.0.0",
+          tag: "latest · webrtc p2p 25gb",
+          title: "25 GB WebRTC P2P Direct Streaming & Cross-Wi-Fi Room Codes",
           added: [
-            "Added 4-digit Room Code pairing & cloud relay backend on Render so devices on different networks or mobile data can also share files on Netlify",
-            "Embedded directly into KURIZU.OS as a draggable, maximizable desktop window (kurizu.dropship)",
+            "WebRTC DataChannel P2P streaming engine (64 KB chunks with backpressure control) supporting files up to 25 GB each directly PC-to-PC",
+            "Cross-Wi-Fi Room Code pairing box & shareable ?room=CODE links so devices on completely different Wi-Fi networks can pair and transfer huge files",
+            "Direct-to-disk streaming via the browser File System Access API (showSaveFilePicker) so 25 GB downloads write straight to disk without using RAM",
           ],
           changed: [
-            "Redesigned compact 2-column layout so the Drop Files zone and Nearby Devices radar stay visible side-by-side inside windowed mode",
+            "Upgraded offer pipeline to send P2P file offers instantaneously without waiting for a cloud relay pre-upload",
           ],
         },
         {

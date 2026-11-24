@@ -178,7 +178,8 @@ const DS_UPLOAD_DIR = path.join(os.tmpdir(), "kurizu-dropship-uploads");
 try { fs.mkdirSync(DS_UPLOAD_DIR, { recursive: true }); } catch (e) {}
 
 const DS_T0 = Date.now();
-const DS_MAX_FILE_BYTES = 250 * 1024 * 1024; // 250 MB per file on cloud relay (4 GB locally)
+const DS_MAX_FILE_BYTES = 250 * 1024 * 1024; // 250 MB per file on cloud relay
+const DS_P2P_MAX_FILE_BYTES = 25 * 1024 * 1024 * 1024; // 25 GB per file via WebRTC P2P direct stream
 const DS_MAX_FILES = 50;
 const DS_AVATARS = ["mascot", "avatar", "pet", "idle", "dance"];
 const DS_TYPES = ["desktop", "laptop", "phone", "tablet", "console", "tv", "unknown"];
@@ -224,11 +225,11 @@ function dsRoomOf(req, queryRoom) {
 }
 
 function dsPublicDevice(d) {
-  return { id: d.id, name: d.name, avatar: d.avatar, type: d.type, ip: d.ip };
+  return { id: d.id, name: d.name, avatar: d.avatar, type: d.type, ip: d.ip, room: d.room };
 }
 
 function dsPublicFile(f) {
-  return { id: f.id, name: f.name, size: f.size, type: f.type };
+  return { id: f.id, name: f.name, size: f.size, type: f.type, p2p: Boolean(f.p2p) };
 }
 
 function dsPublicTransfer(t) {
@@ -240,6 +241,7 @@ function dsPublicTransfer(t) {
     to: t.to,
     files: (t.files || []).map(dsPublicFile),
     message: t.message,
+    p2p: Boolean(t.p2p),
     status: t.status,
     createdAt: t.createdAt,
     respondedAt: t.respondedAt || null
@@ -340,9 +342,16 @@ async function handleDropshipApi(req, res, pathname, searchParams) {
 
     dsSseSend(device, "hello", {
       self: dsPublicDevice(device),
+      room,
       devices: dsDeviceList(room),
       avatars: DS_AVATARS,
-      limits: { maxFileBytes: DS_MAX_FILE_BYTES, maxTransferBytes: DS_MAX_FILE_BYTES * 2, maxFiles: DS_MAX_FILES, maxNoteChars: 2000 },
+      limits: {
+        maxFileBytes: DS_P2P_MAX_FILE_BYTES,
+        maxRelayBytes: DS_MAX_FILE_BYTES,
+        maxTransferBytes: DS_P2P_MAX_FILE_BYTES * 2,
+        maxFiles: DS_MAX_FILES,
+        maxNoteChars: 2000
+      },
       server: { name: "KURIZU.DROPSHIP", port: PORT, startedAt: DS_T0 },
       transfers: related
     });
@@ -369,7 +378,7 @@ async function handleDropshipApi(req, res, pathname, searchParams) {
     return;
   }
 
-  // 2. Profile update (/api/profile or /api/me)
+  // 2. Profile & Room update (/api/profile or /api/me)
   if ((pathname === "/api/profile" || pathname === "/api/me") && req.method === "POST") {
     const id = req.headers["x-device-id"];
     const device = dsDevices.get(id);
@@ -382,8 +391,30 @@ async function handleDropshipApi(req, res, pathname, searchParams) {
       device.name = n;
     }
     if (body.avatar !== undefined && DS_AVATARS.includes(body.avatar)) device.avatar = body.avatar;
+    if (body.room !== undefined) {
+      const prevRoom = device.room;
+      device.room = dsRoomOf(req, body.room);
+      if (prevRoom && prevRoom !== device.room) dsBroadcastDevices(prevRoom);
+    }
     dsBroadcastDevices(device.room);
-    return dsJson(res, 200, { ok: true, self: dsPublicDevice(device) });
+    return dsJson(res, 200, { ok: true, self: dsPublicDevice(device), room: device.room, devices: dsDeviceList(device.room) });
+  }
+
+  // 2b. WebRTC P2P Signaling Relay (/api/signal)
+  if (pathname === "/api/signal" && req.method === "POST") {
+    const sender = dsDevices.get(req.headers["x-device-id"]);
+    if (!sender) return dsFail(res, 401, "This device is not connected.");
+    let body;
+    try { body = await dsReadJson(req, 256 * 1024); } catch (e) { return dsFail(res, 400, e.message); }
+    const target = dsDevices.get(String(body.to || ""));
+    if (!target) return dsFail(res, 404, "Peer device is offline.");
+    dsSseSend(target, "signal", {
+      from: sender.id,
+      fromDevice: dsPublicDevice(sender),
+      transferId: body.transferId || null,
+      signal: body.signal || null
+    });
+    return dsJson(res, 200, { ok: true });
   }
 
   // 3. File upload (/api/upload)
@@ -431,19 +462,20 @@ async function handleDropshipApi(req, res, pathname, searchParams) {
     return dsJson(res, 200, { ok: true, file: dsPublicFile(file) });
   }
 
-  // 4. Send Offer (/api/offer)
+  // 4. Send Offer (/api/offer) — supports both WebRTC P2P direct files (up to 25 GB) and relayed files
   if (pathname === "/api/offer" && req.method === "POST") {
     const sender = dsDevices.get(req.headers["x-device-id"]);
     if (!sender) return dsFail(res, 401, "This device is not connected.");
     let body;
-    try { body = await dsReadJson(req); } catch (e) { return dsFail(res, 400, e.message); }
+    try { body = await dsReadJson(req, 128 * 1024); } catch (e) { return dsFail(res, 400, e.message); }
     const recipient = dsDevices.get(String(body.to || ""));
     if (!recipient) return dsFail(res, 409, "That device went offline.");
     if (recipient.id === sender.id) return dsFail(res, 400, "You cannot send to yourself.");
 
     const message = String(body.message || "").trim().slice(0, 2000);
     const incomingIds = Array.isArray(body.fileIds) ? body.fileIds : [];
-    if (!incomingIds.length && !message) return dsFail(res, 400, "Add a file or a note first.");
+    const incomingP2p = Array.isArray(body.p2pFiles) ? body.p2pFiles : [];
+    if (!incomingIds.length && !incomingP2p.length && !message) return dsFail(res, 400, "Add a file or a note first.");
 
     const selected = [];
     for (const fid of incomingIds) {
@@ -452,13 +484,30 @@ async function handleDropshipApi(req, res, pathname, searchParams) {
       selected.push(f);
     }
 
+    const p2pMetas = [];
+    for (const pf of incomingP2p.slice(0, DS_MAX_FILES)) {
+      const sz = Math.max(0, Number(pf?.size) || 0);
+      if (!sz || sz > DS_P2P_MAX_FILE_BYTES) return dsFail(res, 400, "A file exceeds the 25 GB P2P limit.");
+      p2pMetas.push({
+        id: String(pf.id || crypto.randomUUID()).slice(0, 64),
+        name: String(pf.name || "file").replace(/[\\/<>:"|?*\u0000-\u001f]/g, "_").trim().slice(0, 160) || "file",
+        size: sz,
+        type: String(pf.type || "application/octet-stream").slice(0, 120),
+        p2p: true
+      });
+    }
+
+    const allFiles = [...selected.map(dsPublicFile), ...p2pMetas];
+    const isP2p = p2pMetas.length > 0 || Boolean(body.p2p);
+
     const transfer = {
       id: crypto.randomUUID(),
       fromId: sender.id,
       toId: recipient.id,
       from: dsPublicDevice(sender),
       to: dsPublicDevice(recipient),
-      files: selected.map(dsPublicFile),
+      files: allFiles,
+      p2p: isP2p,
       message,
       status: "pending",
       createdAt: Date.now(),
@@ -541,7 +590,7 @@ const server = http.createServer((req, res) => {
   try { url = decodeURIComponent(parsedUrl.pathname); } catch (e) { res.writeHead(400); res.end(); return; }
   if (url === "/health") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("ok"); return; }
   if (url === "/api/reviews") { handleReviewsApi(req, res); return; }
-  if (url === "/api/events" || url === "/api/profile" || url === "/api/me" || url === "/api/upload" || url === "/api/offer" || url === "/api/respond" || url.startsWith("/api/file/")) {
+  if (url === "/api/events" || url === "/api/profile" || url === "/api/me" || url === "/api/signal" || url === "/api/upload" || url === "/api/offer" || url === "/api/respond" || url.startsWith("/api/file/")) {
     handleDropshipApi(req, res, url, parsedUrl.searchParams);
     return;
   }

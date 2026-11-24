@@ -129,6 +129,11 @@
 
   const sessionName = store.get('kurizu-send-name') || `${pick(NAME_ADJ)}-${pick(NAME_NOUN)}`;
   const sessionAvatar = DEFAULT_AVATARS.includes(store.get('kurizu-send-avatar')) ? store.get('kurizu-send-avatar') : pick(DEFAULT_AVATARS);
+  const urlRoomParam = (() => {
+    try { return (new URLSearchParams(location.search).get('room') || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24); }
+    catch { return ''; }
+  })();
+  const initialRoom = urlRoomParam || store.get('kurizu-send-room') || '';
 
   const state = {
     me: {
@@ -137,6 +142,7 @@
       avatar: sessionAvatar,
       type: detectType(),
     },
+    room: initialRoom,
     devices: [],
     transfers: new Map(),
     selectedId: null,
@@ -149,7 +155,7 @@
     sound: local.get('kurizu-send-sound') !== '0',
     nice: Math.max(0, Number(local.get('kurizu-send-nice') || 0) || 0),
     avatars: DEFAULT_AVATARS.slice(),
-    limits: { maxFileBytes: 4 * 1024 * 1024 * 1024, maxFiles: 50, maxTransferBytes: 8 * 1024 * 1024 * 1024 },
+    limits: { maxFileBytes: 25 * 1024 * 1024 * 1024, maxFiles: 50, maxTransferBytes: 50 * 1024 * 1024 * 1024 },
     server: null,
     hidden: new Set(),
   };
@@ -157,6 +163,20 @@
   store.set('kurizu-send-id', state.me.id);
   store.set('kurizu-send-name', state.me.name);
   store.set('kurizu-send-avatar', state.me.avatar);
+  if (state.room) store.set('kurizu-send-room', state.room);
+
+  /* WebRTC P2P Direct Streaming State (supports 25 GB+ files across different Wi-Fi networks) */
+  const RTC_CONFIG = {
+    iceServers: [
+      { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
+    ],
+  };
+  const P2P_CHUNK_BYTES = 64 * 1024; // 64 KB chunks over RTCDataChannel
+  const P2P_MAX_BUFFERED = 2 * 1024 * 1024; // 2 MB high-water mark
+  const P2P_LOW_WATER = 512 * 1024; // 512 KB low-water resume threshold
+  const p2pOutgoingFiles = new Map(); // fileId -> File object on sender PC
+  const p2pDownloadedBlobs = new Map(); // fileId -> objectURL if buffered in RAM
+  const p2pSessions = new Map(); // sessionId -> { pc, iceQueue, remoteDescSet }
 
   /* ---------------- elements ---------------- */
 
@@ -165,6 +185,10 @@
     myAvatar: $('#myAvatar'),
     avatarBtn: $('#avatarBtn'),
     deviceName: $('#deviceName'),
+    roomCodeInput: $('#roomCodeInput'),
+    roomJoinBtn: $('#roomJoinBtn'),
+    roomGenBtn: $('#roomGenBtn'),
+    roomHintText: $('#roomHintText'),
     myType: $('#myType'),
     myTypeIcon: $('#myTypeIcon use'),
     connTag: $('#connTag'),
@@ -297,33 +321,60 @@
 
   /* ---------------- connection state ---------------- */
 
+  function updateRoomBadgeUi() {
+    const code = state.room;
+    if (el.roomCodeInput && document.activeElement !== el.roomCodeInput) {
+      el.roomCodeInput.value = code;
+    }
+    if (el.roomHintText) {
+      el.roomHintText.textContent = code
+        ? `connected to room "${code}" — anyone on any Wi-Fi with this code can share up to 25 GB P2P!`
+        : 'mode: same Wi-Fi auto-discovery · enter a room code to connect across different Wi-Fi!';
+    }
+    if (state.connected) {
+      el.lanPillText.textContent = code ? `room: ${code}` : 'P2P · 25GB';
+      el.windowBadge.textContent = code
+        ? `CROSS-WIFI ROOM: ${code.toUpperCase()} · P2P 25GB`
+        : `WEBRTC P2P · 25GB MAX`;
+    }
+  }
+
   function setConnected(on) {
     state.connected = on;
     el.connTag.innerHTML = `<span class="dot ${on ? 'dot--lime' : 'dot--yellow'}"></span>${on ? 'online' : 'reconnecting'}`;
     el.connTag.classList.toggle('is-offline', !on);
     el.lanPill.classList.toggle('is-offline', !on);
-    el.lanPillText.textContent = on ? 'LAN only' : 'reconnecting';
+    el.lanPillText.textContent = on ? (state.room ? `room: ${state.room}` : 'P2P · 25GB') : 'reconnecting';
     el.statusDot.classList.toggle('is-offline', !on);
     if (on) {
-      el.windowBadge.textContent = `LAN ONLY · PORT ${state.server?.port || location.port || 53317}`;
+      el.windowBadge.textContent = state.room
+        ? `CROSS-WIFI ROOM: ${state.room.toUpperCase()} · P2P 25GB`
+        : `WEBRTC P2P · 25GB MAX`;
       el.windowBadge.classList.remove('is-offline');
     } else {
       el.windowBadge.textContent = 'RECONNECTING...';
       el.windowBadge.classList.add('is-offline');
     }
+    updateRoomBadgeUi();
     renderDevices();
     updateComposer();
   }
 
   function currentShareUrl() {
+    let base;
     if (!isLocalHost()) {
       try {
-        return new URL('.', location.href).href.replace(/\/$/, '');
+        base = new URL('.', location.href).href.replace(/\/$/, '');
       } catch {
-        return location.origin;
+        base = location.origin;
       }
+    } else {
+      base = state.server?.url || location.origin;
     }
-    return state.server?.url || location.origin;
+    if (state.room) {
+      return `${base}${base.includes('?') ? '&' : '?'}room=${encodeURIComponent(state.room)}`;
+    }
+    return base;
   }
 
   function shareUrlDisplay() {
@@ -589,6 +640,7 @@
       avatar: state.me.avatar,
       type: state.me.type,
     });
+    if (state.room) params.set('room', state.room);
     try {
       source = new EventSource(`${API_BASE}/api/events?${params.toString()}`);
     } catch {
@@ -642,7 +694,7 @@
       setShareUrl();
       setConnected(true);
       renderDevices();
-      el.windowBadge.textContent = `LAN ONLY · PORT ${state.server?.port || 53317}`;
+      updateRoomBadgeUi();
 
       const history = Array.isArray(data.transfers) ? data.transfers : [];
       history.forEach((transfer) => state.transfers.set(transfer.id, transfer));
@@ -698,12 +750,351 @@
       if (outgoing) {
         const who = data.by?.name || transfer.to?.name || 'they';
         if (transfer.status === 'accepted') {
-          toast(`${who} accepted ${transfer.files?.length ? 'your files' : 'your note'} ♡`, 'success');
+          toast(`${who} accepted ${transfer.files?.length ? 'your files — streaming P2P when they hit save' : 'your note'} ♡`, 'success');
           soundAccept();
         } else if (transfer.status === 'declined') {
           toast(`${who} declined. no hard feelings.`, 'pink');
           soundDecline();
         }
+      }
+    });
+
+    source.addEventListener('signal', (event) => {
+      let data;
+      try { data = JSON.parse(event.data); } catch { return; }
+      handleIncomingP2pSignal(data);
+    });
+  }
+
+  /* ---------------- WebRTC P2P Direct Streaming (up to 25 GB+) ---------------- */
+
+  function updateP2pDialogProgress(text, pct, visible = true) {
+    const wrap = $('#p2pDialogProgress', el.incomingBody);
+    const labelEl = $('#p2pDialogLabel', el.incomingBody);
+    const pctEl = $('#p2pDialogPct', el.incomingBody);
+    const barEl = $('#p2pDialogBar', el.incomingBody);
+    if (!wrap) return;
+    wrap.hidden = !visible;
+    if (labelEl) labelEl.textContent = text;
+    const clamped = Math.max(0, Math.min(100, Math.round(pct || 0)));
+    if (pctEl) pctEl.textContent = `${clamped}%`;
+    if (barEl) barEl.style.width = `${clamped}%`;
+  }
+
+  async function sendP2pSignal(to, transferId, signal) {
+    return api('/api/signal', { to, transferId, signal });
+  }
+
+  async function handleIncomingP2pSignal(payload) {
+    const fromId = payload?.from;
+    const transferId = payload?.transferId;
+    const sig = payload?.signal;
+    if (!fromId || !sig || !sig.sessionId) return;
+
+    // 1. Sender receives a P2P request offer from Receiver to stream a specific file
+    if (sig.type === 'p2p-offer') {
+      const file = p2pOutgoingFiles.get(sig.fileId);
+      if (!file) {
+        sendP2pSignal(fromId, transferId, {
+          type: 'p2p-error',
+          sessionId: sig.sessionId,
+          error: 'Sender no longer has this file in memory (tab was refreshed).',
+        }).catch(() => {});
+        return;
+      }
+
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const sess = { pc, iceQueue: [], remoteDescSet: false };
+      p2pSessions.set(sig.sessionId, sess);
+
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          sendP2pSignal(fromId, transferId, {
+            type: 'p2p-ice',
+            sessionId: sig.sessionId,
+            candidate: ev.candidate,
+          }).catch(() => {});
+        }
+      };
+
+      pc.ondatachannel = (ev) => {
+        const dc = ev.channel;
+        dc.binaryType = 'arraybuffer';
+        dc.bufferedAmountLowThreshold = P2P_LOW_WATER;
+        dc.onopen = () => {
+          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer');
+        };
+      };
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sig.sdp));
+        sess.remoteDescSet = true;
+        for (const c of sess.iceQueue) {
+          await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+        }
+        sess.iceQueue = [];
+        const answer = await pc.createLocalDescription ? await pc.createAnswer() : await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await sendP2pSignal(fromId, transferId, {
+          type: 'p2p-answer',
+          sessionId: sig.sessionId,
+          sdp: pc.localDescription,
+        });
+      } catch (err) {
+        pc.close();
+        p2pSessions.delete(sig.sessionId);
+      }
+      return;
+    }
+
+    // 2. Receiver receives SDP answer from Sender
+    const sess = p2pSessions.get(sig.sessionId);
+    if (!sess) return;
+
+    if (sig.type === 'p2p-answer' && sig.sdp) {
+      try {
+        await sess.pc.setRemoteDescription(new RTCSessionDescription(sig.sdp));
+        sess.remoteDescSet = true;
+        for (const c of sess.iceQueue) {
+          await sess.pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+        }
+        sess.iceQueue = [];
+      } catch {}
+      return;
+    }
+
+    if (sig.type === 'p2p-ice' && sig.candidate) {
+      if (sess.remoteDescSet) {
+        await sess.pc.addIceCandidate(new RTCIceCandidate(sig.candidate)).catch(() => {});
+      } else {
+        sess.iceQueue.push(sig.candidate);
+      }
+      return;
+    }
+
+    if (sig.type === 'p2p-error') {
+      if (sess.onError) sess.onError(new Error(sig.error || 'P2P stream failed'));
+    }
+  }
+
+  async function streamFileOverDataChannel(file, dc, sessionId, peerName) {
+    const total = file.size || 1;
+    let offset = 0;
+    const t0 = Date.now();
+    toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P ⚡`, 'info');
+
+    const waitForBufferDrain = () =>
+      new Promise((resolve, reject) => {
+        if (dc.readyState !== 'open') { reject(new Error('DataChannel closed')); return; }
+        if (dc.bufferedAmount <= P2P_LOW_WATER) { resolve(); return; }
+        const onLow = () => {
+          dc.removeEventListener('bufferedamountlow', onLow);
+          dc.removeEventListener('close', onClose);
+          resolve();
+        };
+        const onClose = () => {
+          dc.removeEventListener('bufferedamountlow', onLow);
+          dc.removeEventListener('close', onClose);
+          reject(new Error('DataChannel closed mid-transfer'));
+        };
+        dc.addEventListener('bufferedamountlow', onLow);
+        dc.addEventListener('close', onClose);
+      });
+
+    try {
+      while (offset < total) {
+        if (dc.readyState !== 'open') throw new Error('Peer closed connection');
+        if (dc.bufferedAmount > P2P_MAX_BUFFERED) {
+          await waitForBufferDrain();
+        }
+        const slice = file.slice(offset, offset + P2P_CHUNK_BYTES);
+        const buf = await slice.arrayBuffer();
+        dc.send(buf);
+        offset += buf.byteLength;
+
+        const pct = Math.min(100, (offset / total) * 100);
+        const elapsedSec = Math.max(0.2, (Date.now() - t0) / 1000);
+        const speedMbps = (offset / (1024 * 1024) / elapsedSec).toFixed(1);
+        setProgress(`P2P stream · ${file.name} (${speedMbps} MB/s)`, pct);
+      }
+
+      dc.send(JSON.stringify({ eof: true, size: total, name: file.name }));
+      setProgress(`P2P delivered · ${file.name} ♡`, 100);
+      toast(`finished streaming ${file.name} via P2P ♡`, 'success');
+      soundSparkle();
+      setTimeout(() => {
+        if (!state.sending) el.sendProgress.hidden = true;
+      }, 2200);
+    } catch (err) {
+      el.sendProgress.hidden = true;
+      toast(`P2P stream interrupted: ${err.message || 'connection closed'}`, 'error');
+    }
+  }
+
+  async function downloadP2pFile(transfer, file, buttonEl) {
+    if (p2pDownloadedBlobs.has(file.id)) {
+      const link = document.createElement('a');
+      link.href = p2pDownloadedBlobs.get(file.id);
+      link.download = file.name || 'file';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    // For direct-to-disk streaming (essential for multi-GB / 25 GB files without RAM limits),
+    // try opening a native FileSystemWritableFileStream right inside the user click gesture!
+    let diskWritable = null;
+    if (typeof window.showSaveFilePicker === 'function') {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: file.name || 'download',
+        });
+        diskWritable = await handle.createWritable();
+      } catch (err) {
+        if (err && err.name === 'AbortError') return; // user cancelled save picker
+        diskWritable = null; // fallback to in-memory Blob download (e.g. inside cross-origin iframe)
+      }
+    }
+
+    const sessionId = makeId();
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const dc = pc.createDataChannel('kurizu-p2p', { ordered: true });
+    dc.binaryType = 'arraybuffer';
+
+    if (buttonEl) {
+      buttonEl.disabled = true;
+      buttonEl.innerHTML = `${icon('i-bolt')}connecting P2P...`;
+    }
+    updateP2pDialogProgress(`connecting direct P2P tunnel to ${transfer.from?.name || 'sender'}...`, 0, true);
+
+    return new Promise(async (resolve, reject) => {
+      let receivedBytes = 0;
+      const totalBytes = Math.max(1, Number(file.size) || 1);
+      const memChunks = [];
+      let writeChain = Promise.resolve();
+      let finished = false;
+      const t0 = Date.now();
+
+      const cleanup = () => {
+        p2pSessions.delete(sessionId);
+        try { dc.close(); } catch {}
+        try { pc.close(); } catch {}
+      };
+
+      const failStream = async (err) => {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        if (diskWritable) {
+          try { await diskWritable.abort(); } catch {}
+        }
+        updateP2pDialogProgress(`P2P failed: ${err.message || 'could not connect'}`, 0, false);
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.innerHTML = `${icon('i-download')}retry P2P`;
+        }
+        toast(err.message || 'P2P connection timed out — make sure sender tab is still open!', 'error');
+        reject(err);
+      };
+
+      const timeoutId = setTimeout(() => {
+        if (receivedBytes === 0 && !finished) {
+          failStream(new Error('P2P handshake timed out — sender tab must stay open.'));
+        }
+      }, 15000);
+
+      p2pSessions.set(sessionId, {
+        pc,
+        iceQueue: [],
+        remoteDescSet: false,
+        onError: failStream,
+      });
+
+      pc.onicecandidate = (ev) => {
+        if (ev.candidate) {
+          sendP2pSignal(transfer.fromId, transfer.id, {
+            type: 'p2p-ice',
+            sessionId,
+            candidate: ev.candidate,
+          }).catch(() => {});
+        }
+      };
+
+      dc.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          let msg;
+          try { msg = JSON.parse(ev.data); } catch { return; }
+          if (msg.eof && !finished) {
+            finished = true;
+            clearTimeout(timeoutId);
+            writeChain
+              .then(async () => {
+                if (diskWritable) {
+                  await diskWritable.close();
+                } else {
+                  const blob = new Blob(memChunks, { type: file.type || 'application/octet-stream' });
+                  const url = URL.createObjectURL(blob);
+                  p2pDownloadedBlobs.set(file.id, url);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.download = file.name || 'file';
+                  document.body.appendChild(link);
+                  link.click();
+                  link.remove();
+                }
+                cleanup();
+                updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) via P2P ♡`, 100, true);
+                if (buttonEl) {
+                  buttonEl.disabled = false;
+                  buttonEl.innerHTML = `${icon('i-check')}saved`;
+                }
+                toast(`saved ${file.name} via direct P2P ♡`, 'success');
+                soundSparkle();
+                resolve();
+              })
+              .catch(failStream);
+          }
+          return;
+        }
+
+        const chunk = ev.data;
+        const byteLen = chunk.byteLength || 0;
+        receivedBytes += byteLen;
+
+        if (diskWritable) {
+          writeChain = writeChain.then(() => diskWritable.write(chunk));
+        } else {
+          memChunks.push(new Uint8Array(chunk));
+        }
+
+        const pct = Math.min(100, (receivedBytes / totalBytes) * 100);
+        const elapsed = Math.max(0.2, (Date.now() - t0) / 1000);
+        const speedMbps = (receivedBytes / (1024 * 1024) / elapsed).toFixed(1);
+        updateP2pDialogProgress(
+          `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} (${speedMbps} MB/s)`,
+          pct,
+          true
+        );
+        if (buttonEl) {
+          buttonEl.innerHTML = `${icon('i-bolt')}${Math.round(pct)}%`;
+        }
+      };
+
+      dc.onerror = () => failStream(new Error('WebRTC data channel error'));
+
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendP2pSignal(transfer.fromId, transfer.id, {
+          type: 'p2p-offer',
+          sessionId,
+          fileId: file.id,
+          sdp: pc.localDescription,
+        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        failStream(err);
       }
     });
   }
@@ -858,11 +1249,15 @@
             <div class="download-row">
               <span class="file-icon" aria-hidden="true">${icon(fileIcon(f.type, f.name))}</span>
               <span class="download-row__name" title="${esc(f.name)}">${esc(f.name)}</span>
-              <span class="download-row__size">${esc(fmtBytes(f.size))}</span>
-              <button class="mini-btn" type="button" data-download="${esc(f.id)}" data-name="${esc(f.name)}">${icon('i-download')}save</button>
+              <span class="download-row__size">${esc(fmtBytes(f.size))}${f.p2p ? ' · P2P' : ''}</span>
+              <button class="mini-btn" type="button" data-download="${esc(f.id)}" data-name="${esc(f.name)}">${icon('i-download')}${f.p2p ? 'stream & save' : 'save'}</button>
             </div>`).join('')}
         </div>
-        <p class="download-hint">your browser may ask to allow multiple downloads if you hit save all.</p>`
+        <div class="progress" id="p2pDialogProgress" hidden aria-live="polite" style="margin-top:10px">
+          <div class="progress__label"><span id="p2pDialogLabel">streaming P2P...</span><b id="p2pDialogPct">0%</b></div>
+          <div class="progress__track"><span id="p2pDialogBar"></span></div>
+        </div>
+        <p class="download-hint">${transfer.p2p ? 'direct WebRTC P2P stream — keep both tabs open until 100%.' : 'your browser may ask to allow multiple downloads if you hit save all.'}</p>`
       : '';
 
     const staticFiles = accepted && !incoming && transfer.files?.length
@@ -909,7 +1304,11 @@
 
   /* ---------------- download ---------------- */
 
-  function downloadFile(file) {
+  async function downloadFile(file, transfer, buttonEl) {
+    if (file.p2p && !demoMode && transfer) {
+      await downloadP2pFile(transfer, file, buttonEl);
+      return;
+    }
     const link = document.createElement('a');
     link.href = demoBlobs.get(file.id) || `${API_BASE}/api/file/${encodeURIComponent(file.id)}?download=1`;
     link.download = file.name || 'file';
@@ -918,10 +1317,21 @@
     link.remove();
   }
 
-  function downloadAll(transfer) {
+  async function downloadAll(transfer) {
     const files = transfer.files || [];
     if (!files.length) return;
-    files.forEach((file, index) => setTimeout(() => downloadFile(file), index * 420));
+    if (transfer.p2p && !demoMode) {
+      for (const file of files) {
+        const btn = el.incomingBody.querySelector(`[data-download="${CSS.escape(file.id)}"]`);
+        try {
+          await downloadP2pFile(transfer, file, btn);
+        } catch {
+          break;
+        }
+      }
+      return;
+    }
+    files.forEach((file, index) => setTimeout(() => downloadFile(file, transfer), index * 420));
     toast(`saving ${files.length} ${files.length === 1 ? 'file' : 'files'} — check your downloads ♡`, 'success');
     soundSparkle();
   }
@@ -1050,24 +1460,48 @@
     const buttonRect = el.sendBtn.getBoundingClientRect();
 
     try {
-      const metas = [];
-      for (let i = 0; i < entries.length; i += 1) {
-        const entry = entries[i];
-        setProgress(`file ${i + 1} of ${entries.length} · ${entry.file.name}`, Math.round((doneBytes / totalBytes) * 100));
-        const meta = await uploadFile(entry.file, target.id, (pct) => {
-          const overall = ((doneBytes + entry.file.size * (pct / 100)) / totalBytes) * 100;
-          setProgress(`file ${i + 1} of ${entries.length} · ${entry.file.name}`, overall);
-        });
-        metas.push(meta);
-        doneBytes += entry.file.size;
-      }
+      const useP2p = !demoMode && typeof window.RTCPeerConnection === 'function' && entries.length > 0;
+      let data;
 
-      setProgress('sending the offer...', 100);
-      const data = await api('/api/offer', {
-        to: target.id,
-        fileIds: metas.map((meta) => meta.id),
-        message: note,
-      });
+      if (useP2p) {
+        const p2pMetas = entries.map((entry) => {
+          const id = makeId();
+          p2pOutgoingFiles.set(id, entry.file);
+          return {
+            id,
+            name: entry.file.name,
+            size: entry.file.size,
+            type: entry.file.type || 'application/octet-stream',
+            p2p: true,
+          };
+        });
+        setProgress('sending direct P2P offer (0 bytes uploaded to cloud)...', 100);
+        data = await api('/api/offer', {
+          to: target.id,
+          p2p: true,
+          p2pFiles: p2pMetas,
+          message: note,
+        });
+      } else {
+        const metas = [];
+        for (let i = 0; i < entries.length; i += 1) {
+          const entry = entries[i];
+          setProgress(`file ${i + 1} of ${entries.length} · ${entry.file.name}`, Math.round((doneBytes / totalBytes) * 100));
+          const meta = await uploadFile(entry.file, target.id, (pct) => {
+            const overall = ((doneBytes + entry.file.size * (pct / 100)) / totalBytes) * 100;
+            setProgress(`file ${i + 1} of ${entries.length} · ${entry.file.name}`, overall);
+          });
+          metas.push(meta);
+          doneBytes += entry.file.size;
+        }
+
+        setProgress('sending the offer...', 100);
+        data = await api('/api/offer', {
+          to: target.id,
+          fileIds: metas.map((meta) => meta.id),
+          message: note,
+        });
+      }
 
       state.transfers.set(data.transfer.id, data.transfer);
       renderLog();
@@ -1099,7 +1533,7 @@
     if (!incoming.length) return;
 
     const maxFiles = state.limits.maxFiles || 50;
-    const maxBytes = state.limits.maxFileBytes || 4 * 1024 * 1024 * 1024;
+    const maxBytes = state.limits.maxFileBytes || 25 * 1024 * 1024 * 1024;
     let added = 0;
     let tooBig = 0;
     let empty = 0;
@@ -1124,7 +1558,7 @@
       soundPop();
       renderFiles();
     }
-    if (tooBig) toast(`${tooBig} file${tooBig === 1 ? ' is' : 's are'} over the 4 GB limit.`, 'error');
+    if (tooBig) toast(`${tooBig} file${tooBig === 1 ? ' is' : 's are'} over the 25 GB P2P limit.`, 'error');
     if (overflow) toast(`up to ${maxFiles} files per send — extras were skipped.`, 'info');
     if (empty) toast('empty files are not very useful, bestie.', 'info');
     if (!added && !tooBig && !overflow && !empty) {
@@ -1223,6 +1657,45 @@
       .catch(() => { /* the name will be sent again on reconnect */ });
   }
 
+  function joinRoomCode(rawCode) {
+    const clean = String(rawCode ?? '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
+    state.room = clean;
+    store.set('kurizu-send-room', clean);
+    if (el.roomCodeInput) el.roomCodeInput.value = clean;
+    setShareUrl();
+    updateRoomBadgeUi();
+    soundPop();
+
+    if (demoMode) {
+      toast(clean ? `joined cross-Wi-Fi room "${clean}" ♡` : 'switched to same Wi-Fi auto-discovery ♡', 'success');
+      return;
+    }
+
+    if (state.connected) {
+      api('/api/profile', { room: clean })
+        .then((data) => {
+          if (Array.isArray(data.devices)) {
+            state.devices = data.devices;
+            renderDevices();
+          }
+          toast(
+            clean
+              ? `joined room "${clean}" — anyone on any Wi-Fi with this code will appear here!`
+              : 'switched to same Wi-Fi auto-discovery ♡',
+            'success'
+          );
+        })
+        .catch(() => connectEvents());
+    } else {
+      connectEvents();
+    }
+  }
+
+  function generateRoomCode() {
+    const code = `kuri-${Math.floor(1000 + Math.random() * 9000)}`;
+    joinRoomCode(code);
+  }
+
   function cycleAvatar() {
     const index = state.avatars.indexOf(state.me.avatar);
     state.me.avatar = state.avatars[(index + 1) % state.avatars.length] || state.avatars[0];
@@ -1251,6 +1724,18 @@
       if (event.key === 'Enter') {
         event.preventDefault();
         el.deviceName.blur();
+      }
+    });
+
+    el.roomJoinBtn?.addEventListener('click', () => {
+      joinRoomCode(el.roomCodeInput ? el.roomCodeInput.value : '');
+    });
+    el.roomGenBtn?.addEventListener('click', generateRoomCode);
+    el.roomCodeInput?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        joinRoomCode(el.roomCodeInput.value);
+        el.roomCodeInput.blur();
       }
     });
 
@@ -1409,9 +1894,13 @@
         const transfer = state.transfers.get(state.activeOfferId);
         const file = transfer?.files?.find((f) => f.id === oneButton.dataset.download);
         if (file) {
-          downloadFile(file);
-          oneButton.disabled = true;
-          oneButton.innerHTML = `${icon('i-check')}saved`;
+          if (file.p2p && !demoMode) {
+            downloadFile(file, transfer, oneButton);
+          } else {
+            downloadFile(file, transfer, oneButton);
+            oneButton.disabled = true;
+            oneButton.innerHTML = `${icon('i-check')}saved`;
+          }
         }
       }
     });
