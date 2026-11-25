@@ -11,7 +11,7 @@
   <meta property="og:description" content="Drop files to nearby devices over your Wi-Fi. No cloud, no accounts, no install.">
   <meta property="og:type" content="website">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css?v=win7">
+  <link rel="stylesheet" href="css/style.css?v=win8">
 </head>
 <body>
   <a class="skip-link" href="#app">skip to the app</a>
@@ -188,6 +188,16 @@
                     <span class="you-card__meta"><svg class="icon" id="myTypeIcon"><use href="#i-desktop"/></svg><span id="myType">desktop</span></span>
                   </div>
                 </div>
+                <div class="p2p-profile-bar" id="p2pProfileBar" title="Live WebRTC peer-to-peer connection status">
+                  <span class="p2p-badge is-ready" id="p2pProfileBadge">
+                    <span class="p2p-badge__dot" aria-hidden="true"></span>
+                    <span id="p2pProfileText">P2P READY</span>
+                  </span>
+                  <span class="p2p-profile-signal" id="p2pProfileSignal">
+                    <span class="sig-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                    <span class="p2p-profile-signal__text">standby</span>
+                  </span>
+                </div>
                 <div class="room-box" id="roomBox">
                   <label class="field-label" for="roomCodeInput">cross-wi-fi room code <em>(any network)</em></label>
                   <input id="roomCodeInput" class="name-input room-input" maxlength="24" placeholder="type or generate room code..." spellcheck="false" autocomplete="off" aria-label="Room code for connecting across different Wi-Fi networks">
@@ -271,6 +281,7 @@
               <div class="progress" id="sendProgress" hidden aria-live="polite">
                 <div class="progress__label"><span id="progressLabel">uploading...</span><b id="progressPct">0%</b></div>
                 <div class="progress__track"><span id="progressBar"></span></div>
+                <div class="p2p-signal-strip" id="sendSignalPanel" hidden></div>
               </div>
 
               <p class="tray-hint" id="trayHint">pick a device first, then toss your files in.</p>
@@ -442,6 +453,6 @@
 
   <script src="js/qrcode.js"></script>
   <script src="progress.js"></script>
-  <script src="js/app.js?v=win8"></script>
+  <script src="js/app.js?v=win9"></script>
 </body>
 </html>

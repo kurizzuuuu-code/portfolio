@@ -98,6 +98,56 @@
     return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
+  function formatEta(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return 'calculating ETA...';
+    const s = Math.ceil(seconds);
+    if (s <= 1) return '~1s left';
+    if (s < 60) return `~${s}s left`;
+    if (s < 3600) {
+      const m = Math.floor(s / 60);
+      const remS = s % 60;
+      return `~${m}m ${remS}s left`;
+    }
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return `~${h}h ${m}m left`;
+  }
+
+  function createSpeedTracker(initialBytes = 0) {
+    const startBytes = Number(initialBytes) || 0;
+    const startTime = Date.now();
+    let lastBytes = startBytes;
+    let lastTime = startTime;
+    let emaBps = 0;
+
+    return {
+      sample(currentBytes, totalBytes) {
+        const now = Date.now();
+        const bytes = Number(currentBytes) || 0;
+        const total = Number(totalBytes) || 0;
+        const dt = (now - lastTime) / 1000;
+        if (dt >= 0.4) {
+          const instBps = Math.max(0, (bytes - lastBytes) / dt);
+          emaBps = emaBps > 0 ? (emaBps * 0.65 + instBps * 0.35) : instBps;
+          lastBytes = bytes;
+          lastTime = now;
+        }
+        const avgBps = Math.max(0, (bytes - startBytes) / Math.max(0.25, (now - startTime) / 1000));
+        const bps = emaBps > 0 ? emaBps : avgBps;
+        const mbps = bps / (1024 * 1024);
+        const remaining = Math.max(0, total - bytes);
+        const etaText = (bps > 1024 && now - startTime >= 400)
+          ? formatEta(remaining / bps)
+          : 'calculating ETA...';
+        return {
+          bps,
+          mbpsText: mbps >= 10 ? mbps.toFixed(1) : mbps.toFixed(2).replace(/\.?0+$/, (m) => (m === '.00' ? '.0' : m)),
+          etaText,
+        };
+      },
+    };
+  }
+
   const isWindowedApp = () => {
     try {
       return window.self !== window.top || new URLSearchParams(location.search).has('windowed');
@@ -187,6 +237,10 @@
     myAvatar: $('#myAvatar'),
     avatarBtn: $('#avatarBtn'),
     deviceName: $('#deviceName'),
+    p2pProfileBar: $('#p2pProfileBar'),
+    p2pProfileBadge: $('#p2pProfileBadge'),
+    p2pProfileText: $('#p2pProfileText'),
+    p2pProfileSignal: $('#p2pProfileSignal'),
     roomCodeInput: $('#roomCodeInput'),
     roomJoinBtn: $('#roomJoinBtn'),
     roomGenBtn: $('#roomGenBtn'),
@@ -221,6 +275,7 @@
     progressLabel: $('#progressLabel'),
     progressPct: $('#progressPct'),
     progressBar: $('#progressBar'),
+    sendSignalPanel: $('#sendSignalPanel'),
     statusDevices: $('#statusDevices'),
     statusDot: $('#statusDot'),
     statusClock: $('#statusClock'),
@@ -340,6 +395,7 @@
         ? `CROSS-WIFI ROOM: ${code.toUpperCase()} · P2P 25GB`
         : `WEBRTC P2P · 25GB MAX`;
     }
+    updateProfileP2pUi(null);
   }
 
   function setConnected(on) {
@@ -359,6 +415,7 @@
       el.windowBadge.classList.add('is-offline');
     }
     updateRoomBadgeUi();
+    updateProfileP2pUi(null);
     renderDevices();
     updateComposer();
   }
@@ -625,6 +682,7 @@
     setConnected(true);
     el.windowBadge.textContent = 'WEB DEMO · LOCAL ROOM';
     el.lanPillText.textContent = 'web demo';
+    updateProfileP2pUi(null);
     renderDevices();
     renderTray();
     updateComposer();
@@ -928,13 +986,238 @@
     }
   }
 
+  let activeP2pMonitors = 0;
+
+  function supportsWebRtc() {
+    return typeof window.RTCPeerConnection === 'function';
+  }
+
+  function signalFromRtt(rttMs) {
+    if (rttMs == null || !Number.isFinite(rttMs)) {
+      return { bars: 0, quality: 'checking', rttText: '-- ms', rttMs: null };
+    }
+    const ms = Math.max(1, Math.round(rttMs));
+    if (ms < 35) return { bars: 4, quality: 'excellent', rttText: `${ms}ms`, rttMs: ms };
+    if (ms < 90) return { bars: 3, quality: 'good', rttText: `${ms}ms`, rttMs: ms };
+    if (ms < 180) return { bars: 2, quality: 'fair', rttText: `${ms}ms`, rttMs: ms };
+    return { bars: 1, quality: 'weak', rttText: `${ms}ms`, rttMs: ms };
+  }
+
+  function renderSignalBarsHtml(bars) {
+    const level = Math.max(0, Math.min(4, Number(bars) || 0));
+    let html = `<span class="sig-bars sig-bars--${level}" aria-hidden="true">`;
+    for (let i = 0; i < 4; i += 1) {
+      html += `<i${i < level ? ' class="is-on"' : ''}></i>`;
+    }
+    return `${html}</span>`;
+  }
+
+  function updateProfileP2pUi(info = null) {
+    if (!el.p2pProfileBadge || !el.p2pProfileText || !el.p2pProfileSignal) return;
+    if (!info && activeP2pMonitors > 0) return;
+
+    let cls = 'is-ready';
+    let text = 'P2P READY';
+    let bars = 0;
+    let sigText = 'standby';
+
+    if (info && info.active) {
+      cls = info.isDirect === false ? 'is-relay' : 'is-direct';
+      text = info.route || 'P2P DIRECT';
+      bars = Number(info.bars) || 0;
+      sigText = info.rttText || 'live';
+    } else if (demoMode) {
+      cls = 'is-relay';
+      text = 'DEMO · LOCAL';
+      sigText = 'demo';
+    } else if (!supportsWebRtc()) {
+      cls = 'is-offline';
+      text = 'NO WEBRTC';
+      sigText = 'n/a';
+    } else if (!state.connected) {
+      cls = 'is-offline';
+      text = 'P2P OFFLINE';
+      sigText = 'wait';
+    } else {
+      cls = 'is-ready';
+      text = state.room ? 'P2P READY · ROOM' : 'P2P READY';
+      bars = 4;
+      sigText = 'ready';
+    }
+
+    el.p2pProfileBadge.className = `p2p-badge ${cls}`;
+    el.p2pProfileText.textContent = text;
+    el.p2pProfileSignal.innerHTML = `${renderSignalBarsHtml(bars)}<span class="p2p-profile-signal__text">${esc(sigText)}</span>`;
+  }
+
+  function renderPeerSignalPanel(containerEl, senderSig, receiverSig, routeInfo) {
+    if (!containerEl) return;
+    containerEl.hidden = false;
+    const s = senderSig || { bars: 0, quality: 'checking', rttText: '-- ms' };
+    const r = receiverSig || { bars: 0, quality: 'checking', rttText: '-- ms' };
+    const isDirect = routeInfo?.isDirect !== false;
+    const routeLabel = routeInfo?.route || 'P2P DIRECT';
+    const sText = s.bars > 0 ? `${s.quality} · ${s.rttText}` : 'checking...';
+    const rText = r.bars > 0 ? `${r.quality} · ${r.rttText}` : 'checking...';
+
+    containerEl.innerHTML = `
+      <span class="p2p-signal-route ${isDirect ? 'is-direct' : 'is-relay'}">${isDirect ? '⚡' : '☁'} ${esc(routeLabel)} · E2E WebRTC</span>
+      <div class="p2p-signal-grid">
+        <div class="p2p-signal-card">
+          <span class="p2p-signal-card__role">sender signal</span>
+          <div class="p2p-signal-card__row">
+            ${renderSignalBarsHtml(s.bars)}
+            <span class="p2p-signal-card__val">${esc(sText)}</span>
+          </div>
+        </div>
+        <div class="p2p-signal-card">
+          <span class="p2p-signal-card__role">receiver signal</span>
+          <div class="p2p-signal-card__row">
+            ${renderSignalBarsHtml(r.bars)}
+            <span class="p2p-signal-card__val">${esc(rText)}</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function startP2pStatsMonitor(pc, dc, role, onUpdate) {
+    let stopped = false;
+    let counted = true;
+    activeP2pMonitors += 1;
+
+    let localSig = { bars: 0, quality: 'checking', rttText: '-- ms', rttMs: null };
+    let remoteSig = { bars: 0, quality: 'checking', rttText: '-- ms', rttMs: null };
+    let routeInfo = { route: 'P2P DIRECT', isDirect: true, resolved: false };
+    let appRttMs = null;
+
+    const emit = () => {
+      if (stopped) return;
+      const sender = role === 'sender' ? localSig : remoteSig;
+      const receiver = role === 'receiver' ? localSig : remoteSig;
+      updateProfileP2pUi({
+        active: true,
+        route: routeInfo.route,
+        isDirect: routeInfo.isDirect,
+        bars: localSig.bars,
+        rttText: localSig.rttText,
+      });
+      if (typeof onUpdate === 'function') {
+        onUpdate({ sender, receiver, routeInfo, local: localSig });
+      }
+    };
+
+    const poll = async () => {
+      if (stopped) return;
+      if (dc && dc.readyState === 'open') {
+        try { dc.send(JSON.stringify({ ping: Date.now() })); } catch {}
+      }
+      if (pc && typeof pc.getStats === 'function') {
+        try {
+          const stats = await pc.getStats();
+          let pair = null;
+          stats.forEach((rep) => {
+            if (rep.type === 'transport' && rep.selectedCandidatePairId) {
+              pair = stats.get(rep.selectedCandidatePairId) || pair;
+            }
+          });
+          if (!pair) {
+            stats.forEach((rep) => {
+              if (rep.type === 'candidate-pair' && (rep.nominated || rep.state === 'succeeded')) {
+                if (!pair || rep.nominated) pair = rep;
+              }
+            });
+          }
+
+          const statsRtt = typeof pair?.currentRoundTripTime === 'number'
+            ? Math.round(pair.currentRoundTripTime * 1000)
+            : null;
+          const bestRtt = statsRtt != null ? statsRtt : appRttMs;
+
+          const localCand = pair?.localCandidateId ? stats.get(pair.localCandidateId) : null;
+          const remoteCand = pair?.remoteCandidateId ? stats.get(pair.remoteCandidateId) : null;
+          if (localCand?.candidateType === 'relay' || remoteCand?.candidateType === 'relay') {
+            routeInfo = { route: 'TURN RELAY', isDirect: false, resolved: true };
+          } else if (localCand?.candidateType === 'host' && remoteCand?.candidateType === 'host') {
+            routeInfo = { route: 'P2P DIRECT · LAN', isDirect: true, resolved: true };
+          } else if (localCand || remoteCand) {
+            routeInfo = { route: 'P2P DIRECT · WAN', isDirect: true, resolved: true };
+          }
+
+          localSig = signalFromRtt(bestRtt);
+
+          if (dc && dc.readyState === 'open') {
+            try {
+              dc.send(JSON.stringify({
+                stats: {
+                  role,
+                  rttMs: bestRtt,
+                  bars: localSig.bars,
+                  quality: localSig.quality,
+                  route: routeInfo.route,
+                  isDirect: routeInfo.isDirect,
+                },
+              }));
+            } catch {}
+          }
+        } catch {}
+      }
+      emit();
+    };
+
+    const handleControlMessage = (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (typeof msg.ping === 'number') {
+        if (dc && dc.readyState === 'open') {
+          try { dc.send(JSON.stringify({ pong: msg.ping })); } catch {}
+        }
+      }
+      if (typeof msg.pong === 'number') {
+        appRttMs = Math.max(1, Date.now() - msg.pong);
+      }
+      if (msg.stats && typeof msg.stats === 'object') {
+        const computed = signalFromRtt(msg.stats.rttMs);
+        remoteSig = {
+          bars: typeof msg.stats.bars === 'number' && msg.stats.bars > 0 ? msg.stats.bars : computed.bars,
+          quality: msg.stats.quality || computed.quality,
+          rttText: computed.rttText,
+          rttMs: computed.rttMs,
+        };
+        if (!routeInfo.resolved && msg.stats.route) {
+          routeInfo = {
+            route: msg.stats.route,
+            isDirect: msg.stats.isDirect !== false,
+            resolved: true,
+          };
+        }
+        emit();
+      }
+    };
+
+    const initTimer = setTimeout(poll, 350);
+    const intervalId = setInterval(poll, 1500);
+    emit();
+
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      clearTimeout(initTimer);
+      clearInterval(intervalId);
+      if (counted) {
+        counted = false;
+        activeP2pMonitors = Math.max(0, activeP2pMonitors - 1);
+      }
+      if (activeP2pMonitors === 0) updateProfileP2pUi(null);
+    };
+
+    return { handleControlMessage, stop };
+  }
+
   async function streamFileOverDataChannel(file, dc, sessionId, peerName, startOffset = 0, pc = null) {
     const total = file.size || 1;
     let offset = Math.max(0, Math.min(total, Number(startOffset) || 0));
     let ackedBytes = offset;
     let ackWaitResolver = null;
-    const t0 = Date.now();
-    const sentAtStart = offset;
+    const speed = createSpeedTracker(offset);
     let lastUiUpdate = 0;
 
     // Dynamically pick largest safe SCTP chunk (up to 240 KB when peer allows >=256 KB, falling back to 64 KB)
@@ -944,6 +1227,14 @@
       Math.max(P2P_DEFAULT_CHUNK_BYTES, Math.floor(negotiatedSctp / 1024) * 1024)
     );
 
+    const statsMon = pc
+      ? startP2pStatsMonitor(pc, dc, 'sender', ({ sender, receiver, routeInfo }) => {
+          if (el.sendProgress && !el.sendProgress.hidden) {
+            renderPeerSignalPanel(el.sendSignalPanel, sender, receiver, routeInfo);
+          }
+        })
+      : null;
+
     acquireTransferWakeLock();
     if (offset === 0) {
       toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P (${Math.round(chunkBytes / 1024)}KB chunks) ⚡`, 'info');
@@ -951,11 +1242,12 @@
       toast(`resuming ${file.name} from ${fmtBytes(offset)}... ⚡`, 'info');
     }
 
-    // Listen for Receiver disk-flush ACKs so we never overwhelm Receiver RAM on 20+ GB files
+    // Listen for Receiver disk-flush ACKs & signal telemetry so we never overwhelm Receiver RAM on 20+ GB files
     dc.onmessage = (ev) => {
       if (typeof ev.data !== 'string') return;
       try {
         const msg = JSON.parse(ev.data);
+        statsMon?.handleControlMessage(msg);
         if (typeof msg.ack === 'number' && msg.ack > ackedBytes) {
           ackedBytes = msg.ack;
           if (ackWaitResolver && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES / 2) {
@@ -966,12 +1258,6 @@
         }
       } catch {}
     };
-
-    const pingInterval = setInterval(() => {
-      if (dc.readyState === 'open') {
-        try { dc.send(JSON.stringify({ ping: Date.now() })); } catch {}
-      }
-    }, 5000);
 
     const waitForBufferAndAck = () =>
       new Promise((resolve, reject) => {
@@ -1043,9 +1329,8 @@
           if (now - lastUiUpdate >= 120 || offset >= total) {
             lastUiUpdate = now;
             const pct = Math.min(100, (offset / total) * 100);
-            const elapsedSec = Math.max(0.2, (now - t0) / 1000);
-            const speedMbps = ((offset - sentAtStart) / (1024 * 1024) / elapsedSec).toFixed(1);
-            setProgress(`P2P · ${file.name} · ${fmtBytes(offset)} / ${fmtBytes(total)} (${speedMbps} MB/s)`, pct);
+            const { mbpsText, etaText } = speed.sample(offset, total);
+            setProgress(`P2P · ${file.name} · ${fmtBytes(offset)} / ${fmtBytes(total)} · ${mbpsText} MB/s · ${etaText}`, pct);
           }
         }
       }
@@ -1055,13 +1340,16 @@
       toast(`finished streaming ${file.name} via P2P ♡`, 'success');
       soundSparkle();
       setTimeout(() => {
-        if (!state.sending) el.sendProgress.hidden = true;
+        if (!state.sending) {
+          el.sendProgress.hidden = true;
+          if (el.sendSignalPanel) el.sendSignalPanel.hidden = true;
+        }
       }, 2400);
     } catch (err) {
       // Do not hide immediately if receiver is auto-resuming
       setProgress(`P2P paused at ${fmtBytes(offset)} — waiting for auto-resume...`, (offset / total) * 100);
     } finally {
-      clearInterval(pingInterval);
+      statsMon?.stop();
       releaseTransferWakeLock();
     }
   }
@@ -1138,7 +1426,7 @@
     let batchLen = 0;
     let writeQueue = Promise.resolve();
     let activeDc = null;
-    const t0 = Date.now();
+    const speed = createSpeedTracker(0);
     let lastUiUpdate = 0;
 
     const flushBatchToDisk = (forceAck = false) => {
@@ -1171,6 +1459,15 @@
 
         let finished = false;
         let lastChunkAt = Date.now();
+        let statsMon = null;
+
+        dc.onopen = () => {
+          if (finished || statsMon) return;
+          statsMon = startP2pStatsMonitor(pc, dc, 'receiver', ({ sender, receiver, routeInfo }) => {
+            const panel = $('#p2pDialogSignals', el.incomingBody);
+            if (panel) renderPeerSignalPanel(panel, sender, receiver, routeInfo);
+          });
+        };
 
         if (buttonEl) {
           buttonEl.disabled = true;
@@ -1186,6 +1483,8 @@
 
         const cleanupAttempt = () => {
           clearInterval(watchdogId);
+          statsMon?.stop();
+          statsMon = null;
           p2pSessions.delete(sessionId);
           if (activeDc === dc) activeDc = null;
           try { dc.close(); } catch {}
@@ -1250,7 +1549,8 @@
           if (typeof ev.data === 'string') {
             let msg;
             try { msg = JSON.parse(ev.data); } catch { return; }
-            if (msg.ping) return;
+            statsMon?.handleControlMessage(msg);
+            if (msg.ping || msg.pong || msg.stats) return;
             if (msg.eof && !finished) {
               finished = true;
               flushBatchToDisk(true)
@@ -1284,10 +1584,9 @@
           if (now - lastUiUpdate >= 120 || receivedBytes >= totalBytes) {
             lastUiUpdate = now;
             const frac = Math.min(1, receivedBytes / totalBytes);
-            const elapsed = Math.max(0.2, (now - t0) / 1000);
-            const speedMbps = (receivedBytes / (1024 * 1024) / elapsed).toFixed(1);
+            const { mbpsText, etaText } = speed.sample(receivedBytes, totalBytes);
             updateP2pDialogProgress(
-              `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} (${speedMbps} MB/s)`,
+              `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} · ${mbpsText} MB/s · ${etaText}`,
               frac,
               true
             );
@@ -1380,6 +1679,7 @@
       }
       toast(err.message || 'P2P stream interrupted — make sure both tabs stay open!', 'error');
     } finally {
+      updateProfileP2pUi(null);
       releaseTransferWakeLock();
     }
   }
@@ -1545,6 +1845,7 @@
         <div class="sakuga-dl-progress" id="p2pDialogProgress" hidden aria-live="polite">
           <sakuga-progress id="p2pSakugaProgress" label="Downloading file" done-label="Saved ✓"></sakuga-progress>
           <p class="sakuga-dl-progress__meta" id="p2pDialogLabel">preparing download...</p>
+          <div class="p2p-signal-strip" id="p2pDialogSignals" hidden></div>
         </div>
         <p class="download-hint">${transfer.p2p ? 'direct WebRTC P2P stream — keep both tabs open until 100%.' : 'your browser may ask to allow multiple downloads if you hit save all.'}</p>`
       : '';
@@ -1646,6 +1947,7 @@
         const reader = response.body && response.body.getReader ? response.body.getReader() : null;
         if (reader) {
           const chunks = [];
+          const speed = createSpeedTracker(0);
           let loaded = 0;
           let lastUi = 0;
           for (;;) {
@@ -1658,7 +1960,9 @@
               if (now - lastUi >= 90) {
                 lastUi = now;
                 const frac = total > 0 ? Math.min(0.99, loaded / total) : 0.5;
-                updateP2pDialogProgress(`downloading ${file.name} · ${fmtBytes(loaded)}${total ? ` / ${fmtBytes(total)}` : ''}`, frac, true);
+                const { mbpsText, etaText } = speed.sample(loaded, total);
+                const etaPart = total > 0 ? ` · ${mbpsText} MB/s · ${etaText}` : ` · ${mbpsText} MB/s`;
+                updateP2pDialogProgress(`downloading ${file.name} · ${fmtBytes(loaded)}${total ? ` / ${fmtBytes(total)}` : ''}${etaPart}`, frac, true);
               }
             }
           }
