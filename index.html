@@ -22,7 +22,7 @@
   <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/fonts.css">
-  <link rel="stylesheet" href="css/style.css?v=interactive20">
+  <link rel="stylesheet" href="css/style.css?v=interactive22">
 </head>
 <body class="is-desktop-os">
   <a class="skip-link" href="#main">skip to content</a>
@@ -80,6 +80,7 @@
     <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.5"/></symbol>
     <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></symbol>
     <symbol id="i-cookie" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/><path d="M8.5 8.5v.01M16 15.5v.01M12 12v.01M11 17v.01M7 14v.01"/></symbol>
+    <symbol id="i-chess" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8 20h8M9 17h6l-1-5 3-3-2-4-3 1-1-2-3 2v3l2 1-1 7Z"/></symbol>
   </svg>
 
   <div class="crt" aria-hidden="true"></div>
@@ -641,6 +642,7 @@
 
               <div class="arcade__actions">
                 <button class="btn btn--primary" type="button" data-play-game><svg class="icon"><use href="#i-play"/></svg>play the game</button>
+                <button class="btn btn--ghost" type="button" data-wisteria-play><svg class="icon"><use href="#i-sparkle"/></svg>watch Wisteria play 🐾</button>
                 <a class="btn btn--ghost" href="game/index.html" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg>new tab</a>
                 <a class="btn btn--ghost" href="#kurizu3d"><svg class="icon"><use href="#i-sparkle"/></svg>inspect 3D model</a>
               </div>
@@ -978,9 +980,17 @@
           <p>loading the forest...</p>
         </div>
         <iframe id="gameIframe" title="Do Not Stop — Forest Run" src="about:blank" allow="autoplay; fullscreen; gamepad" loading="lazy"></iframe>
+        <div class="game-wisteria" id="gameWisteriaPilot" hidden aria-live="polite">
+          <img class="game-wisteria__sprite" id="gameWisteriaSprite" src="assets/sprites/pet-still.webp" alt="Wisteria playing the game">
+          <div class="game-wisteria__bubble">
+            <span class="game-wisteria__tag">🐾 WISTERIA AUTO-PLAY</span>
+            <p id="gameWisteriaText">hold my ram coins, watch this!! ✨</p>
+          </div>
+        </div>
       </div>
       <div class="game-modal__foot">
-        <span><b>A</b>/<b>D</b> lanes · <b>SPACE</b> jump · <b>S</b> slide · <b>P</b> pause</span>
+        <span><b>A</b>/<b>D</b> lanes · <b>SPACE</b> jump · <b>S</b> slide · <b>B</b> auto-play · <b>P</b> pause</span>
+        <button type="button" class="text-btn game-bot-btn" id="gameBotToggle">🐾 let Wisteria play</button>
         <button type="button" class="text-btn" data-close-dialog>close game <svg class="icon"><use href="#i-close"/></svg></button>
       </div>
     </div>
@@ -1002,6 +1012,24 @@
     </div>
     <div class="dropship-win__frame">
       <iframe id="dropshipIframe" title="KURIZU.dropship — local file sharing" src="about:blank" loading="lazy"></iframe>
+    </div>
+  </div>
+
+  <!-- ============ Wisteria 3D Chess Desktop Window ============ -->
+  <div class="window window--big dropship-window" id="chessWindow" aria-label="Wisteria 3D Chess app">
+    <div class="window__bar">
+      <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="window__title"><svg class="icon"><use href="#i-chess"/></svg>wisteria_chess.exe</span>
+      <span class="window__badge">3D CHESS · VS WISTERIA</span>
+    </div>
+    <div class="dropship-win__toolbar">
+      <span class="dropship-win__url"><svg class="icon"><use href="#i-chess"/></svg>kurizu://games/wisteria-chess</span>
+      <div class="dropship-win__actions">
+        <a class="btn btn--small btn--primary" href="chess/index.html" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg>open in new tab</a>
+      </div>
+    </div>
+    <div class="dropship-win__frame">
+      <iframe id="chessIframe" title="Wisteria 3D Chess — Play vs Wisteria" src="about:blank" loading="lazy"></iframe>
     </div>
   </div>
 
@@ -1063,6 +1091,8 @@
       <div class="pet-chat__log" id="petChatLog" role="log" aria-live="polite"></div>
       <div class="pet-chat__chips" id="petChatChips" aria-label="Quick questions for Wisteria">
         <button type="button" class="pet-chip" data-pet-ask="who are you">who are you?</button>
+        <button type="button" class="pet-chip" data-pet-ask="play into the forest">play forest run 🎮</button>
+        <button type="button" class="pet-chip" data-pet-ask="play chess">play chess ♟️</button>
         <button type="button" class="pet-chip" data-pet-ask="tell me about AIPet">AIPet</button>
         <button type="button" class="pet-chip" data-pet-ask="pixify">pixify</button>
         <button type="button" class="pet-chip" data-pet-ask="wobble studio">wobble</button>
@@ -1120,8 +1150,8 @@
   <script src="slider.js"></script>
   <script src="tooltip.js"></script>
   <script src="button.js"></script>
-  <script src="js/site.config.js?v=interactive20"></script>
-  <script src="js/main.js?v=interactive20"></script>
+  <script src="js/site.config.js?v=interactive22"></script>
+  <script src="js/main.js?v=interactive22"></script>
   <script src="game/three.min.js"></script>
   <script src="game/GLTFLoader.js"></script>
   <script src="game/player_model_data.js"></script>

@@ -169,6 +169,13 @@
   #mpRoster li small { margin-left: auto; color: var(--gold); letter-spacing: 1px; }
   #mpHud { position: fixed; z-index: 10; top: 12px; right: 12px; padding: 8px 12px; border-radius: 12px; background: rgba(31, 15, 40, 0.8); border: 1px solid rgba(207, 183, 241, 0.3); color: #e9dcf7; font: 700 11px Arial, sans-serif; letter-spacing: 1.2px; pointer-events: none; line-height: 1.6; }
   #mpHud b { color: var(--gold); } #mpHud i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  #botBtn.active { border-color: #ff8ae2; background: linear-gradient(135deg, rgba(168, 70, 240, 0.85), rgba(255, 102, 196, 0.8)); color: #fff; box-shadow: 0 0 18px rgba(250, 107, 221, 0.55); }
+  #wisteriaPill { position: fixed; z-index: 11; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 999px; background: rgba(28, 10, 44, 0.86); border: 1.5px solid rgba(250, 107, 221, 0.65); backdrop-filter: blur(8px); color: #f7ebff; font: 800 11px/1 Arial, sans-serif; letter-spacing: 1.4px; text-transform: uppercase; box-shadow: 0 8px 26px rgba(15, 4, 28, 0.55); pointer-events: auto; cursor: pointer; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+  #wisteriaPill i { width: 8px; height: 8px; border-radius: 50%; background: #9ef96d; box-shadow: 0 0 10px #9ef96d; flex: none; animation: bestPulse 0.7s infinite alternate; }
+  #wisteriaPill small { opacity: 0.76; font-weight: 700; letter-spacing: 0.8px; }
+  #wisteriaPill.hidden { display: none; }
+  @media (pointer: coarse), (max-width: 700px) { #wisteriaPill { bottom: max(100px, calc(env(safe-area-inset-bottom) + 92px)); font-size: 9.5px; padding: 7px 12px; } }
+  .bot-run-tag { display: inline-block; margin-top: 8px; padding: 6px 12px; border-radius: 20px; color: #fff; background: linear-gradient(135deg, #9b4dff, #ff5ea8); font-size: 10px; font-weight: 900; letter-spacing: 1.4px; }
   .screen-subtitle { margin: 0 0 21px; color: #c7b3dc; font-size: 14px; line-height: 1.5; }
   .results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 22px 0; }
   .result { padding: 15px 5px; border-radius: 12px; background: rgba(215, 197, 240, 0.055); border: 1px solid rgba(215, 197, 240, 0.09); }
@@ -369,6 +376,7 @@
   </div>
 
   <div id="globalControls">
+    <button id="botBtn" class="icon-btn" aria-label="Toggle Wisteria Auto-Play" title="Let Wisteria Play (B)">🐾</button>
     <button id="volumeBtn" class="icon-btn" aria-label="Settings" title="Settings" aria-expanded="false" aria-controls="volumePanel">⚙︎</button>
     <button id="viewBtn" class="icon-btn" aria-label="Switch camera view" title="Camera: 3rd person (V)">👁</button>
     <button id="soundBtn" class="icon-btn" aria-label="Toggle sound" title="Toggle sound">♫</button>
@@ -389,6 +397,7 @@
 
   <div id="comboPill" class="hidden">FLOW ×2</div>
   <div id="statusBadge" class="hidden">CLEAR</div>
+  <button id="wisteriaPill" type="button" class="hidden" title="Click or press any movement key to take over"><i></i><span>WISTERIA AUTO-PLAY</span><small>· press key to take over</small></button>
   <div id="mpHud" class="hidden"></div>
   <div id="mpSpecHud" class="hidden" style="position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:45;display:flex;align-items:center;gap:12px;padding:10px 18px;border-radius:999px;background:rgba(12,6,26,0.84);border:1px solid rgba(255,255,255,0.22);backdrop-filter:blur(8px);color:#fff;font-family:inherit;box-shadow:0 8px 28px rgba(0,0,0,0.55);">
     <button id="mpSpecPrev" type="button" aria-label="Previous player" style="background:rgba(255,255,255,0.14);border:none;color:#fff;padding:6px 12px;border-radius:999px;cursor:pointer;font-weight:700;">◀</button>
@@ -442,6 +451,7 @@
           <button id="endlessBtn" class="secondary" style="flex: 1 1 220px; border-color: rgba(255, 120, 140, 0.6); color: #ffb2c5;" title="Endless run: the speed never stops rising and the creature hunts you">ENDLESS ∞</button>
         </div>
         <div style="display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;">
+          <button id="wisteriaPlayBtn" class="secondary" style="flex: 1 1 100%; border-color: rgba(250, 107, 221, 0.72); background: linear-gradient(135deg, rgba(145, 58, 220, 0.32), rgba(255, 94, 168, 0.24)); color: #ffd4f6;" title="Watch Wisteria play Into the Forest by herself!">🐾 WATCH WISTERIA PLAY (AUTO)</button>
           <button id="phase4Btn" class="secondary" style="flex: 1 1 100%; border-color: rgba(230, 155, 255, 0.4);" title="Jump directly into Phase 4 open stealth forest">PHASE 4 (TEST) ⚡</button>
           <button id="mpBtn" class="secondary" style="flex: 1 1 100%; border-color: rgba(250, 107, 221, 0.6); color: #fa6bdd;" title="Phase 4 with friends: same forest, same creature, one door">PHASE 4 · MULTIPLAYER 👥</button>
         </div>
@@ -541,9 +551,16 @@
 
   const embedded = (() => { try { return window.self !== window.top; } catch (error) { return true; } })();
   if (embedded) document.body.classList.add("is-embedded");
-  const notifyParent = (state) => {
+  const notifyParent = (stateName, extra = {}) => {
     if (!embedded) return;
-    try { window.parent.postMessage({ type: "kurizu-arcade", state }, "*"); } catch (error) { /* noop */ }
+    try {
+      window.parent.postMessage({
+        type: "kurizu-arcade",
+        state: stateName,
+        botActive: typeof wisteriaBot !== "undefined" ? wisteriaBot.active : false,
+        ...extra,
+      }, "*");
+    } catch (error) { /* noop */ }
   };
 
   const $ = id => document.getElementById(id);
@@ -643,6 +660,315 @@
     sendT: 0, crT: 0, hudT: 0, cr: { x: 0, z: 0, yaw: 0, st: "hunt", sp: 0, aw: 0, has: false }, connTimer: 0 };
   let keys = {};
   let joyX = 0, joyZ = 0;   // mobile joystick, -1..1 (x: right, z: back)
+
+  /* =====================================================================
+     WISTERIA AUTO-PLAY AI (Runner Phases 1-3 + Endless + Phase 4 Stealth)
+     ===================================================================== */
+  const wisteriaBot = {
+    active: false,
+    usedThisRun: false,
+    laneCooldown: 0,
+    actionCooldown: 0,
+    lastCommentAt: 0,
+    p4StuckT: 0,
+    p4StuckX: 0,
+    p4StuckZ: 0,
+    p4EscapeTimer: 0,
+    p4EscapeYaw: 0,
+  };
+
+  function syncWisteriaBotUi() {
+    const btn = $("botBtn");
+    const pill = $("wisteriaPill");
+    if (btn) {
+      btn.classList.toggle("active", wisteriaBot.active);
+      btn.setAttribute("aria-pressed", String(wisteriaBot.active));
+      btn.title = wisteriaBot.active ? "Wisteria Auto-Play ON (press B or any move key to take over)" : "Let Wisteria Play (B)";
+    }
+    if (pill) {
+      const showPill = wisteriaBot.active && (state === "playing" || state === "countdown");
+      pill.classList.toggle("hidden", !showPill);
+    }
+  }
+
+  function setWisteriaBot(on, reason = "toggle") {
+    const next = Boolean(on) && !mp.active;
+    if (wisteriaBot.active === next) {
+      syncWisteriaBotUi();
+      return;
+    }
+    if (!next && inPhase4) {
+      joyX = 0;
+      joyZ = 0;
+      keys["p4-run"] = false;
+      crouchToggle = false;
+    }
+    wisteriaBot.active = next;
+    if (next) {
+      wisteriaBot.usedThisRun = true;
+      wisteriaBot.laneCooldown = 0;
+      wisteriaBot.actionCooldown = 0;
+      if (state === "playing" || state === "countdown") {
+        showToast("🐾 WISTERIA TOOK THE WHEEL!", "gold");
+      }
+      notifyParent(state, { event: "bot-start", score: Math.floor(distance * 10) + bonus, distance: Math.floor(distance), coins: coreCount, phase: inPhase4 ? 4 : 1 });
+    } else {
+      if (reason === "takeover" && state === "playing") {
+        showToast("YOU TOOK CONTROL!", "gold");
+      } else if (reason === "toggle" && state === "playing") {
+        showToast("MANUAL CONTROL", "gold");
+      }
+      notifyParent(state, { event: reason === "takeover" ? "bot-takeover" : "bot-stop", score: Math.floor(distance * 10) + bonus, distance: Math.floor(distance), coins: coreCount });
+    }
+    syncWisteriaBotUi();
+  }
+
+  function emitWisteriaEvent(eventName, extra = {}) {
+    if (!wisteriaBot.active) return;
+    const now = performance.now();
+    const urgent = ["hit", "phase4", "spotted", "win", "gameover", "bot-start"].includes(eventName);
+    if (!urgent && now - wisteriaBot.lastCommentAt < 3400) return;
+    wisteriaBot.lastCommentAt = now;
+    notifyParent(state, {
+      event: eventName,
+      score: Math.floor(distance * 10) + bonus,
+      distance: Math.floor(distance),
+      coins: coreCount,
+      multiplier,
+      phase: inPhase4 ? 4 : 1,
+      ...extra,
+    });
+  }
+
+  function updateWisteriaBotRunner(dt) {
+    if (!wisteriaBot.active || inPhase4 || state !== "playing") return;
+    wisteriaBot.laneCooldown = Math.max(0, wisteriaBot.laneCooldown - dt);
+    wisteriaBot.actionCooldown = Math.max(0, wisteriaBot.actionCooldown - dt);
+
+    const speed = Math.max(12, currentSpeed);
+    const lookAhead = Math.max(24, speed * 1.65);
+
+    const laneScores = [0, 0, 0];
+    const laneNearest = [null, null, null];
+
+    for (let lane = 0; lane < 3; lane++) {
+      const lx = LANES[lane];
+      let scoreL = (lane === targetLane ? 10 : 0) + (lane === 1 ? 3 : 0);
+
+      for (let i = 0; i < obstacles.length; i++) {
+        const obs = obstacles[i];
+        const d = obs.userData;
+        if (d.hit) continue;
+        const distZ = PLAYER_Z - obs.position.z;
+        if (distZ < -(d.depth * 0.5 + 0.5) || distZ > lookAhead) continue;
+        if (Math.abs(obs.position.x - lx) >= d.width * 0.5 + 0.48) continue;
+
+        if (!laneNearest[lane] || distZ < laneNearest[lane].distZ) {
+          laneNearest[lane] = { obs, d, distZ };
+        }
+
+        const tti = (distZ - d.depth * 0.5) / speed;
+        if (d.type === "wall") {
+          scoreL -= tti < 1.35 ? 1000 : 280;
+        } else if (d.type === "crate") {
+          scoreL -= tti < 1.25 ? 720 : 210;
+        } else if (d.type === "gap") {
+          scoreL -= tti < 1.15 ? 420 : 120;
+        } else if (d.type === "low" && d.width < 4) {
+          scoreL -= tti < 0.9 ? 65 : 20;
+        }
+      }
+
+      for (let i = 0; i < cores.length; i++) {
+        const c = cores[i];
+        const distZ = PLAYER_Z - c.position.z;
+        if (distZ < 1.2 || distZ > 24) continue;
+        if (Math.abs(c.position.x - lx) < 0.95) {
+          scoreL += 22 * (1 - distZ / 26);
+        }
+      }
+
+      if (Math.abs(lane - targetLane) === 2) {
+        const mid = laneNearest[1];
+        if (mid && (mid.d.type === "wall" || mid.d.type === "crate") && mid.distZ < speed * 0.72) {
+          scoreL -= 500;
+        }
+      }
+
+      laneScores[lane] = scoreL;
+    }
+
+    let bestLane = targetLane;
+    for (let lane = 0; lane < 3; lane++) {
+      if (laneScores[lane] > laneScores[bestLane] + (lane === targetLane ? 0 : 14)) {
+        bestLane = lane;
+      }
+    }
+
+    if (bestLane !== targetLane && wisteriaBot.laneCooldown <= 0) {
+      if (bestLane < targetLane) moveLeft();
+      else moveRight();
+      wisteriaBot.laneCooldown = 0.095;
+    }
+
+    const activeThreat = laneNearest[targetLane];
+    if (activeThreat) {
+      const { obs, d, distZ } = activeThreat;
+      const frontDist = distZ - d.depth * 0.5;
+      const tti = frontDist / speed;
+      const overlapping = Math.abs(obs.position.z - PLAYER_Z) < d.depth * 0.5 + 0.55;
+
+      if (d.type === "overhead") {
+        if ((tti <= 0.44 && tti >= -0.25) || overlapping) {
+          if (!sliding || slideTimer < 0.25 || jumpY > 0.05) {
+            slide();
+            wisteriaBot.actionCooldown = 0.14;
+          }
+        }
+      } else if (d.type === "low" || d.type === "gap") {
+        if (tti <= 0.34 && tti >= -0.05 && jumpY <= 0.02 && wisteriaBot.actionCooldown <= 0) {
+          jump();
+          wisteriaBot.actionCooldown = 0.22;
+        }
+      } else if (d.type === "crate" && Math.abs(playerRoot.position.x - obs.position.x) < d.width * 0.5 + 0.3) {
+        if (tti <= 0.30 && tti >= -0.04 && jumpY <= 0.02 && wisteriaBot.actionCooldown <= 0) {
+          jump();
+          wisteriaBot.actionCooldown = 0.22;
+        }
+      }
+    }
+  }
+
+  function updateWisteriaBotPhase4(dt) {
+    if (!wisteriaBot.active || !inPhase4 || mp.active || state !== "playing") return;
+
+    if (nearTerminal && !terminalFound) {
+      joyX = 0;
+      joyZ = 0;
+      keys["p4-run"] = false;
+      tryInteract();
+      return;
+    }
+
+    const mDx = playerX - obeliskX;
+    const mDz = playerZ - obeliskZ;
+    const mDist = Math.hypot(mDx, mDz) || 1;
+    const monsterDangerous = obeliskState === "charge" || obeliskState === "stare" || mDist < 20 || awareness > 0.55;
+
+    wisteriaBot.p4StuckT += dt;
+    if (wisteriaBot.p4StuckT >= 0.9) {
+      if (!hiding && Math.hypot(playerX - wisteriaBot.p4StuckX, playerZ - wisteriaBot.p4StuckZ) < 0.75) {
+        wisteriaBot.p4EscapeTimer = 0.85;
+        wisteriaBot.p4EscapeYaw = lookYaw + (Math.random() < 0.5 ? 1.45 : -1.45);
+      }
+      wisteriaBot.p4StuckX = playerX;
+      wisteriaBot.p4StuckZ = playerZ;
+      wisteriaBot.p4StuckT = 0;
+    }
+
+    let goalX = phase4Terminal ? phase4Terminal.position.x : 0;
+    let goalZ = phase4Terminal ? phase4Terminal.position.z : -55;
+    let wantHide = false;
+    let wantRun = false;
+
+    if (obeliskState === "charge" || mDist < 15) {
+      const awayX = mDx / mDist;
+      const awayZ = mDz / mDist;
+      const side = ((playerX * awayZ - playerZ * awayX) >= 0) ? 1 : -1;
+      goalX = playerX + (awayX * 0.82 - awayZ * 0.55 * side) * 18;
+      goalZ = playerZ + (awayZ * 0.82 + awayX * 0.55 * side) * 18;
+      wantRun = stamina > 14 && !exhausted;
+      wantHide = false;
+    } else if (monsterDangerous && hideSpots.length) {
+      let bestSpot = null, bestScore = -Infinity;
+      for (let i = 0; i < hideSpots.length; i++) {
+        const s = hideSpots[i];
+        const dPlayer = Math.hypot(s.x - playerX, s.z - playerZ);
+        if (dPlayer > 11) continue;
+        const dMonster = Math.hypot(s.x - obeliskX, s.z - obeliskZ);
+        const sc = dMonster - dPlayer * 1.4;
+        if (sc > bestScore) { bestScore = sc; bestSpot = s; }
+      }
+      if (bestSpot) {
+        const ox = bestSpot.x - obeliskX, oz = bestSpot.z - obeliskZ;
+        const ol = Math.hypot(ox, oz) || 1;
+        goalX = bestSpot.x + (ox / ol) * 1.05;
+        goalZ = bestSpot.z + (oz / ol) * 1.05;
+        const dHide = Math.hypot(goalX - playerX, goalZ - playerZ);
+        wantHide = dHide < 2.2 || mDist < 22;
+        wantRun = !wantHide && stamina > 35 && !exhausted;
+      } else {
+        wantHide = mDist < 24 && awareness > 0.35;
+      }
+    } else {
+      if (phase4Cores.length) {
+        let nearCore = null, bestCd = 13;
+        for (let i = 0; i < phase4Cores.length; i++) {
+          const c = phase4Cores[i];
+          const cd = Math.hypot(c.position.x - playerX, c.position.z - playerZ);
+          const cm = Math.hypot(c.position.x - obeliskX, c.position.z - obeliskZ);
+          if (cd < bestCd && cm > 18) { bestCd = cd; nearCore = c; }
+        }
+        if (nearCore) {
+          goalX = nearCore.position.x;
+          goalZ = nearCore.position.z;
+        }
+      }
+      wantRun = mDist > 30 && stamina > 48 && !exhausted;
+      wantHide = mDist < 24 && awareness > 0.22;
+    }
+
+    let dx = goalX - playerX;
+    let dz = goalZ - playerZ;
+    let dist = Math.hypot(dx, dz) || 1;
+    dx /= dist; dz /= dist;
+
+    if (wisteriaBot.p4EscapeTimer > 0) {
+      wisteriaBot.p4EscapeTimer = Math.max(0, wisteriaBot.p4EscapeTimer - dt);
+      dx = -Math.sin(wisteriaBot.p4EscapeYaw);
+      dz = -Math.cos(wisteriaBot.p4EscapeYaw);
+    }
+
+    if (!wantHide || dist > 1.2) {
+      let ax = 0, az = 0;
+      for (let i = 0; i < hideSpots.length; i++) {
+        const s = hideSpots[i];
+        const sx = playerX - s.x, sz = playerZ - s.z;
+        const sd = Math.hypot(sx, sz);
+        const reach = 2.6;
+        if (sd < reach && sd > 0.01) {
+          const w = (reach - sd) / reach;
+          const side = (sx * dz - sz * dx) >= 0 ? 1 : -1;
+          ax += (sx / sd) * w * 1.1 + (-sz / sd) * side * w * 1.4;
+          az += (sz / sd) * w * 1.1 + (sx / sd) * side * w * 1.4;
+        }
+      }
+      if (Math.abs(playerX) > 64) ax += -Math.sign(playerX) * 1.5;
+      if (Math.abs(playerZ) > 64) az += -Math.sign(playerZ) * 1.5;
+      dx += ax; dz += az;
+      const rl = Math.hypot(dx, dz) || 1;
+      dx /= rl; dz /= rl;
+    }
+
+    const targetYaw = Math.atan2(-dx, -dz);
+    let diff = targetYaw - lookYaw;
+    diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    lookYaw += diff * Math.min(1, dt * 6.5);
+    lookPitch += (0 - lookPitch) * Math.min(1, dt * 5);
+
+    crouchToggle = wantHide;
+    keys["p4-run"] = wantRun;
+
+    if (wantHide && dist < 0.75) {
+      joyX = 0;
+      joyZ = 0;
+    } else {
+      const fX = -Math.sin(lookYaw), fZ = -Math.cos(lookYaw);
+      const rX = Math.cos(lookYaw), rZ = -Math.sin(lookYaw);
+      joyX = clamp(dx * rX + dz * rZ, -1, 1);
+      joyZ = clamp(-(dx * fX + dz * fZ), -1, 1);
+    }
+  }
 
   const basePalette = {
     leafA: new THREE.Color(0x8a2fd6), leafB: new THREE.Color(0xa64cf0), leafC: new THREE.Color(0xc47cff), leafDark: new THREE.Color(0x5e1fa6),
@@ -3717,6 +4043,7 @@
         audio.stare();
         showToast("THE CREATURE SPOTTED YOU", "bad");
         setCreatureAnim("Idle", 0.25);
+        emitWisteriaEvent("spotted", { charging: false });
       } else {
         // Mode switching: chase what it senses, otherwise patrol & search
         if (awareness > 0.2) {
@@ -3780,6 +4107,7 @@
           showToast("IT'S SPRINTING — HIDE!", "bad");
           shake = 0.5;
           setCreatureAnim("Run", 0.15);
+          emitWisteriaEvent("spotted", { charging: true });
         } else {
           obeliskState = "hunt";
           awareness *= 0.5;
@@ -4220,6 +4548,7 @@
 
   function updatePhase4Game(dt) {
     invulnerability = Math.max(0, invulnerability - dt);
+    if (!mp.active) updateWisteriaBotPhase4(dt);
     if (mp.active && mp.dead) mpDeadTick(dt); else updatePhase4Player(dt);
     mpCreatureTick(dt);
     if (mp.active) mpNetTick(dt);
@@ -4479,7 +4808,7 @@
     spawnPhase4Cores(); // fresh RAM modules every run
 
     playerX = 0; playerY = 0; playerZ = 8;
-    velX = 0; velZ = 0;
+    velX = 0; velZ = 0; joyX = 0; joyZ = 0;
     lookYaw = 0; lookPitch = 0; flashYaw = 0; flashPitch = 0;
     hiding = false; sprinting = false; stamina = 100; crouchBlend = 0; crouchToggle = false;
     exhausted = false; sprintBlend = 0; fpState = null; fpYawVel = 0; fpPitchVel = 0;
@@ -4508,6 +4837,7 @@
     showToast("PHASE 4: SNEAK PAST THE CREATURE — TAP [C] TO CROUCH", "gold");
     audio.monsterSurge(1.0);
     audio.stare();
+    emitWisteriaEvent("phase4");
   }
 
   function startPhase4Direct() {
@@ -4517,6 +4847,10 @@
     blurButton();
     clearWorld();
     resetPlayer();
+    wisteriaBot.usedThisRun = wisteriaBot.active;
+    wisteriaBot.p4StuckT = 0;
+    wisteriaBot.p4EscapeTimer = 0;
+    syncWisteriaBotUi();
     distance = 10000;
     score = 100000;
     momentum = 100;
@@ -4555,15 +4889,20 @@
     score = Math.floor(distance * 10) + bonus + 5000;
     if (!mp.active) {   // put the single-player wording back (multiplayer rewrites it)
       const w = (id, t) => { const el = $(id); if (el) el.textContent = t; };
-      w("winEyebrow", "THE DOOR OPENED"); w("winTitle", "YOU GOT OUT");
-      w("winSub", "You found the lone door in the woods and pushed it open. Warm light pours through, and the creature freezes mid-stride. You are safe.");
+      w("winEyebrow", wisteriaBot.usedThisRun ? "WISTERIA ESCAPED! 🐾" : "THE DOOR OPENED");
+      w("winTitle", "YOU GOT OUT");
+      w("winSub", wisteriaBot.usedThisRun
+        ? "Wisteria navigated the dark forest, dodged the creature, and opened the lone door all by herself!"
+        : "You found the lone door in the woods and pushed it open. Warm light pours through, and the creature freezes mid-stride. You are safe.");
       w("winRestartBtn", "RUN AGAIN");
       const wr = $("winResults"); if (wr) wr.classList.remove("hidden");
     }
-    if (!mp.loser && score > best) {
+    if (!mp.loser && !wisteriaBot.usedThisRun && score > best) {
       best = score;
       try { localStorage.setItem(STORAGE_KEY, String(best)); } catch (e) {}
     }
+    emitWisteriaEvent("win");
+    syncWisteriaBotUi();
     obeliskState = "freeze";
     setCreatureAnim("Idle", 0.5);
     if (creatureMixer) creatureMixer.timeScale = 0.2;
@@ -6308,6 +6647,12 @@
     blurButton();
     clearWorld();
     resetPlayer();
+    wisteriaBot.usedThisRun = wisteriaBot.active;
+    wisteriaBot.laneCooldown = 0;
+    wisteriaBot.actionCooldown = 0;
+    wisteriaBot.p4StuckT = 0;
+    wisteriaBot.p4EscapeTimer = 0;
+    syncWisteriaBotUi();
     distance = 0; bonus = 0; score = 0; coreCount = 0; momentum = 100;
     currentSpeed = 14.0; spawnDistance = 5; slowAmount = 0; timeSinceCrash = 99; shake = 0;
     coreStreak = 0; streakTimer = 0; multiplier = 1;
@@ -6327,6 +6672,7 @@
     addCoreArc(2, -65);
 
     state = "countdown";
+    syncWisteriaBotUi();
     showScreen(null);
     ui.hud.classList.remove("hidden");
     ui.mobile.classList.add("hidden");
@@ -6343,11 +6689,13 @@
   }
   function goToMenu() {
     if (mp.active) mpLeave();
+    joyX = 0; joyZ = 0;
     notifyParent("menu");
     blurButton();
     clearWorld();
     resetPlayer();
     state = "menu";
+    syncWisteriaBotUi();
     currentSpeed = 5; momentum = 100; shake = 0;
     showScreen("start");
     ui.hud.classList.add("hidden");
@@ -6367,6 +6715,7 @@
     blurButton();
     pausedFrom = state;
     state = "paused";
+    syncWisteriaBotUi();
     if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
     showScreen("pause");
     ui.mobile.classList.add("hidden");
@@ -6379,6 +6728,7 @@
     notifyParent("playing");
     blurButton();
     state = pausedFrom;
+    syncWisteriaBotUi();
     showScreen(null);
     ui.pause.classList.remove("hidden");
     if (state === "playing") ui.mobile.classList.remove("hidden");
@@ -6387,17 +6737,19 @@
   }
   function endGame() {
     if (state !== "playing") return;
+    score = Math.floor(distance * 10) + bonus;
+    emitWisteriaEvent("gameover", { reason: lastHitType || (inPhase4 ? "creature" : "stumble") });
     notifyParent("gameover");
     state = "gameover";
     deathTime = 0; gameOverShown = false;
-    score = Math.floor(distance * 10) + bonus;
+    syncWisteriaBotUi();
     playerVisual.visible = true;
     ui.mobile.classList.add("hidden");
     ui.pause.classList.add("hidden");
     ui.countdown.classList.add("hidden");
     ui.combo.classList.add("hidden");
 
-    const isNewBest = score > (endlessMode ? bestEndless : best);
+    const isNewBest = !wisteriaBot.usedThisRun && score > (endlessMode ? bestEndless : best);
     if (isNewBest) {
       if (endlessMode) {
         bestEndless = score;
@@ -6412,13 +6764,21 @@
       ? `The road creature ran you down at ${getDisplayKmh(currentSpeed)} KM/H after ${Math.floor(distance)}m. The run never ends... until it does.`
       : `That ${names[lastHitType] || "tumble"} cost your last momentum and the shadow monster caught up!`;
     const goEy = document.getElementById("goEyebrow"), goTi = document.getElementById("goTitle"), goBtn = document.getElementById("restartBtn");
-    if (goEy) goEy.textContent = endlessMode ? "THE CREATURE FOUND YOU" : "THE END OF THIS TRAIL";
+    if (goEy) goEy.textContent = wisteriaBot.usedThisRun ? "WISTERIA'S AUTO-PLAY RUN" : (endlessMode ? "THE CREATURE FOUND YOU" : "THE END OF THIS TRAIL");
     if (goTi) goTi.textContent = endlessMode ? "CAUGHT" : "YOU STOPPED";
     if (goBtn) goBtn.textContent = endlessMode ? "RUN AGAIN ∞" : "ONE MORE ADVENTURE";
     ui.finalScore.textContent = formatScore(score);
     ui.finalDistance.textContent = `${Math.floor(distance)}m`;
     ui.finalCoins.textContent = coreCount;
-    ui.newBest.classList.toggle("hidden", !isNewBest);
+    if (ui.newBest) {
+      if (wisteriaBot.usedThisRun) {
+        ui.newBest.textContent = "🐾 WISTERIA AI RUN (NOT SAVED TO BEST)";
+        ui.newBest.classList.remove("hidden");
+      } else {
+        ui.newBest.textContent = "NEW PERSONAL BEST!";
+        ui.newBest.classList.toggle("hidden", !isNewBest);
+      }
+    }
     updateBestLabels();
     updateHUD();
     shake = reducedMotion ? 0 : 0.8;
@@ -6743,6 +7103,7 @@
     flashDamage();
     audio.crash();
     vibrate(75);
+    emitWisteriaEvent("hit", { hitType: data.type });
     if (endlessMode) {
       endlessStrikes++; endlessCalm = 0;       // every stumble lets the creature get closer
       if (endlessStrikes >= 3) { endlessCaught = true; endGame(); }
@@ -6795,6 +7156,7 @@
             bonus += 35;
             showToast(`CLEAN CLEAR +${15 * multiplier + 35}`, "gold");
             audio.near();
+            emitWisteriaEvent("clean-clear");
           }
         }
       }
@@ -6826,7 +7188,10 @@
           if (endlessMode) endlessCalm += 1.5;
           spawnBurst(position, 0xffd477, 7, 3);
           audio.coin(multiplier);
-          if (multiplier > oldMultiplier) showToast(`FLOW ×${multiplier}`, "gold");
+          if (multiplier > oldMultiplier) {
+            showToast(`FLOW ×${multiplier}`, "gold");
+            emitWisteriaEvent("coin-streak", { multiplier });
+          }
           continue;
         }
       }
@@ -6988,6 +7353,7 @@
       return;
     }
 
+    updateWisteriaBotRunner(dt);
     updatePlayerPhysics(dt);
     updateTrack(dt, currentSpeed);
     spawnDistance -= currentSpeed * dt;
@@ -7621,6 +7987,44 @@
   function bindEvents() {
     $("startBtn").addEventListener("click", () => { endlessMode = false; startGame(); });
     if ($("endlessBtn")) $("endlessBtn").addEventListener("click", () => { endlessMode = true; startGame(); });
+    if ($("wisteriaPlayBtn")) $("wisteriaPlayBtn").addEventListener("click", () => { endlessMode = false; setWisteriaBot(true, "start"); startGame(); });
+    if ($("botBtn")) {
+      $("botBtn").addEventListener("click", () => {
+        blurButton();
+        if (state === "menu") {
+          endlessMode = false;
+          setWisteriaBot(true, "start");
+          startGame();
+        } else {
+          setWisteriaBot(!wisteriaBot.active, "toggle");
+        }
+      });
+    }
+    if ($("wisteriaPill")) {
+      $("wisteriaPill").addEventListener("click", () => {
+        blurButton();
+        setWisteriaBot(false, "takeover");
+      });
+    }
+    window.addEventListener("message", event => {
+      const data = event.data;
+      if (!data || data.type !== "kurizu-arcade-cmd") return;
+      if (data.action === "start-wisteria-bot") {
+        endlessMode = data.mode === "endless";
+        setWisteriaBot(true, "start");
+        if (data.mode === "phase4") startPhase4Direct();
+        else startGame();
+      } else if (data.action === "toggle-wisteria-bot") {
+        const target = typeof data.active === "boolean" ? data.active : !wisteriaBot.active;
+        if (target && state === "menu") {
+          endlessMode = false;
+          setWisteriaBot(true, "start");
+          startGame();
+        } else {
+          setWisteriaBot(target, target ? "toggle" : "takeover");
+        }
+      }
+    });
     $("restartBtn").addEventListener("click", startGame);
     $("restartPauseBtn").addEventListener("click", startGame);
     $("resumeBtn").addEventListener("click", resumeGame);
@@ -7710,11 +8114,25 @@
         return;
       }
       if (code === "Escape" || code === "KeyP") { pauseGame(); return; }
+      if (code === "KeyB" && !event.repeat) {
+        if (state === "menu") {
+          endlessMode = false;
+          setWisteriaBot(true, "start");
+          startGame();
+        } else {
+          setWisteriaBot(!wisteriaBot.active, "toggle");
+        }
+        return;
+      }
 
       // Direct Phase 4 test shortcut
       if (code === "Digit4" || code === "Numpad4") {
         if (!inPhase4) startPhase4Direct();
         return;
+      }
+
+      if (wisteriaBot.active && (state === "playing" || state === "countdown") && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "KeyA", "KeyD", "KeyW", "KeyS", "Space", "KeyC", "KeyX", "KeyE"].includes(code)) {
+        setWisteriaBot(false, "takeover");
       }
 
       if (inPhase4) {
@@ -7756,6 +8174,7 @@
       button.addEventListener("pointerdown", event => {
         event.preventDefault();
         event.stopPropagation();
+        if (wisteriaBot.active && state === "playing") setWisteriaBot(false, "takeover");
         actions[button.dataset.action]();
         vibrate(8);
       });
@@ -7894,7 +8313,7 @@
     window.addEventListener("resize", onResize);
     window.addEventListener("blur", () => {
       keys = {};
-      if (state === "playing" || state === "countdown") pauseGame();
+      if (!wisteriaBot.active && (state === "playing" || state === "countdown")) pauseGame();
     });
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && (state === "playing" || state === "countdown")) pauseGame();
@@ -7939,7 +8358,11 @@
     updatePhase4Obelisk,
     isPlayerHidden,
     setPlayerPos: (x, z) => { playerX = x; playerZ = z; playerRoot.position.set(x, 0, z); },
-    setKey: (code, val) => { keys[code] = val; }
+    setKey: (code, val) => { keys[code] = val; },
+    setWisteriaBot,
+    getWisteriaBot: () => ({ ...wisteriaBot }),
+    getObstacles: () => obstacles,
+    getRunnerPos: () => ({ x: playerRoot ? playerRoot.position.x : 0, y: jumpY, lane: targetLane, sliding, distance, score, momentum, coreCount })
   };
 
   try {

@@ -1618,8 +1618,15 @@
   const gameDialog = $("#gameDialog");
   const gameIframe = $("#gameIframe");
   const gameLoading = $("[data-game-loading]");
+  const gameWisteriaPilot = $("#gameWisteriaPilot");
+  const gameWisteriaSprite = $("#gameWisteriaSprite");
+  const gameWisteriaText = $("#gameWisteriaText");
+  const gameBotToggle = $("#gameBotToggle");
   let gameFrameReady = false;
   let gameMusicWasOn = false;
+  let pendingWisteriaBot = false;
+  let pendingWisteriaMode = "story";
+  let gameBotActive = false;
 
   function formatGameBest(value) {
     return String(Math.max(0, Math.floor(Number(value) || 0))).padStart(6, "0");
@@ -1633,6 +1640,33 @@
 
   function setGameLoading(loading) {
     if (gameLoading) gameLoading.hidden = !loading;
+  }
+
+  function sendArcadeCmd(cmd) {
+    if (!gameIframe || !gameIframe.contentWindow) return;
+    try {
+      gameIframe.contentWindow.postMessage({ type: "kurizu-arcade-cmd", ...cmd }, "*");
+    } catch (error) { /* noop */ }
+  }
+
+  function updateGameWisteriaOverlay(active, text = "", mood = "idle") {
+    gameBotActive = Boolean(active);
+    if (gameBotToggle) {
+      gameBotToggle.classList.toggle("is-active", gameBotActive);
+      gameBotToggle.textContent = gameBotActive ? "🐾 take over controls" : "🐾 let Wisteria play";
+    }
+    if (!gameWisteriaPilot) return;
+    gameWisteriaPilot.hidden = !gameBotActive;
+    if (!gameBotActive) return;
+
+    gameWisteriaPilot.classList.toggle("is-hyped", mood === "action" || mood === "talk");
+    if (text && gameWisteriaText) gameWisteriaText.textContent = text;
+
+    if (gameWisteriaSprite && config.pet && config.pet.moods) {
+      const pool = config.pet.moods[mood] || config.pet.moods.action || config.pet.moods.idle || [];
+      const src = pool[0];
+      if (src) gameWisteriaSprite.src = encodeURI(String(src));
+    }
   }
 
   function openGame() {
@@ -1649,6 +1683,9 @@
       setGameLoading(true);
       gameIframe.src = "game/index.html";
       gameFrameReady = true;
+    } else if (pendingWisteriaBot) {
+      sendArcadeCmd({ action: "start-wisteria-bot", mode: pendingWisteriaMode });
+      pendingWisteriaBot = false;
     }
     openDialog(gameDialog);
     window.setTimeout(() => {
@@ -1656,9 +1693,18 @@
     }, 300);
   }
 
+  function openGameWithWisteria(mode = "story") {
+    pendingWisteriaBot = true;
+    pendingWisteriaMode = mode;
+    updateGameWisteriaOverlay(true, "stretching my pixels... let's run!! 🐾✨", "action");
+    openGame();
+  }
+
   function stopGame() {
     if (!gameIframe) return;
     gameFrameReady = false;
+    pendingWisteriaBot = false;
+    updateGameWisteriaOverlay(false);
     gameIframe.src = "about:blank";
     setGameLoading(true);
     refreshArcadeBest();
@@ -1669,6 +1715,12 @@
       if (!gameFrameReady) return;
       setGameLoading(false);
       try { gameIframe.focus(); } catch (error) { /* noop */ }
+      if (pendingWisteriaBot) {
+        window.setTimeout(() => {
+          sendArcadeCmd({ action: "start-wisteria-bot", mode: pendingWisteriaMode });
+          pendingWisteriaBot = false;
+        }, 120);
+      }
     });
   }
 
@@ -1694,7 +1746,20 @@
 
   /* delegated so the play button inside case studies works too */
   document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-wisteria-play]")) {
+      openGameWithWisteria("story");
+      return;
+    }
     if (event.target.closest("[data-play-game]")) openGame();
+  });
+
+  gameBotToggle?.addEventListener("click", () => {
+    if (!gameFrameReady) {
+      openGameWithWisteria("story");
+      return;
+    }
+    sendArcadeCmd({ action: "toggle-wisteria-bot" });
+    try { gameIframe.focus(); } catch (error) { /* noop */ }
   });
 
   $("#gameFullscreen")?.addEventListener("click", () => {
@@ -1726,6 +1791,37 @@
     if (data.state === "playing" && soundOn) {
       gameMusicWasOn = true;
       pause();
+    }
+    if (typeof data.botActive === "boolean") {
+      gameBotActive = data.botActive;
+      if (gameBotToggle) {
+        gameBotToggle.classList.toggle("is-active", gameBotActive);
+        gameBotToggle.textContent = gameBotActive ? "🐾 take over controls" : "🐾 let Wisteria play";
+      }
+      if (!gameBotActive && data.event !== "gameover" && data.event !== "win") {
+        updateGameWisteriaOverlay(false);
+      }
+    }
+    if (data.event === "bot-start") {
+      updateGameWisteriaOverlay(true, "okaay!! watch my footwork down the trail!! ⚡", "action");
+    } else if (data.event === "coin-streak") {
+      updateGameWisteriaOverlay(true, `FLOW ×${data.multiplier || 2}!! look at all these RAM coins!! ✨`, "headpat");
+    } else if (data.event === "clean-clear") {
+      updateGameWisteriaOverlay(true, "woohoo!! too clean!! 🐾", "action");
+    } else if (data.event === "hit") {
+      updateGameWisteriaOverlay(true, "waaah!! my paws slipped!! still running!! ><", "poke");
+    } else if (data.event === "phase4") {
+      updateGameWisteriaOverlay(true, "uh oh... Phase 4 dark woods... being super sneaky now! 👀", "talk");
+    } else if (data.event === "spotted") {
+      updateGameWisteriaOverlay(true, data.charging ? "EEP!! IT'S SPRINTING AT ME — HIDE!!" : "shhh! that monster almost saw me!!", "poke");
+    } else if (data.event === "win") {
+      updateGameWisteriaOverlay(true, `I ESCAPED THE FOREST!! score: ${formatGameBest(data.score)} ♡✨`, "headpat");
+      petSay(`yay!! i escaped Into the Forest with ${data.score} pts!! ♡`, 4000);
+    } else if (data.event === "gameover") {
+      updateGameWisteriaOverlay(true, `oof!! got caught at ${data.distance || 0}m (${data.score || 0} pts)... rematch? :3`, "poke");
+    } else if (data.event === "bot-takeover") {
+      updateGameWisteriaOverlay(false);
+      petSay("your turn human!! don't stop running!! ✨", 2800);
     }
     if (data.state === "gameover" || data.state === "menu") refreshArcadeBest();
   });
@@ -2503,6 +2599,14 @@
         <circle cx="10" cy="38" r="2.5" fill="#ef4444" stroke="#1e0936" stroke-width="1.8"/>
       </svg>`,
     },
+    "win-chess": {
+      bg: "linear-gradient(145deg, #c084fc, #4c1d95)",
+      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <rect x="8" y="34" width="32" height="6" rx="2.5" fill="#fde047" stroke="#1e0936" stroke-width="2.3"/>
+        <path d="M15 34c1-6 4-10 6-14-3 1-6 0-7-3 0-4 4-8 10-9l2-3 4 3c4 2 6 6 6 11 0 6-3 10-3 15H15Z" fill="#f5f3ff" stroke="#1e0936" stroke-width="2.4" stroke-linejoin="round"/>
+        <circle cx="20.5" cy="14" r="1.7" fill="#1e0936"/>
+      </svg>`,
+    },
   };
 
   function getCustomAppIcon(id) {
@@ -2609,6 +2713,17 @@
         ext: ".ID",
         color: "#eab308",
         image: "assets/sprites/avatar.webp",
+      },
+      {
+        id: "win-chess",
+        kind: "os-win",
+        targetWin: "chess",
+        title: "Wisteria 3D Chess",
+        subtitle: "Easy → Grandmaster vs. 3D Wisteria",
+        file: "chess.exe",
+        ext: ".3D",
+        color: "#c084fc",
+        image: "assets/sprites/pet-still.webp",
       },
     ];
 
@@ -2793,6 +2908,11 @@
       if (frame && (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank")) {
         frame.src = "dropship/index.html?windowed=1";
       }
+    } else if (id === "chess") {
+      const frame = $("#chessIframe");
+      if (frame && (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank")) {
+        frame.src = "chess/index.html?windowed=1";
+      }
     }
   }
 
@@ -2946,6 +3066,7 @@
       { id: "contact", sel: ".contact-window", title: "contact.exe", startOpen: false },
       { id: "profile", sel: ".profile-card", title: "profile.card", startOpen: true },
       { id: "dropship", sel: "#dropshipWindow", title: "kurizu.dropship", startOpen: false },
+      { id: "chess", sel: "#chessWindow", title: "wisteria_chess.exe", startOpen: false },
       { id: "app", sel: "#appWindow", title: "case_study.exe", startOpen: false },
       { id: "launchpad", sel: "#desktopLaunchpad", title: "my_apps.dir", startOpen: false },
     ];
@@ -3746,6 +3867,16 @@
 
   const PET_TELEPORT_PROMPTS = [
     {
+      question: "🐾 *zwoop!* wanna watch ME play Into the Forest by myself?! 🎮✨",
+      yesReply: "hold my cookies!! jumping into forest_run.exe right now!! 🐾⚡",
+      act: () => openGameWithWisteria("story"),
+    },
+    {
+      question: "♟️ *knocks over a pawn* wanna play 3D Chess against me?! Easy to Grandmaster!! ✨",
+      yesReply: "opening wisteria_chess.exe right now!! sit across from me, human!! ♟️💜",
+      act: () => openDesktopWindow("chess"),
+    },
+    {
       question: "⚡ *zwoop!* hey human! would you like to play Do Not Stop (forest_run.exe)? 🎮",
       yesReply: "yay!! opening the arcade cabinet! don't stop running! ✨",
       act: () => openDesktopWindow("arcade"),
@@ -4307,6 +4438,26 @@
         route: testRegex(/\b(open|show|scroll|go)\b/i),
         reply: "the art lives over at the media bay — digital illustrations, pixel sprites, and the showreel! scroll down to take a peek ✨",
       };
+    }
+
+    // 13b. Let Wisteria play Into the Forest herself!
+    if (
+      testRegex(/\b(play|watch|demo|auto)\b.*\b(forest|into\s*the\s*forest|game|runner|arcade)\b/i) ||
+      testRegex(/\b(play\s+(?:by\s+)?yourself|play\s+it\s+yourself|let\s+you\s+play|wisteria\s+play)\b/i)
+    ) {
+      openGameWithWisteria("story");
+      return {
+        kind: "chat",
+        reply: "say less!! booting up forest_run.exe and taking the controls myself! watch my lane dodges (you can press any key anytime to take over) 🐾✨",
+      };
+    }
+
+    // Chess vs Wisteria
+    if (/\bchess\b/i.test(raw)) {
+      if (petSay("opening wisteria_chess.exe!! I'll move the pieces with my actual 3D hands!! ♟️✨", 3600)) {
+        openDesktopWindow("chess");
+      }
+      return "♟️ Let's play! Launching **Wisteria 3D Chess** (`chess.exe`) — pick **Easy**, **Medium**, **Hard**, or **Grandmaster** and face me across the board!";
     }
 
     // 14. Projects (AIPET, pixify, wobble, malfoy, forest run, ai blocker, etc.)
