@@ -11,7 +11,7 @@
   <meta property="og:description" content="Drop files to nearby devices over your Wi-Fi. No cloud, no accounts, no install.">
   <meta property="og:type" content="website">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="css/style.css?v=win5">
+  <link rel="stylesheet" href="css/style.css?v=win6">
 </head>
 <body>
   <a class="skip-link" href="#app">skip to the app</a>
@@ -189,11 +189,11 @@
                   </div>
                 </div>
                 <div class="room-box" id="roomBox">
-                  <label class="field-label" for="roomCodeInput">cross-wi-fi room code <em>(connect any PC)</em></label>
-                  <div class="room-box__row">
-                    <input id="roomCodeInput" class="name-input room-input" maxlength="24" placeholder="same wi-fi (or type code)" spellcheck="false" autocomplete="off" aria-label="Room code for connecting across different Wi-Fi networks">
-                    <button class="btn btn--small btn--primary" id="roomJoinBtn" type="button">join</button>
-                    <button class="btn btn--small btn--ghost" id="roomGenBtn" type="button" title="Generate a room code to share with someone on another Wi-Fi">new</button>
+                  <label class="field-label" for="roomCodeInput">cross-wi-fi room code <em>(any network)</em></label>
+                  <input id="roomCodeInput" class="name-input room-input" maxlength="24" placeholder="type or generate room code..." spellcheck="false" autocomplete="off" aria-label="Room code for connecting across different Wi-Fi networks">
+                  <div class="room-box__actions">
+                    <button class="btn btn--small btn--primary" id="roomJoinBtn" type="button">join room</button>
+                    <button class="btn btn--small btn--ghost" id="roomGenBtn" type="button" title="Generate a room code to share with someone on another Wi-Fi">new code</button>
                   </div>
                   <p class="you-card__hint" id="roomHintText">same room code = connect across any Wi-Fi &amp; send up to 25 GB P2P!</p>
                 </div>
@@ -440,6 +440,6 @@
   </noscript>
 
   <script src="js/qrcode.js"></script>
-  <script src="js/app.js?v=win5"></script>
+  <script src="js/app.js?v=win6"></script>
 </body>
 </html>

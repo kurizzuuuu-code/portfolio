@@ -2559,7 +2559,7 @@ body.is-windowed .app-body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid !important;
-  grid-template-columns: 224px minmax(0, 1fr) 286px !important;
+  grid-template-columns: 260px minmax(0, 1fr) 276px !important;
   overflow: hidden;
 }
 
@@ -2567,7 +2567,31 @@ body.is-windowed .app-side,
 body.is-windowed .app-main {
   overflow-y: auto;
   min-height: 0;
-  padding: 14px !important;
+  padding: 12px !important;
+}
+
+body.is-windowed .you-card,
+body.is-windowed .share-card {
+  padding: 11px !important;
+}
+
+body.is-windowed .you-card__id {
+  gap: 9px;
+}
+
+body.is-windowed .avatar--lg {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+}
+
+body.is-windowed #deviceName.name-input {
+  width: 100%;
+  font-size: 13.5px;
+  padding: 4px 7px;
+  background: var(--mist);
+  border: 1.5px solid var(--ink);
+  border-radius: 6px;
 }
 
 body.is-windowed .app-tray {
@@ -2636,11 +2660,14 @@ body.is-windowed .statusbar {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1.5px dashed rgba(47, 10, 68, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .room-box .field-label {
   display: block;
-  margin-bottom: 5px;
+  margin-bottom: 0;
 }
 
 .room-box .field-label em {
@@ -2648,17 +2675,38 @@ body.is-windowed .statusbar {
   opacity: 0.72;
 }
 
-.room-box__row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.room-input {
+  display: block;
+  width: 100% !important;
+  min-width: 0;
+  font-family: var(--font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--ink) !important;
+  background: var(--mist) !important;
+  border: 2px solid var(--ink) !important;
+  border-radius: 7px !important;
+  padding: 6px 9px !important;
+  box-sizing: border-box;
 }
 
-.room-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 11.5px !important;
-  padding: 5px 8px !important;
+.room-input:focus {
+  outline: none;
+  border-color: var(--pink-hot) !important;
+  background: #fff !important;
+}
+
+.room-box__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.room-box__actions .btn {
+  width: 100%;
+  justify-content: center;
+  padding-inline: 6px;
+  font-size: 10px;
 }
 
 

@@ -766,7 +766,29 @@
     });
   }
 
-  /* ---------------- WebRTC P2P Direct Streaming (up to 25 GB+) ---------------- */
+  /* ---------------- WebRTC P2P Direct Streaming (up to 25 GB+ with Flow Control & Auto-Resume) ---------------- */
+
+  const P2P_DISK_BATCH_BYTES = 2 * 1024 * 1024; // 2 MB batched disk writes (cuts 327k IPC calls down to 10k for 20GB)
+  const P2P_MAX_IN_FLIGHT_BYTES = 16 * 1024 * 1024; // 16 MB max un-acknowledged bytes in flight
+  let activeWakeLock = null;
+
+  async function acquireTransferWakeLock() {
+    try {
+      if ('wakeLock' in navigator && !activeWakeLock) {
+        activeWakeLock = await navigator.wakeLock.request('screen');
+        activeWakeLock.addEventListener('release', () => { activeWakeLock = null; });
+      }
+    } catch {}
+  }
+
+  function releaseTransferWakeLock() {
+    try {
+      if (activeWakeLock) {
+        activeWakeLock.release();
+        activeWakeLock = null;
+      }
+    } catch {}
+  }
 
   function updateP2pDialogProgress(text, pct, visible = true) {
     const wrap = $('#p2pDialogProgress', el.incomingBody);
@@ -791,18 +813,20 @@
     const sig = payload?.signal;
     if (!fromId || !sig || !sig.sessionId) return;
 
-    // 1. Sender receives a P2P request offer from Receiver to stream a specific file
+    // 1. Sender receives a P2P request offer from Receiver to stream a specific file (supports startOffset resume!)
     if (sig.type === 'p2p-offer') {
       const file = p2pOutgoingFiles.get(sig.fileId);
       if (!file) {
         sendP2pSignal(fromId, transferId, {
           type: 'p2p-error',
           sessionId: sig.sessionId,
-          error: 'Sender no longer has this file in memory (tab was refreshed).',
+          fatal: true,
+          error: 'Sender no longer has this file in memory (sender tab was refreshed).',
         }).catch(() => {});
         return;
       }
 
+      const startOffset = Math.max(0, Math.min(file.size, Number(sig.startOffset) || 0));
       const pc = new RTCPeerConnection(RTC_CONFIG);
       const sess = { pc, iceQueue: [], remoteDescSet: false };
       p2pSessions.set(sig.sessionId, sess);
@@ -822,7 +846,7 @@
         dc.binaryType = 'arraybuffer';
         dc.bufferedAmountLowThreshold = P2P_LOW_WATER;
         dc.onopen = () => {
-          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer');
+          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer', startOffset);
         };
       };
 
@@ -833,7 +857,7 @@
           await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
         }
         sess.iceQueue = [];
-        const answer = await pc.createLocalDescription ? await pc.createAnswer() : await pc.createAnswer();
+        const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await sendP2pSignal(fromId, transferId, {
           type: 'p2p-answer',
@@ -841,13 +865,13 @@
           sdp: pc.localDescription,
         });
       } catch (err) {
-        pc.close();
+        try { pc.close(); } catch {}
         p2pSessions.delete(sig.sessionId);
       }
       return;
     }
 
-    // 2. Receiver receives SDP answer from Sender
+    // 2. Receiver receives SDP answer or ICE candidate from Sender
     const sess = p2pSessions.get(sig.sessionId);
     if (!sess) return;
 
@@ -873,49 +897,105 @@
     }
 
     if (sig.type === 'p2p-error') {
-      if (sess.onError) sess.onError(new Error(sig.error || 'P2P stream failed'));
+      if (sess.onError) sess.onError(new Error(sig.error || 'P2P stream failed'), Boolean(sig.fatal));
     }
   }
 
-  async function streamFileOverDataChannel(file, dc, sessionId, peerName) {
+  async function streamFileOverDataChannel(file, dc, sessionId, peerName, startOffset = 0) {
     const total = file.size || 1;
-    let offset = 0;
+    let offset = Math.max(0, Math.min(total, Number(startOffset) || 0));
+    let ackedBytes = offset;
+    let ackWaitResolver = null;
     const t0 = Date.now();
-    toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P ⚡`, 'info');
+    const sentAtStart = offset;
+    let lastUiUpdate = 0;
 
-    const waitForBufferDrain = () =>
+    acquireTransferWakeLock();
+    if (offset === 0) {
+      toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P ⚡`, 'info');
+    } else {
+      toast(`resuming ${file.name} from ${fmtBytes(offset)}... ⚡`, 'info');
+    }
+
+    // Listen for Receiver disk-flush ACKs so we never overwhelm Receiver RAM on 20+ GB files
+    dc.onmessage = (ev) => {
+      if (typeof ev.data !== 'string') return;
+      try {
+        const msg = JSON.parse(ev.data);
+        if (typeof msg.ack === 'number' && msg.ack > ackedBytes) {
+          ackedBytes = msg.ack;
+          if (ackWaitResolver && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES / 2) {
+            const r = ackWaitResolver;
+            ackWaitResolver = null;
+            r();
+          }
+        }
+      } catch {}
+    };
+
+    const pingInterval = setInterval(() => {
+      if (dc.readyState === 'open') {
+        try { dc.send(JSON.stringify({ ping: Date.now() })); } catch {}
+      }
+    }, 5000);
+
+    const waitForBufferAndAck = () =>
       new Promise((resolve, reject) => {
         if (dc.readyState !== 'open') { reject(new Error('DataChannel closed')); return; }
-        if (dc.bufferedAmount <= P2P_LOW_WATER) { resolve(); return; }
-        const onLow = () => {
-          dc.removeEventListener('bufferedamountlow', onLow);
+        const bufferOk = dc.bufferedAmount <= P2P_LOW_WATER;
+        const ackOk = offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES;
+        if (bufferOk && ackOk) { resolve(); return; }
+
+        let settled = false;
+        const finish = (err) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(safetyTimer);
+          dc.removeEventListener('bufferedamountlow', check);
           dc.removeEventListener('close', onClose);
-          resolve();
+          if (ackWaitResolver === check) ackWaitResolver = null;
+          if (err) reject(err);
+          else resolve();
         };
-        const onClose = () => {
-          dc.removeEventListener('bufferedamountlow', onLow);
-          dc.removeEventListener('close', onClose);
-          reject(new Error('DataChannel closed mid-transfer'));
+        const check = () => {
+          if (dc.readyState !== 'open') { finish(new Error('DataChannel closed')); return; }
+          if (dc.bufferedAmount <= P2P_LOW_WATER && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES) {
+            finish();
+          }
         };
-        dc.addEventListener('bufferedamountlow', onLow);
+        const onClose = () => finish(new Error('DataChannel closed mid-transfer'));
+        // Safety timeout in case an ACK packet is delayed while SCTP buffer is already empty
+        const safetyTimer = setTimeout(() => {
+          if (dc.readyState === 'open' && dc.bufferedAmount <= P2P_LOW_WATER) {
+            ackedBytes = offset;
+            finish();
+          }
+        }, 4000);
+
+        dc.addEventListener('bufferedamountlow', check);
         dc.addEventListener('close', onClose);
+        ackWaitResolver = check;
       });
 
     try {
       while (offset < total) {
-        if (dc.readyState !== 'open') throw new Error('Peer closed connection');
-        if (dc.bufferedAmount > P2P_MAX_BUFFERED) {
-          await waitForBufferDrain();
+        if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
+        if (dc.bufferedAmount > P2P_MAX_BUFFERED || offset - ackedBytes > P2P_MAX_IN_FLIGHT_BYTES) {
+          await waitForBufferAndAck();
         }
         const slice = file.slice(offset, offset + P2P_CHUNK_BYTES);
         const buf = await slice.arrayBuffer();
         dc.send(buf);
         offset += buf.byteLength;
 
-        const pct = Math.min(100, (offset / total) * 100);
-        const elapsedSec = Math.max(0.2, (Date.now() - t0) / 1000);
-        const speedMbps = (offset / (1024 * 1024) / elapsedSec).toFixed(1);
-        setProgress(`P2P stream · ${file.name} (${speedMbps} MB/s)`, pct);
+        const now = Date.now();
+        if (now - lastUiUpdate >= 120 || offset >= total) {
+          lastUiUpdate = now;
+          const pct = Math.min(100, (offset / total) * 100);
+          const elapsedSec = Math.max(0.2, (now - t0) / 1000);
+          const speedMbps = ((offset - sentAtStart) / (1024 * 1024) / elapsedSec).toFixed(1);
+          setProgress(`P2P · ${file.name} · ${fmtBytes(offset)} / ${fmtBytes(total)} (${speedMbps} MB/s)`, pct);
+        }
       }
 
       dc.send(JSON.stringify({ eof: true, size: total, name: file.name }));
@@ -924,11 +1004,53 @@
       soundSparkle();
       setTimeout(() => {
         if (!state.sending) el.sendProgress.hidden = true;
-      }, 2200);
+      }, 2400);
     } catch (err) {
-      el.sendProgress.hidden = true;
-      toast(`P2P stream interrupted: ${err.message || 'connection closed'}`, 'error');
+      // Do not hide immediately if receiver is auto-resuming
+      setProgress(`P2P paused at ${fmtBytes(offset)} — waiting for auto-resume...`, (offset / total) * 100);
+    } finally {
+      clearInterval(pingInterval);
+      releaseTransferWakeLock();
     }
+  }
+
+  async function openBestDiskSink(file) {
+    // 1. Try native Save File Picker (from top window if inside same-origin portfolio iframe, or current window)
+    const pickerFn = (() => {
+      try {
+        if (window.top && typeof window.top.showSaveFilePicker === 'function') {
+          return window.top.showSaveFilePicker.bind(window.top);
+        }
+      } catch {}
+      if (typeof window.showSaveFilePicker === 'function') {
+        return window.showSaveFilePicker.bind(window);
+      }
+      return null;
+    })();
+
+    if (pickerFn) {
+      try {
+        const handle = await pickerFn({ suggestedName: file.name || 'download' });
+        const writable = await handle.createWritable();
+        return { kind: 'picker', writable, handle };
+      } catch (err) {
+        if (err && err.name === 'AbortError') return { kind: 'cancelled' };
+      }
+    }
+
+    // 2. Fallback to Origin Private File System (OPFS) disk storage so 20+ GB files NEVER buffer in RAM!
+    if (navigator.storage && typeof navigator.storage.getDirectory === 'function') {
+      try {
+        const rootDir = await navigator.storage.getDirectory();
+        const tempName = `kurizu_p2p_${Date.now()}_${(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const opfsHandle = await rootDir.getFileHandle(tempName, { create: true });
+        const writable = await opfsHandle.createWritable();
+        return { kind: 'opfs', writable, opfsHandle, rootDir, tempName };
+      } catch {}
+    }
+
+    // 3. Last resort for small files only
+    return { kind: 'memory', memChunks: [] };
   }
 
   async function downloadP2pFile(transfer, file, buttonEl) {
@@ -942,161 +1064,263 @@
       return;
     }
 
-    // For direct-to-disk streaming (essential for multi-GB / 25 GB files without RAM limits),
-    // try opening a native FileSystemWritableFileStream right inside the user click gesture!
-    let diskWritable = null;
-    if (typeof window.showSaveFilePicker === 'function') {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: file.name || 'download',
-        });
-        diskWritable = await handle.createWritable();
-      } catch (err) {
-        if (err && err.name === 'AbortError') return; // user cancelled save picker
-        diskWritable = null; // fallback to in-memory Blob download (e.g. inside cross-origin iframe)
-      }
+    const sink = await openBestDiskSink(file);
+    if (sink.kind === 'cancelled') return;
+
+    if (sink.kind === 'memory' && Number(file.size) > 1.2 * 1024 * 1024 * 1024) {
+      toast('Tip: open KURIZU.dropship in a new tab or Chrome/Edge to stream 20+ GB files directly to disk!', 'info', 6500);
     }
 
-    const sessionId = makeId();
-    const pc = new RTCPeerConnection(RTC_CONFIG);
-    const dc = pc.createDataChannel('kurizu-p2p', { ordered: true });
-    dc.binaryType = 'arraybuffer';
+    acquireTransferWakeLock();
+    const totalBytes = Math.max(1, Number(file.size) || 1);
+    let flushedBytes = 0; // Bytes safely committed to disk sink
+    let receivedBytes = 0; // Total bytes received including current 2MB batch
+    const batchBuf = new Uint8Array(P2P_DISK_BATCH_BYTES);
+    let batchLen = 0;
+    let writeQueue = Promise.resolve();
+    let activeDc = null;
+    const t0 = Date.now();
+    let lastUiUpdate = 0;
 
-    if (buttonEl) {
-      buttonEl.disabled = true;
-      buttonEl.innerHTML = `${icon('i-bolt')}connecting P2P...`;
-    }
-    updateP2pDialogProgress(`connecting direct P2P tunnel to ${transfer.from?.name || 'sender'}...`, 0, true);
+    const flushBatchToDisk = (forceAck = false) => {
+      if (batchLen === 0) return writeQueue;
+      const sliceCopy = batchBuf.subarray(0, batchLen).slice();
+      const bytesInBatch = sliceCopy.byteLength;
+      batchLen = 0;
 
-    return new Promise(async (resolve, reject) => {
-      let receivedBytes = 0;
-      const totalBytes = Math.max(1, Number(file.size) || 1);
-      const memChunks = [];
-      let writeChain = Promise.resolve();
-      let finished = false;
-      const t0 = Date.now();
-
-      const cleanup = () => {
-        p2pSessions.delete(sessionId);
-        try { dc.close(); } catch {}
-        try { pc.close(); } catch {}
-      };
-
-      const failStream = async (err) => {
-        if (finished) return;
-        finished = true;
-        cleanup();
-        if (diskWritable) {
-          try { await diskWritable.abort(); } catch {}
+      writeQueue = writeQueue.then(async () => {
+        if (sink.writable) {
+          await sink.writable.write(sliceCopy);
+        } else if (sink.memChunks) {
+          sink.memChunks.push(sliceCopy);
         }
-        updateP2pDialogProgress(`P2P failed: ${err.message || 'could not connect'}`, 0, false);
-        if (buttonEl) {
-          buttonEl.disabled = false;
-          buttonEl.innerHTML = `${icon('i-download')}retry P2P`;
+        flushedBytes += bytesInBatch;
+        if (activeDc && activeDc.readyState === 'open' && (forceAck || flushedBytes % (2 * P2P_DISK_BATCH_BYTES) < P2P_DISK_BATCH_BYTES)) {
+          try { activeDc.send(JSON.stringify({ ack: flushedBytes })); } catch {}
         }
-        toast(err.message || 'P2P connection timed out — make sure sender tab is still open!', 'error');
-        reject(err);
-      };
-
-      const timeoutId = setTimeout(() => {
-        if (receivedBytes === 0 && !finished) {
-          failStream(new Error('P2P handshake timed out — sender tab must stay open.'));
-        }
-      }, 15000);
-
-      p2pSessions.set(sessionId, {
-        pc,
-        iceQueue: [],
-        remoteDescSet: false,
-        onError: failStream,
       });
+      return writeQueue;
+    };
 
-      pc.onicecandidate = (ev) => {
-        if (ev.candidate) {
-          sendP2pSignal(transfer.fromId, transfer.id, {
-            type: 'p2p-ice',
-            sessionId,
-            candidate: ev.candidate,
-          }).catch(() => {});
+    const runAttempt = (attemptNum) =>
+      new Promise(async (resolve, reject) => {
+        const sessionId = makeId();
+        const pc = new RTCPeerConnection(RTC_CONFIG);
+        const dc = pc.createDataChannel('kurizu-p2p', { ordered: true });
+        dc.binaryType = 'arraybuffer';
+        activeDc = dc;
+
+        let finished = false;
+        let lastChunkAt = Date.now();
+
+        if (buttonEl) {
+          buttonEl.disabled = true;
+          buttonEl.textContent = attemptNum > 1 ? `resuming (${Math.round((flushedBytes / totalBytes) * 100)}%)...` : 'connecting P2P...';
         }
-      };
-
-      dc.onmessage = (ev) => {
-        if (typeof ev.data === 'string') {
-          let msg;
-          try { msg = JSON.parse(ev.data); } catch { return; }
-          if (msg.eof && !finished) {
-            finished = true;
-            clearTimeout(timeoutId);
-            writeChain
-              .then(async () => {
-                if (diskWritable) {
-                  await diskWritable.close();
-                } else {
-                  const blob = new Blob(memChunks, { type: file.type || 'application/octet-stream' });
-                  const url = URL.createObjectURL(blob);
-                  p2pDownloadedBlobs.set(file.id, url);
-                  const link = document.createElement('a');
-                  link.href = url;
-                  link.download = file.name || 'file';
-                  document.body.appendChild(link);
-                  link.click();
-                  link.remove();
-                }
-                cleanup();
-                updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) via P2P ♡`, 100, true);
-                if (buttonEl) {
-                  buttonEl.disabled = false;
-                  buttonEl.innerHTML = `${icon('i-check')}saved`;
-                }
-                toast(`saved ${file.name} via direct P2P ♡`, 'success');
-                soundSparkle();
-                resolve();
-              })
-              .catch(failStream);
-          }
-          return;
-        }
-
-        const chunk = ev.data;
-        const byteLen = chunk.byteLength || 0;
-        receivedBytes += byteLen;
-
-        if (diskWritable) {
-          writeChain = writeChain.then(() => diskWritable.write(chunk));
-        } else {
-          memChunks.push(new Uint8Array(chunk));
-        }
-
-        const pct = Math.min(100, (receivedBytes / totalBytes) * 100);
-        const elapsed = Math.max(0.2, (Date.now() - t0) / 1000);
-        const speedMbps = (receivedBytes / (1024 * 1024) / elapsed).toFixed(1);
         updateP2pDialogProgress(
-          `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} (${speedMbps} MB/s)`,
-          pct,
+          attemptNum > 1
+            ? `auto-resuming P2P stream from ${fmtBytes(flushedBytes)} (attempt ${attemptNum})...`
+            : `connecting direct P2P tunnel to ${transfer.from?.name || 'sender'}...`,
+          (flushedBytes / totalBytes) * 100,
           true
         );
-        if (buttonEl) {
-          buttonEl.innerHTML = `${icon('i-bolt')}${Math.round(pct)}%`;
-        }
-      };
 
-      dc.onerror = () => failStream(new Error('WebRTC data channel error'));
+        const cleanupAttempt = () => {
+          clearInterval(watchdogId);
+          p2pSessions.delete(sessionId);
+          if (activeDc === dc) activeDc = null;
+          try { dc.close(); } catch {}
+          try { pc.close(); } catch {}
+        };
 
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await sendP2pSignal(transfer.fromId, transfer.id, {
-          type: 'p2p-offer',
-          sessionId,
-          fileId: file.id,
-          sdp: pc.localDescription,
+        const handleAttemptDisconnect = async (err, fatal = false) => {
+          if (finished) return;
+          finished = true;
+          cleanupAttempt();
+          // Flush any partial batch collected before disconnect so we can resume cleanly from flushedBytes
+          try { await flushBatchToDisk(false); } catch {}
+          receivedBytes = flushedBytes;
+          batchLen = 0;
+          reject({ err: err || new Error('P2P connection dropped'), fatal });
+        };
+
+        // Watchdog: if no data or ping arrives for 18 seconds, trigger auto-resume
+        const watchdogId = setInterval(() => {
+          if (!finished && Date.now() - lastChunkAt > 18000) {
+            handleAttemptDisconnect(new Error('P2P stream stalled — reconnecting...'), false);
+          }
+        }, 3000);
+
+        p2pSessions.set(sessionId, {
+          pc,
+          iceQueue: [],
+          remoteDescSet: false,
+          onError: (err, fatal) => handleAttemptDisconnect(err, fatal),
         });
-      } catch (err) {
-        clearTimeout(timeoutId);
-        failStream(err);
+
+        pc.onicecandidate = (ev) => {
+          if (ev.candidate) {
+            sendP2pSignal(transfer.fromId, transfer.id, {
+              type: 'p2p-ice',
+              sessionId,
+              candidate: ev.candidate,
+            }).catch(() => {});
+          }
+        };
+
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+            handleAttemptDisconnect(new Error('WebRTC connection interrupted'), false);
+          }
+        };
+
+        dc.onclose = () => {
+          if (!finished && receivedBytes < totalBytes) {
+            handleAttemptDisconnect(new Error('DataChannel closed before EOF'), false);
+          }
+        };
+
+        dc.onerror = () => {
+          if (!finished) {
+            handleAttemptDisconnect(new Error('WebRTC DataChannel error'), false);
+          }
+        };
+
+        dc.onmessage = (ev) => {
+          lastChunkAt = Date.now();
+          if (typeof ev.data === 'string') {
+            let msg;
+            try { msg = JSON.parse(ev.data); } catch { return; }
+            if (msg.ping) return;
+            if (msg.eof && !finished) {
+              finished = true;
+              flushBatchToDisk(true)
+                .then(() => {
+                  cleanupAttempt();
+                  resolve();
+                })
+                .catch((err) => handleAttemptDisconnect(err, true));
+            }
+            return;
+          }
+
+          const chunk = new Uint8Array(ev.data);
+          const byteLen = chunk.byteLength || 0;
+          receivedBytes += byteLen;
+
+          // Append chunk into 2 MB batch buffer
+          let readPos = 0;
+          while (readPos < byteLen) {
+            const space = P2P_DISK_BATCH_BYTES - batchLen;
+            const toCopy = Math.min(space, byteLen - readPos);
+            batchBuf.set(chunk.subarray(readPos, readPos + toCopy), batchLen);
+            batchLen += toCopy;
+            readPos += toCopy;
+            if (batchLen >= P2P_DISK_BATCH_BYTES) {
+              flushBatchToDisk(false);
+            }
+          }
+
+          const now = Date.now();
+          if (now - lastUiUpdate >= 120 || receivedBytes >= totalBytes) {
+            lastUiUpdate = now;
+            const pct = Math.min(100, (receivedBytes / totalBytes) * 100);
+            const elapsed = Math.max(0.2, (now - t0) / 1000);
+            const speedMbps = (receivedBytes / (1024 * 1024) / elapsed).toFixed(1);
+            updateP2pDialogProgress(
+              `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} (${speedMbps} MB/s)`,
+              pct,
+              true
+            );
+            if (buttonEl) {
+              buttonEl.textContent = `${Math.round(pct)}%`;
+            }
+          }
+        };
+
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await sendP2pSignal(transfer.fromId, transfer.id, {
+            type: 'p2p-offer',
+            sessionId,
+            fileId: file.id,
+            startOffset: flushedBytes,
+            sdp: pc.localDescription,
+          });
+        } catch (err) {
+          handleAttemptDisconnect(err, false);
+        }
+      });
+
+    const MAX_ATTEMPTS = 6;
+    try {
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        try {
+          await runAttempt(attempt);
+          break; // Success!
+        } catch (info) {
+          if (info?.fatal || attempt >= MAX_ATTEMPTS) {
+            throw info?.err || new Error('P2P transfer failed after multiple resume attempts.');
+          }
+          await new Promise((r) => setTimeout(r, 1400));
+        }
       }
-    });
+
+      // Finalize disk sink
+      if (sink.kind === 'picker' && sink.writable) {
+        await sink.writable.close();
+      } else if (sink.kind === 'opfs' && sink.writable) {
+        await sink.writable.close();
+        const diskFile = await sink.opfsHandle.getFile();
+        const url = URL.createObjectURL(diskFile);
+        p2pDownloadedBlobs.set(file.id, url);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name || 'file';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        // Clean up temporary OPFS file after download begins
+        setTimeout(() => {
+          try { sink.rootDir.removeEntry(sink.tempName); } catch {}
+        }, 60000);
+      } else if (sink.memChunks) {
+        const blob = new Blob(sink.memChunks, { type: file.type || 'application/octet-stream' });
+        sink.memChunks = [];
+        const url = URL.createObjectURL(blob);
+        p2pDownloadedBlobs.set(file.id, url);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name || 'file';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) via P2P ♡`, 100, true);
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = `${icon('i-check')}saved`;
+      }
+      toast(`saved ${file.name} via direct P2P ♡`, 'success');
+      soundSparkle();
+    } catch (err) {
+      if (sink.writable) {
+        try { await sink.writable.abort(); } catch {}
+      }
+      if (sink.kind === 'opfs' && sink.rootDir && sink.tempName) {
+        try { await sink.rootDir.removeEntry(sink.tempName); } catch {}
+      }
+      updateP2pDialogProgress(`P2P interrupted at ${fmtBytes(flushedBytes)} — click retry to resume`, (flushedBytes / totalBytes) * 100, true);
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = `${icon('i-download')}retry P2P`;
+      }
+      toast(err.message || 'P2P stream interrupted — make sure both tabs stay open!', 'error');
+    } finally {
+      releaseTransferWakeLock();
+    }
   }
 
   /* ---------------- offers / dialog ---------------- */
