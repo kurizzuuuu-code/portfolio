@@ -731,15 +731,25 @@
       const restarted = state.server && data.server && state.server.startedAt !== data.server.startedAt;
 
       if (restarted) {
+        const activeTransfer = (activeDownloadCancel && state.activeOfferId)
+          ? state.transfers.get(state.activeOfferId)
+          : null;
         state.transfers.clear();
         state.queue = [];
         state.queued.clear();
         state.hidden.clear();
-        if (state.activeOfferId) {
+        if (activeTransfer) {
+          state.transfers.set(activeTransfer.id, activeTransfer);
+        } else if (state.activeOfferId) {
           state.activeOfferId = null;
           if (el.incomingDialog.open) el.incomingDialog.close();
         }
-        toast('the little server restarted — history cleared ♡', 'info');
+        toast(
+          activeTransfer
+            ? 'signaling server restarted — your direct P2P download is still running ♡'
+            : 'the little server restarted — history cleared ♡',
+          'info'
+        );
       }
 
       state.server = data.server || state.server;
@@ -770,7 +780,7 @@
         if (transfer.toId === state.me.id) enqueueOffer(transfer);
       });
 
-      if (state.activeOfferId && el.incomingDialog.open) {
+      if (state.activeOfferId && el.incomingDialog.open && !activeDownloadCancel) {
         const active = state.transfers.get(state.activeOfferId);
         if (active && active.status !== 'pending') renderOfferResult(active);
       }
@@ -808,7 +818,7 @@
       state.transfers.set(transfer.id, transfer);
       state.queue = state.queue.filter((id) => id !== transfer.id);
       renderLog();
-      if (el.incomingDialog.open && state.activeOfferId === transfer.id) {
+      if (el.incomingDialog.open && state.activeOfferId === transfer.id && !activeDownloadCancel) {
         renderOfferResult(transfer);
       }
 
@@ -1415,13 +1425,15 @@
         const onClose = () => finish(new Error('DataChannel closed mid-transfer'));
         // 100ms poll guards against missed bufferedamountlow events in Chromium
         const pollTimer = setInterval(check, 100);
-        // Safety release only when SCTP send queue is drained and ACK is delayed
-        const safetyTimer = setTimeout(() => {
-          if (dc.readyState === 'open' && dc.bufferedAmount <= lowWater) {
-            ackedBytes = currentProgressBytes();
-            finish();
-          }
-        }, 4000);
+        // Safety release ONLY in single-stream mode; in striped parallel mode ACKs enforce strict <=36MB receiver RAM cap
+        const safetyTimer = !isStriped
+          ? setTimeout(() => {
+              if (dc.readyState === 'open' && dc.bufferedAmount <= lowWater) {
+                ackedBytes = currentProgressBytes();
+                finish();
+              }
+            }, 4000)
+          : null;
 
         dc.addEventListener('bufferedamountlow', check);
         dc.addEventListener('close', onClose);
@@ -1824,9 +1836,18 @@
           reject({ err: err || new Error('P2P connection dropped'), fatal });
         };
 
-        // Watchdog: if no data or ping arrives for 18 seconds, trigger auto-resume
+        // Watchdog: if no data or ping arrives for 18 seconds on the blocking lane, trigger auto-resume
         const watchdogId = setInterval(() => {
-          if (!finished && !cancelled && Date.now() - lastChunkAt > 18000) {
+          if (finished || cancelled) return;
+          if (isStriped) {
+            const isBlockingLane = (nextWriteStripe % laneCount === lane.index) || completedStripes.size === 0;
+            if (!isBlockingLane) {
+              // Lane is intentionally paused by backpressure while waiting for another lane — keep alive
+              lastChunkAt = Date.now();
+              return;
+            }
+          }
+          if (Date.now() - lastChunkAt > 18000) {
             handleAttemptDisconnect(new Error('P2P stream stalled — reconnecting...'), false);
           }
         }, 3000);
@@ -3018,7 +3039,7 @@
     });
 
     window.addEventListener('beforeunload', (event) => {
-      if (state.sending) {
+      if (state.sending || activeDownloadCancel || p2pSenderGroups.size > 0) {
         event.preventDefault();
         event.returnValue = '';
       }
