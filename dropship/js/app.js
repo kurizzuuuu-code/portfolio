@@ -224,11 +224,17 @@
   const P2P_DEFAULT_CHUNK_BYTES = 64 * 1024; // safe fallback chunk size
   const P2P_MAX_CHUNK_BYTES = 240 * 1024; // up to ~240 KB per dc.send() when peer SCTP supports >=256 KB
   const P2P_READ_AHEAD_BYTES = 4 * 1024 * 1024; // 4 MB disk read-ahead per await (cuts async waits 64x)
-  const P2P_MAX_BUFFERED = 8 * 1024 * 1024; // 8 MB high-water mark
-  const P2P_LOW_WATER = 3 * 1024 * 1024; // 3 MB low-water resume threshold
+  const P2P_MAX_BUFFERED = 8 * 1024 * 1024; // 8 MB high-water mark (1 stream)
+  const P2P_LOW_WATER = 3 * 1024 * 1024; // 3 MB low-water resume threshold (1 stream)
+  const P2P_PARALLEL_LANES = 4; // 4 parallel WebRTC DataChannels for files >= 16 MB
+  const P2P_PARALLEL_MIN_BYTES = 16 * 1024 * 1024; // 16 MB threshold
+  const P2P_LANE_MAX_BUFFERED = 4 * 1024 * 1024; // 4 MB buffer per parallel lane
+  const P2P_LANE_LOW_WATER = 1.5 * 1024 * 1024; // 1.5 MB resume watermark per parallel lane
   const p2pOutgoingFiles = new Map(); // fileId -> File object on sender PC
   const p2pDownloadedBlobs = new Map(); // fileId -> objectURL if buffered in RAM
   const p2pSessions = new Map(); // sessionId -> { pc, iceQueue, remoteDescSet }
+  const p2pSenderGroups = new Map(); // batchId -> aggregate multi-lane sender state
+  let activeDownloadCancel = null;
 
   /* ---------------- elements ---------------- */
 
@@ -829,8 +835,10 @@
 
   /* ---------------- WebRTC P2P Direct Streaming (up to 25 GB+ with Flow Control & Auto-Resume) ---------------- */
 
-  const P2P_DISK_BATCH_BYTES = 4 * 1024 * 1024; // 4 MB batched disk writes (cuts disk IPC overhead on 20GB+ files)
-  const P2P_MAX_IN_FLIGHT_BYTES = 32 * 1024 * 1024; // 32 MB un-acknowledged window to saturate high-speed pipes
+  const P2P_DISK_BATCH_BYTES = 4 * 1024 * 1024; // 4 MB batched disk writes (1 stream)
+  const P2P_LANE_DISK_BATCH_BYTES = 2 * 1024 * 1024; // 2 MB batch per lane when 4x parallel (= max 8 MB RAM)
+  const P2P_MAX_IN_FLIGHT_BYTES = 32 * 1024 * 1024; // 32 MB un-acknowledged window (1 stream)
+  const P2P_LANE_MAX_IN_FLIGHT = 16 * 1024 * 1024; // 16 MB per lane (= 64 MB aggregate in-flight)
   let activeWakeLock = null;
 
   async function acquireTransferWakeLock() {
@@ -869,6 +877,14 @@
     }
   }
 
+  function setDownloadCancelable(cancelFn) {
+    activeDownloadCancel = typeof cancelFn === 'function' ? cancelFn : null;
+    const actionsEl = $('#p2pDialogActions', el.incomingBody);
+    const cancelBtn = $('#p2pCancelBtn', el.incomingBody);
+    if (actionsEl) actionsEl.hidden = !activeDownloadCancel;
+    if (cancelBtn) cancelBtn.disabled = false;
+  }
+
   function waitForSakugaDone(progEl) {
     return new Promise((resolve) => {
       if (!progEl || typeof progEl.set !== 'function' || progEl.done) {
@@ -892,13 +908,39 @@
     return api('/api/signal', { to, transferId, signal });
   }
 
+  function cancelSenderGroup(batchId) {
+    const group = p2pSenderGroups.get(batchId);
+    if (!group || group.cancelled) return;
+    group.cancelled = true;
+    for (const sess of [...group.sessions]) {
+      try { sess.onCancel?.(); } catch {}
+      try { sess.dc?.close(); } catch {}
+      try { sess.pc?.close(); } catch {}
+    }
+    group.sessions.clear();
+    p2pSenderGroups.delete(batchId);
+    setProgress(`P2P cancelled · ${group.fileName}`, 0);
+    toast(`receiver cancelled ${group.fileName}`, 'pink');
+    setTimeout(() => {
+      if (!state.sending && p2pSenderGroups.size === 0) {
+        el.sendProgress.hidden = true;
+        if (el.sendSignalPanel) el.sendSignalPanel.hidden = true;
+      }
+    }, 1800);
+  }
+
   async function handleIncomingP2pSignal(payload) {
     const fromId = payload?.from;
     const transferId = payload?.transferId;
     const sig = payload?.signal;
     if (!fromId || !sig || !sig.sessionId) return;
 
-    // 1. Sender receives a P2P request offer from Receiver to stream a specific file (supports startOffset resume!)
+    if (sig.type === 'p2p-cancel') {
+      cancelSenderGroup(sig.batchId || sig.sessionId);
+      return;
+    }
+
+    // 1. Sender receives a P2P request offer from Receiver to stream a specific file (supports range + startOffset resume!)
     if (sig.type === 'p2p-offer') {
       const file = p2pOutgoingFiles.get(sig.fileId);
       if (!file) {
@@ -912,6 +954,11 @@
       }
 
       const startOffset = Math.max(0, Math.min(file.size, Number(sig.startOffset) || 0));
+      const endOffset = sig.endOffset != null ? Math.max(startOffset, Math.min(file.size, Number(sig.endOffset))) : file.size;
+      const laneStart = sig.laneStart != null ? Math.max(0, Math.min(startOffset, Number(sig.laneStart))) : 0;
+      const laneIndex = Math.max(0, Number(sig.laneIndex) || 0);
+      const laneCount = Math.max(1, Math.min(P2P_PARALLEL_LANES, Number(sig.laneCount) || 1));
+      const batchId = sig.batchId || sig.sessionId;
       const pc = new RTCPeerConnection(RTC_CONFIG);
       const sess = { pc, iceQueue: [], remoteDescSet: false };
       p2pSessions.set(sig.sessionId, sess);
@@ -929,9 +976,15 @@
       pc.ondatachannel = (ev) => {
         const dc = ev.channel;
         dc.binaryType = 'arraybuffer';
-        dc.bufferedAmountLowThreshold = P2P_LOW_WATER;
+        dc.bufferedAmountLowThreshold = laneCount > 1 ? P2P_LANE_LOW_WATER : P2P_LOW_WATER;
         dc.onopen = () => {
-          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer', startOffset, pc);
+          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer', startOffset, pc, {
+            endOffset,
+            laneStart,
+            laneIndex,
+            laneCount,
+            batchId,
+          });
         };
       };
 
@@ -1057,11 +1110,12 @@
     const r = receiverSig || { bars: 0, quality: 'checking', rttText: '-- ms' };
     const isDirect = routeInfo?.isDirect !== false;
     const routeLabel = routeInfo?.route || 'P2P DIRECT';
+    const modeTag = (routeInfo?.laneCount || 1) > 1 ? `${routeInfo.laneCount}x PARALLEL` : 'E2E WebRTC';
     const sText = s.bars > 0 ? `${s.quality} · ${s.rttText}` : 'checking...';
     const rText = r.bars > 0 ? `${r.quality} · ${r.rttText}` : 'checking...';
 
     containerEl.innerHTML = `
-      <span class="p2p-signal-route ${isDirect ? 'is-direct' : 'is-relay'}">${isDirect ? '⚡' : '☁'} ${esc(routeLabel)} · E2E WebRTC</span>
+      <span class="p2p-signal-route ${isDirect ? 'is-direct' : 'is-relay'}">${isDirect ? '⚡' : '☁'} ${esc(routeLabel)} · ${esc(modeTag)}</span>
       <div class="p2p-signal-grid">
         <div class="p2p-signal-card">
           <span class="p2p-signal-card__role">sender signal</span>
@@ -1080,14 +1134,15 @@
       </div>`;
   }
 
-  function startP2pStatsMonitor(pc, dc, role, onUpdate) {
+  function startP2pStatsMonitor(pc, dc, role, onUpdate, opts = {}) {
     let stopped = false;
     let counted = true;
     activeP2pMonitors += 1;
 
+    const laneCount = Math.max(1, Number(opts.laneCount) || 1);
     let localSig = { bars: 0, quality: 'checking', rttText: '-- ms', rttMs: null };
     let remoteSig = { bars: 0, quality: 'checking', rttText: '-- ms', rttMs: null };
-    let routeInfo = { route: 'P2P DIRECT', isDirect: true, resolved: false };
+    let routeInfo = { route: 'P2P DIRECT', isDirect: true, resolved: false, laneCount };
     let appRttMs = null;
 
     const emit = () => {
@@ -1096,7 +1151,7 @@
       const receiver = role === 'receiver' ? localSig : remoteSig;
       updateProfileP2pUi({
         active: true,
-        route: routeInfo.route,
+        route: laneCount > 1 ? `${routeInfo.route} · ${laneCount}x` : routeInfo.route,
         isDirect: routeInfo.isDirect,
         bars: localSig.bars,
         rttText: localSig.rttText,
@@ -1136,11 +1191,11 @@
           const localCand = pair?.localCandidateId ? stats.get(pair.localCandidateId) : null;
           const remoteCand = pair?.remoteCandidateId ? stats.get(pair.remoteCandidateId) : null;
           if (localCand?.candidateType === 'relay' || remoteCand?.candidateType === 'relay') {
-            routeInfo = { route: 'TURN RELAY', isDirect: false, resolved: true };
+            routeInfo = { route: 'TURN RELAY', isDirect: false, resolved: true, laneCount };
           } else if (localCand?.candidateType === 'host' && remoteCand?.candidateType === 'host') {
-            routeInfo = { route: 'P2P DIRECT · LAN', isDirect: true, resolved: true };
+            routeInfo = { route: 'P2P DIRECT · LAN', isDirect: true, resolved: true, laneCount };
           } else if (localCand || remoteCand) {
-            routeInfo = { route: 'P2P DIRECT · WAN', isDirect: true, resolved: true };
+            routeInfo = { route: 'P2P DIRECT · WAN', isDirect: true, resolved: true, laneCount };
           }
 
           localSig = signalFromRtt(bestRtt);
@@ -1187,6 +1242,7 @@
             route: msg.stats.route,
             isDirect: msg.stats.isDirect !== false,
             resolved: true,
+            laneCount,
           };
         }
         emit();
@@ -1212,13 +1268,59 @@
     return { handleControlMessage, stop };
   }
 
-  async function streamFileOverDataChannel(file, dc, sessionId, peerName, startOffset = 0, pc = null) {
+  async function streamFileOverDataChannel(file, dc, sessionId, peerName, startOffset = 0, pc = null, laneOpts = {}) {
     const total = file.size || 1;
-    let offset = Math.max(0, Math.min(total, Number(startOffset) || 0));
+    const laneIndex = Math.max(0, Number(laneOpts.laneIndex) || 0);
+    const laneCount = Math.max(1, Number(laneOpts.laneCount) || 1);
+    const laneStart = Math.max(0, Math.min(total, Number(laneOpts.laneStart) || 0));
+    const endOffset = laneOpts.endOffset != null ? Math.max(laneStart, Math.min(total, Number(laneOpts.endOffset))) : total;
+    const batchId = laneOpts.batchId || sessionId;
+    let offset = Math.max(laneStart, Math.min(endOffset, Number(startOffset) || 0));
     let ackedBytes = offset;
     let ackWaitResolver = null;
-    const speed = createSpeedTracker(offset);
-    let lastUiUpdate = 0;
+    let cancelled = false;
+
+    const maxBuffered = laneCount > 1 ? P2P_LANE_MAX_BUFFERED : P2P_MAX_BUFFERED;
+    const lowWater = laneCount > 1 ? P2P_LANE_LOW_WATER : P2P_LOW_WATER;
+    const maxInFlight = laneCount > 1 ? P2P_LANE_MAX_IN_FLIGHT : P2P_MAX_IN_FLIGHT_BYTES;
+
+    let group = p2pSenderGroups.get(batchId);
+    if (!group) {
+      group = {
+        batchId,
+        fileName: file.name,
+        totalBytes: total,
+        laneCount,
+        lanes: new Map(),
+        sessions: new Set(),
+        speed: createSpeedTracker(0),
+        lastUiUpdate: 0,
+        toasted: false,
+        finished: false,
+        cancelled: false,
+      };
+      p2pSenderGroups.set(batchId, group);
+    }
+    if (group.cancelled) return;
+
+    group.lanes.set(laneIndex, {
+      doneBytes: Math.max(0, offset - laneStart),
+      rangeLen: Math.max(0, endOffset - laneStart),
+      done: false,
+    });
+    const sessionEntry = {
+      pc,
+      dc,
+      onCancel: () => {
+        cancelled = true;
+        if (ackWaitResolver) {
+          const r = ackWaitResolver;
+          ackWaitResolver = null;
+          r();
+        }
+      },
+    };
+    group.sessions.add(sessionEntry);
 
     // Dynamically pick largest safe SCTP chunk (up to 240 KB when peer allows >=256 KB, falling back to 64 KB)
     const negotiatedSctp = Number(pc?.sctp?.maxMessageSize) || P2P_DEFAULT_CHUNK_BYTES;
@@ -1227,30 +1329,38 @@
       Math.max(P2P_DEFAULT_CHUNK_BYTES, Math.floor(negotiatedSctp / 1024) * 1024)
     );
 
-    const statsMon = pc
+    const statsMon = (pc && laneIndex === 0)
       ? startP2pStatsMonitor(pc, dc, 'sender', ({ sender, receiver, routeInfo }) => {
           if (el.sendProgress && !el.sendProgress.hidden) {
             renderPeerSignalPanel(el.sendSignalPanel, sender, receiver, routeInfo);
           }
-        })
+        }, { laneCount })
       : null;
 
     acquireTransferWakeLock();
-    if (offset === 0) {
-      toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P (${Math.round(chunkBytes / 1024)}KB chunks) ⚡`, 'info');
-    } else {
-      toast(`resuming ${file.name} from ${fmtBytes(offset)}... ⚡`, 'info');
+    if (!group.toasted) {
+      group.toasted = true;
+      const modeLabel = laneCount > 1 ? `${laneCount}x parallel · ${Math.round(chunkBytes / 1024)}KB chunks` : `${Math.round(chunkBytes / 1024)}KB chunks`;
+      if (offset === laneStart) {
+        toast(`streaming ${file.name} (${fmtBytes(total)}) to ${peerName} via P2P (${modeLabel}) ⚡`, 'info');
+      } else {
+        toast(`resuming ${file.name} from ${fmtBytes(offset)}... ⚡`, 'info');
+      }
     }
 
-    // Listen for Receiver disk-flush ACKs & signal telemetry so we never overwhelm Receiver RAM on 20+ GB files
+    // Listen for Receiver disk-flush ACKs, cancel requests & signal telemetry
     dc.onmessage = (ev) => {
       if (typeof ev.data !== 'string') return;
       try {
         const msg = JSON.parse(ev.data);
+        if (msg.cancel) {
+          cancelSenderGroup(batchId);
+          return;
+        }
         statsMon?.handleControlMessage(msg);
         if (typeof msg.ack === 'number' && msg.ack > ackedBytes) {
           ackedBytes = msg.ack;
-          if (ackWaitResolver && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES / 2) {
+          if (ackWaitResolver && offset - ackedBytes <= maxInFlight / 2) {
             const r = ackWaitResolver;
             ackWaitResolver = null;
             r();
@@ -1261,9 +1371,10 @@
 
     const waitForBufferAndAck = () =>
       new Promise((resolve, reject) => {
+        if (cancelled || group.cancelled) { reject(new Error('Transfer cancelled')); return; }
         if (dc.readyState !== 'open') { reject(new Error('DataChannel closed')); return; }
-        const bufferOk = dc.bufferedAmount <= P2P_LOW_WATER;
-        const ackOk = offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES;
+        const bufferOk = dc.bufferedAmount <= lowWater;
+        const ackOk = offset - ackedBytes <= maxInFlight;
         if (bufferOk && ackOk) { resolve(); return; }
 
         let settled = false;
@@ -1278,15 +1389,16 @@
           else resolve();
         };
         const check = () => {
+          if (cancelled || group.cancelled) { finish(new Error('Transfer cancelled')); return; }
           if (dc.readyState !== 'open') { finish(new Error('DataChannel closed')); return; }
-          if (dc.bufferedAmount <= P2P_LOW_WATER && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES / 2) {
+          if (dc.bufferedAmount <= lowWater && offset - ackedBytes <= maxInFlight / 2) {
             finish();
           }
         };
         const onClose = () => finish(new Error('DataChannel closed mid-transfer'));
         // Safety timeout in case an ACK packet is delayed while SCTP buffer is already empty
         const safetyTimer = setTimeout(() => {
-          if (dc.readyState === 'open' && dc.bufferedAmount <= P2P_LOW_WATER) {
+          if (dc.readyState === 'open' && dc.bufferedAmount <= lowWater) {
             ackedBytes = offset;
             finish();
           }
@@ -1298,16 +1410,16 @@
       });
 
     try {
-      while (offset < total) {
+      while (offset < endOffset && !cancelled && !group.cancelled) {
         if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
-        // Read 4 MB from disk in one await instead of per-chunk to avoid async disk overhead
-        const blockEnd = Math.min(total, offset + P2P_READ_AHEAD_BYTES);
+        // Read up to 4 MB from disk in one await instead of per-chunk to avoid async disk overhead
+        const blockEnd = Math.min(endOffset, offset + P2P_READ_AHEAD_BYTES);
         const blockBuf = new Uint8Array(await file.slice(offset, blockEnd).arrayBuffer());
         let pos = 0;
 
-        while (pos < blockBuf.byteLength) {
+        while (pos < blockBuf.byteLength && !cancelled && !group.cancelled) {
           if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
-          if (dc.bufferedAmount > P2P_MAX_BUFFERED || offset - ackedBytes > P2P_MAX_IN_FLIGHT_BYTES) {
+          if (dc.bufferedAmount > maxBuffered || offset - ackedBytes > maxInFlight) {
             await waitForBufferAndAck();
           }
           const endPos = Math.min(blockBuf.byteLength, pos + chunkBytes);
@@ -1325,32 +1437,63 @@
             throw sendErr;
           }
 
+          const laneState = group.lanes.get(laneIndex);
+          if (laneState) laneState.doneBytes = Math.max(0, offset - laneStart);
+
           const now = Date.now();
-          if (now - lastUiUpdate >= 120 || offset >= total) {
-            lastUiUpdate = now;
-            const pct = Math.min(100, (offset / total) * 100);
-            const { mbpsText, etaText } = speed.sample(offset, total);
-            setProgress(`P2P · ${file.name} · ${fmtBytes(offset)} / ${fmtBytes(total)} · ${mbpsText} MB/s · ${etaText}`, pct);
+          if (now - group.lastUiUpdate >= 120 || offset >= endOffset) {
+            group.lastUiUpdate = now;
+            let aggSent = 0;
+            for (const l of group.lanes.values()) aggSent += l.doneBytes;
+            const pct = Math.min(100, (aggSent / total) * 100);
+            const { mbpsText, etaText } = group.speed.sample(aggSent, total);
+            const tag = laneCount > 1 ? `P2P (${laneCount}x)` : 'P2P';
+            setProgress(`${tag} · ${file.name} · ${fmtBytes(aggSent)} / ${fmtBytes(total)} · ${mbpsText} MB/s · ${etaText}`, pct);
           }
         }
       }
 
-      dc.send(JSON.stringify({ eof: true, size: total, name: file.name }));
-      setProgress(`P2P delivered · ${file.name} ♡`, 100);
-      toast(`finished streaming ${file.name} via P2P ♡`, 'success');
-      soundSparkle();
-      setTimeout(() => {
-        if (!state.sending) {
-          el.sendProgress.hidden = true;
-          if (el.sendSignalPanel) el.sendSignalPanel.hidden = true;
+      if (cancelled || group.cancelled) return;
+
+      dc.send(JSON.stringify({ eof: true, laneIndex, size: endOffset - laneStart, name: file.name }));
+      const laneState = group.lanes.get(laneIndex);
+      if (laneState) {
+        laneState.doneBytes = Math.max(0, endOffset - laneStart);
+        laneState.done = true;
+      }
+
+      let allDone = group.lanes.size >= laneCount;
+      if (allDone) {
+        for (const l of group.lanes.values()) {
+          if (!l.done) { allDone = false; break; }
         }
-      }, 2400);
+      }
+
+      if (allDone && !group.finished) {
+        group.finished = true;
+        p2pSenderGroups.delete(batchId);
+        setProgress(`P2P delivered · ${file.name} ♡`, 100);
+        toast(`finished streaming ${file.name} via P2P ♡`, 'success');
+        soundSparkle();
+        setTimeout(() => {
+          if (!state.sending && p2pSenderGroups.size === 0) {
+            el.sendProgress.hidden = true;
+            if (el.sendSignalPanel) el.sendSignalPanel.hidden = true;
+          }
+        }, 2400);
+      }
     } catch (err) {
-      // Do not hide immediately if receiver is auto-resuming
-      setProgress(`P2P paused at ${fmtBytes(offset)} — waiting for auto-resume...`, (offset / total) * 100);
+      if (cancelled || group.cancelled) return;
+      let aggSent = 0;
+      for (const l of group.lanes.values()) aggSent += l.doneBytes;
+      const label = laneCount > 1 ? `P2P lane ${laneIndex + 1} paused` : `P2P paused at ${fmtBytes(aggSent)}`;
+      setProgress(`${label} — waiting for auto-resume...`, (aggSent / total) * 100);
     } finally {
+      group.sessions.delete(sessionEntry);
       statsMon?.stop();
-      releaseTransferWakeLock();
+      if (p2pSenderGroups.size === 0 || [...p2pSenderGroups.values()].every((g) => g.sessions.size === 0)) {
+        releaseTransferWakeLock();
+      }
     }
   }
 
@@ -1401,11 +1544,16 @@
       document.body.appendChild(link);
       link.click();
       link.remove();
-      return;
+      return { cancelled: false };
+    }
+
+    if (activeDownloadCancel) {
+      toast('a download is already running — cancel it first ♡', 'info');
+      return { cancelled: false };
     }
 
     const sink = await openBestDiskSink(file);
-    if (sink.kind === 'cancelled') return;
+    if (sink.kind === 'cancelled') return { cancelled: true };
 
     if (sink.kind === 'memory' && Number(file.size) > 1.2 * 1024 * 1024 * 1024) {
       toast('Tip: open KURIZU.dropship in a new tab or Chrome/Edge to stream 20+ GB files directly to disk!', 'info', 6500);
@@ -1413,80 +1561,165 @@
 
     acquireTransferWakeLock();
     const progEl = $('#p2pSakugaProgress', el.incomingBody);
+    const totalBytes = Math.max(1, Number(file.size) || 1);
+    const laneCount = (sink.writable && totalBytes >= P2P_PARALLEL_MIN_BYTES) ? P2P_PARALLEL_LANES : 1;
+    const batchSize = laneCount > 1 ? P2P_LANE_DISK_BATCH_BYTES : P2P_DISK_BATCH_BYTES;
+
     updateP2pDialogProgress(
-      `preparing ${file.name} (${fmtBytes(file.size)})...`,
+      `preparing ${file.name} (${fmtBytes(file.size)})${laneCount > 1 ? ` · ${laneCount}x parallel` : ''}...`,
       0,
       true,
       { reset: true, label: `Downloading ${file.name}` }
     );
-    const totalBytes = Math.max(1, Number(file.size) || 1);
-    let flushedBytes = 0; // Bytes safely committed to disk sink
-    let receivedBytes = 0; // Total bytes received including current 2MB batch
-    const batchBuf = new Uint8Array(P2P_DISK_BATCH_BYTES);
-    let batchLen = 0;
+
+    const baseSlice = laneCount > 1
+      ? Math.max(P2P_DEFAULT_CHUNK_BYTES, Math.floor(totalBytes / laneCount / P2P_DEFAULT_CHUNK_BYTES) * P2P_DEFAULT_CHUNK_BYTES)
+      : totalBytes;
+    const lanes = [];
+    for (let i = 0; i < laneCount; i += 1) {
+      const laneStart = i * baseSlice;
+      const end = (i === laneCount - 1) ? totalBytes : Math.min(totalBytes, (i + 1) * baseSlice);
+      lanes.push({
+        index: i,
+        laneStart,
+        end,
+        queuedPos: laneStart,
+        flushedPos: laneStart,
+        receivedPos: laneStart,
+        activeDc: null,
+        batchBuf: new Uint8Array(batchSize),
+        batchSize,
+        batchLen: 0,
+        done: false,
+      });
+    }
+
     let writeQueue = Promise.resolve();
-    let activeDc = null;
     const speed = createSpeedTracker(0);
     let lastUiUpdate = 0;
+    let cancelled = false;
+    const batchId = makeId();
+    const laneAborters = new Set();
 
-    const flushBatchToDisk = (forceAck = false) => {
-      if (batchLen === 0) return writeQueue;
-      const sliceCopy = batchBuf.subarray(0, batchLen).slice();
+    setDownloadCancelable(() => {
+      if (cancelled) return;
+      cancelled = true;
+      for (const lane of lanes) {
+        if (lane.activeDc && lane.activeDc.readyState === 'open') {
+          try { lane.activeDc.send(JSON.stringify({ cancel: true })); } catch {}
+        }
+      }
+      sendP2pSignal(transfer.fromId, transfer.id, {
+        type: 'p2p-cancel',
+        batchId,
+        sessionId: batchId,
+      }).catch(() => {});
+      for (const abort of [...laneAborters]) {
+        try { abort(); } catch {}
+      }
+    });
+
+    const flushLaneBatch = (lane) => {
+      if (lane.batchLen === 0 || cancelled) return writeQueue;
+      const sliceCopy = lane.batchBuf.subarray(0, lane.batchLen).slice();
       const bytesInBatch = sliceCopy.byteLength;
-      batchLen = 0;
+      const writePos = lane.queuedPos;
+      lane.queuedPos += bytesInBatch;
+      lane.batchLen = 0;
 
       writeQueue = writeQueue.then(async () => {
+        if (cancelled) return;
         if (sink.writable) {
-          await sink.writable.write(sliceCopy);
+          if (laneCount > 1) {
+            await sink.writable.write({ type: 'write', position: writePos, data: sliceCopy });
+          } else {
+            await sink.writable.write(sliceCopy);
+          }
         } else if (sink.memChunks) {
           sink.memChunks.push(sliceCopy);
         }
-        flushedBytes += bytesInBatch;
-        if (activeDc && activeDc.readyState === 'open') {
-          try { activeDc.send(JSON.stringify({ ack: flushedBytes })); } catch {}
+        lane.flushedPos = writePos + bytesInBatch;
+        if (!cancelled && lane.activeDc && lane.activeDc.readyState === 'open') {
+          try { lane.activeDc.send(JSON.stringify({ ack: lane.flushedPos })); } catch {}
         }
       });
       return writeQueue;
     };
 
-    const runAttempt = (attemptNum) =>
+    const updateAggregateUi = (force = false) => {
+      if (cancelled) return;
+      const now = Date.now();
+      let totalReceived = 0;
+      for (const l of lanes) totalReceived += Math.max(0, l.receivedPos - l.laneStart);
+      if (!force && now - lastUiUpdate < 120 && totalReceived < totalBytes) return;
+      lastUiUpdate = now;
+
+      const frac = Math.min(1, totalReceived / totalBytes);
+      const { mbpsText, etaText } = speed.sample(totalReceived, totalBytes);
+      const tag = laneCount > 1 ? `streaming P2P (${laneCount}x parallel)` : 'streaming P2P';
+      updateP2pDialogProgress(
+        `${tag} · ${fmtBytes(totalReceived)} / ${fmtBytes(totalBytes)} · ${mbpsText} MB/s · ${etaText}`,
+        frac,
+        true
+      );
+      if (buttonEl) {
+        buttonEl.textContent = `${Math.round(frac * 100)}%`;
+      }
+    };
+
+    const runLaneAttempt = (lane, attemptNum) =>
       new Promise(async (resolve, reject) => {
+        if (cancelled) {
+          reject({ cancelled: true, fatal: true });
+          return;
+        }
         const sessionId = makeId();
         const pc = new RTCPeerConnection(RTC_CONFIG);
-        const dc = pc.createDataChannel('kurizu-p2p', { ordered: true });
+        const dc = pc.createDataChannel(`kurizu-p2p-${lane.index}`, { ordered: true });
         dc.binaryType = 'arraybuffer';
-        activeDc = dc;
+        lane.activeDc = dc;
 
         let finished = false;
         let lastChunkAt = Date.now();
         let statsMon = null;
 
         dc.onopen = () => {
-          if (finished || statsMon) return;
+          if (finished || cancelled || statsMon || lane.index !== 0) return;
           statsMon = startP2pStatsMonitor(pc, dc, 'receiver', ({ sender, receiver, routeInfo }) => {
             const panel = $('#p2pDialogSignals', el.incomingBody);
             if (panel) renderPeerSignalPanel(panel, sender, receiver, routeInfo);
-          });
+          }, { laneCount });
         };
 
-        if (buttonEl) {
-          buttonEl.disabled = true;
-          buttonEl.textContent = attemptNum > 1 ? `resuming (${Math.round((flushedBytes / totalBytes) * 100)}%)...` : 'connecting P2P...';
+        if (lane.index === 0) {
+          if (buttonEl) {
+            buttonEl.disabled = true;
+            buttonEl.textContent = attemptNum > 1 ? `resuming (${Math.round((lane.flushedPos / totalBytes) * 100)}%)...` : 'connecting P2P...';
+          }
+          if (attemptNum === 1) {
+            updateP2pDialogProgress(
+              `connecting ${laneCount > 1 ? `${laneCount}x parallel ` : ''}direct P2P tunnel to ${transfer.from?.name || 'sender'}...`,
+              0,
+              true
+            );
+          }
         }
-        updateP2pDialogProgress(
-          attemptNum > 1
-            ? `auto-resuming P2P stream from ${fmtBytes(flushedBytes)} (attempt ${attemptNum})...`
-            : `connecting direct P2P tunnel to ${transfer.from?.name || 'sender'}...`,
-          flushedBytes / totalBytes,
-          true
-        );
+
+        const abortHandler = () => {
+          if (finished) return;
+          finished = true;
+          cleanupAttempt();
+          reject({ cancelled: true, fatal: true });
+        };
+        laneAborters.add(abortHandler);
 
         const cleanupAttempt = () => {
           clearInterval(watchdogId);
+          laneAborters.delete(abortHandler);
           statsMon?.stop();
           statsMon = null;
           p2pSessions.delete(sessionId);
-          if (activeDc === dc) activeDc = null;
+          if (lane.activeDc === dc) lane.activeDc = null;
           try { dc.close(); } catch {}
           try { pc.close(); } catch {}
         };
@@ -1495,16 +1728,21 @@
           if (finished) return;
           finished = true;
           cleanupAttempt();
-          // Flush any partial batch collected before disconnect so we can resume cleanly from flushedBytes
-          try { await flushBatchToDisk(false); } catch {}
-          receivedBytes = flushedBytes;
-          batchLen = 0;
+          if (cancelled) {
+            reject({ cancelled: true, fatal: true });
+            return;
+          }
+          // Flush any partial batch collected before disconnect so we can resume cleanly from lane.flushedPos
+          try { await flushLaneBatch(lane); } catch {}
+          lane.receivedPos = lane.flushedPos;
+          lane.queuedPos = lane.flushedPos;
+          lane.batchLen = 0;
           reject({ err: err || new Error('P2P connection dropped'), fatal });
         };
 
         // Watchdog: if no data or ping arrives for 18 seconds, trigger auto-resume
         const watchdogId = setInterval(() => {
-          if (!finished && Date.now() - lastChunkAt > 18000) {
+          if (!finished && !cancelled && Date.now() - lastChunkAt > 18000) {
             handleAttemptDisconnect(new Error('P2P stream stalled — reconnecting...'), false);
           }
         }, 3000);
@@ -1517,7 +1755,7 @@
         });
 
         pc.onicecandidate = (ev) => {
-          if (ev.candidate) {
+          if (ev.candidate && !cancelled) {
             sendP2pSignal(transfer.fromId, transfer.id, {
               type: 'p2p-ice',
               sessionId,
@@ -1533,7 +1771,7 @@
         };
 
         dc.onclose = () => {
-          if (!finished && receivedBytes < totalBytes) {
+          if (!finished && lane.receivedPos < lane.end) {
             handleAttemptDisconnect(new Error('DataChannel closed before EOF'), false);
           }
         };
@@ -1545,16 +1783,18 @@
         };
 
         dc.onmessage = (ev) => {
+          if (cancelled) return;
           lastChunkAt = Date.now();
           if (typeof ev.data === 'string') {
             let msg;
             try { msg = JSON.parse(ev.data); } catch { return; }
             statsMon?.handleControlMessage(msg);
-            if (msg.ping || msg.pong || msg.stats) return;
+            if (msg.ping || msg.pong || msg.stats || msg.cancel) return;
             if (msg.eof && !finished) {
               finished = true;
-              flushBatchToDisk(true)
+              flushLaneBatch(lane)
                 .then(() => {
+                  lane.done = true;
                   cleanupAttempt();
                   resolve();
                 })
@@ -1563,47 +1803,44 @@
             return;
           }
 
-          const chunk = new Uint8Array(ev.data);
-          const byteLen = chunk.byteLength || 0;
-          receivedBytes += byteLen;
+          const rawChunk = new Uint8Array(ev.data);
+          const remainingInLane = Math.max(0, lane.end - lane.receivedPos);
+          const byteLen = Math.min(rawChunk.byteLength || 0, remainingInLane);
+          if (byteLen <= 0) return;
+          lane.receivedPos += byteLen;
 
-          // Append chunk into 2 MB batch buffer
           let readPos = 0;
           while (readPos < byteLen) {
-            const space = P2P_DISK_BATCH_BYTES - batchLen;
+            const space = lane.batchSize - lane.batchLen;
             const toCopy = Math.min(space, byteLen - readPos);
-            batchBuf.set(chunk.subarray(readPos, readPos + toCopy), batchLen);
-            batchLen += toCopy;
+            lane.batchBuf.set(rawChunk.subarray(readPos, readPos + toCopy), lane.batchLen);
+            lane.batchLen += toCopy;
             readPos += toCopy;
-            if (batchLen >= P2P_DISK_BATCH_BYTES) {
-              flushBatchToDisk(false);
+            if (lane.batchLen >= lane.batchSize) {
+              flushLaneBatch(lane);
             }
           }
 
-          const now = Date.now();
-          if (now - lastUiUpdate >= 120 || receivedBytes >= totalBytes) {
-            lastUiUpdate = now;
-            const frac = Math.min(1, receivedBytes / totalBytes);
-            const { mbpsText, etaText } = speed.sample(receivedBytes, totalBytes);
-            updateP2pDialogProgress(
-              `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} · ${mbpsText} MB/s · ${etaText}`,
-              frac,
-              true
-            );
-            if (buttonEl) {
-              buttonEl.textContent = `${Math.round(frac * 100)}%`;
-            }
-          }
+          updateAggregateUi(false);
         };
 
         try {
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
+          if (cancelled) {
+            abortHandler();
+            return;
+          }
           await sendP2pSignal(transfer.fromId, transfer.id, {
             type: 'p2p-offer',
             sessionId,
+            batchId,
             fileId: file.id,
-            startOffset: flushedBytes,
+            laneIndex: lane.index,
+            laneCount,
+            laneStart: lane.laneStart,
+            startOffset: lane.flushedPos,
+            endOffset: lane.end,
             sdp: pc.localDescription,
           });
         } catch (err) {
@@ -1612,18 +1849,26 @@
       });
 
     const MAX_ATTEMPTS = 6;
-    try {
+    const runLaneWithRetries = async (lane) => {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+        if (cancelled) throw { cancelled: true, fatal: true };
         try {
-          await runAttempt(attempt);
-          break; // Success!
+          await runLaneAttempt(lane, attempt);
+          return;
         } catch (info) {
-          if (info?.fatal || attempt >= MAX_ATTEMPTS) {
-            throw info?.err || new Error('P2P transfer failed after multiple resume attempts.');
+          if (cancelled || info?.cancelled || info?.fatal || attempt >= MAX_ATTEMPTS) {
+            throw info?.err || info || new Error('P2P transfer failed after multiple resume attempts.');
           }
           await new Promise((r) => setTimeout(r, 1400));
         }
       }
+    };
+
+    try {
+      await Promise.all(lanes.map((lane) => runLaneWithRetries(lane)));
+      if (cancelled) throw { cancelled: true, fatal: true };
+      await writeQueue;
+      setDownloadCancelable(null);
 
       // Finalize disk sink
       if (sink.kind === 'picker' && sink.writable) {
@@ -1665,6 +1910,7 @@
       }
       toast(`saved ${file.name} via direct P2P ♡`, 'success');
       soundSparkle();
+      return { cancelled: false };
     } catch (err) {
       if (sink.writable) {
         try { await sink.writable.abort(); } catch {}
@@ -1672,13 +1918,31 @@
       if (sink.kind === 'opfs' && sink.rootDir && sink.tempName) {
         try { await sink.rootDir.removeEntry(sink.tempName); } catch {}
       }
-      updateP2pDialogProgress(`P2P interrupted at ${fmtBytes(flushedBytes)} — click retry to resume`, flushedBytes / totalBytes, true);
+
+      if (cancelled || err?.cancelled) {
+        const sigPanel = $('#p2pDialogSignals', el.incomingBody);
+        if (sigPanel) sigPanel.hidden = true;
+        updateP2pDialogProgress(`download cancelled (${file.name})`, 0, true, { reset: true });
+        if (buttonEl) {
+          buttonEl.disabled = false;
+          buttonEl.innerHTML = `${icon('i-download')}stream & save`;
+        }
+        toast(`download cancelled`, 'pink');
+        soundDecline();
+        return { cancelled: true };
+      }
+
+      let totalFlushed = 0;
+      for (const l of lanes) totalFlushed += Math.max(0, l.flushedPos - l.laneStart);
+      updateP2pDialogProgress(`P2P interrupted at ${fmtBytes(totalFlushed)} — click retry to resume`, totalFlushed / totalBytes, true);
       if (buttonEl) {
         buttonEl.disabled = false;
         buttonEl.innerHTML = `${icon('i-download')}retry P2P`;
       }
       toast(err.message || 'P2P stream interrupted — make sure both tabs stay open!', 'error');
+      return { cancelled: false };
     } finally {
+      setDownloadCancelable(null);
       updateProfileP2pUi(null);
       releaseTransferWakeLock();
     }
@@ -1845,6 +2109,9 @@
         <div class="sakuga-dl-progress" id="p2pDialogProgress" hidden aria-live="polite">
           <sakuga-progress id="p2pSakugaProgress" label="Downloading file" done-label="Saved ✓"></sakuga-progress>
           <p class="sakuga-dl-progress__meta" id="p2pDialogLabel">preparing download...</p>
+          <div class="p2p-dl-actions" id="p2pDialogActions" hidden>
+            <button class="mini-btn mini-btn--pink" id="p2pCancelBtn" type="button" data-cancel-download>${icon('i-close')}cancel download</button>
+          </div>
           <div class="p2p-signal-strip" id="p2pDialogSignals" hidden></div>
         </div>
         <p class="download-hint">${transfer.p2p ? 'direct WebRTC P2P stream — keep both tabs open until 100%.' : 'your browser may ask to allow multiple downloads if you hit save all.'}</p>`
@@ -1905,8 +2172,7 @@
 
   async function downloadFile(file, transfer, buttonEl) {
     if (file.p2p && !demoMode && transfer) {
-      await downloadP2pFile(transfer, file, buttonEl);
-      return;
+      return downloadP2pFile(transfer, file, buttonEl);
     }
 
     const progEl = $('#p2pSakugaProgress', el.incomingBody);
@@ -1932,16 +2198,18 @@
       }
       toast(`saved ${file.name} ♡`, 'success');
       soundSparkle();
-      return;
+      return { cancelled: false };
     }
 
     if (hasProgressUi && !demoMode && typeof window.fetch === 'function') {
+      const abortController = new AbortController();
+      setDownloadCancelable(() => abortController.abort());
       try {
         updateP2pDialogProgress(`downloading ${file.name} (${fmtBytes(file.size)})...`, 0, true, {
           reset: true,
           label: `Downloading ${file.name}`,
         });
-        const response = await fetch(downloadUrl);
+        const response = await fetch(downloadUrl, { signal: abortController.signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const total = Number(response.headers.get('content-length')) || Number(file.size) || 0;
         const reader = response.body && response.body.getReader ? response.body.getReader() : null;
@@ -1966,6 +2234,7 @@
               }
             }
           }
+          setDownloadCancelable(null);
           const blob = new Blob(chunks, { type: file.type || 'application/octet-stream' });
           const blobUrl = URL.createObjectURL(blob);
           p2pDownloadedBlobs.set(file.id, blobUrl);
@@ -1979,10 +2248,22 @@
           }
           toast(`saved ${file.name} ♡`, 'success');
           soundSparkle();
-          return;
+          return { cancelled: false };
         }
       } catch {
+        if (abortController.signal.aborted) {
+          updateP2pDialogProgress(`download cancelled (${file.name})`, 0, true, { reset: true });
+          if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.innerHTML = `${icon('i-download')}save`;
+          }
+          toast('download cancelled', 'pink');
+          soundDecline();
+          return { cancelled: true };
+        }
         // Fallback to standard browser download if streaming fetch fails
+      } finally {
+        setDownloadCancelable(null);
       }
     }
 
@@ -1991,6 +2272,7 @@
       buttonEl.disabled = false;
       buttonEl.innerHTML = `${icon('i-check')}saved`;
     }
+    return { cancelled: false };
   }
 
   async function downloadAll(transfer) {
@@ -2000,7 +2282,8 @@
       for (const file of files) {
         const btn = el.incomingBody.querySelector(`[data-download="${CSS.escape(file.id)}"]`);
         try {
-          await downloadFile(file, transfer, btn);
+          const res = await downloadFile(file, transfer, btn);
+          if (res?.cancelled) break;
         } catch {
           break;
         }
@@ -2536,6 +2819,13 @@
     });
 
     el.incomingBody.addEventListener('click', async (event) => {
+      const cancelBtn = event.target.closest('[data-cancel-download]');
+      if (cancelBtn) {
+        cancelBtn.disabled = true;
+        if (typeof activeDownloadCancel === 'function') activeDownloadCancel();
+        return;
+      }
+
       const actionButton = event.target.closest('[data-offer-action]');
       if (actionButton) {
         const transfer = state.transfers.get(state.activeOfferId);
