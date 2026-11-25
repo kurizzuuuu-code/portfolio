@@ -171,9 +171,11 @@
       { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] },
     ],
   };
-  const P2P_CHUNK_BYTES = 64 * 1024; // 64 KB chunks over RTCDataChannel
-  const P2P_MAX_BUFFERED = 2 * 1024 * 1024; // 2 MB high-water mark
-  const P2P_LOW_WATER = 512 * 1024; // 512 KB low-water resume threshold
+  const P2P_DEFAULT_CHUNK_BYTES = 64 * 1024; // safe fallback chunk size
+  const P2P_MAX_CHUNK_BYTES = 240 * 1024; // up to ~240 KB per dc.send() when peer SCTP supports >=256 KB
+  const P2P_READ_AHEAD_BYTES = 4 * 1024 * 1024; // 4 MB disk read-ahead per await (cuts async waits 64x)
+  const P2P_MAX_BUFFERED = 8 * 1024 * 1024; // 8 MB high-water mark
+  const P2P_LOW_WATER = 3 * 1024 * 1024; // 3 MB low-water resume threshold
   const p2pOutgoingFiles = new Map(); // fileId -> File object on sender PC
   const p2pDownloadedBlobs = new Map(); // fileId -> objectURL if buffered in RAM
   const p2pSessions = new Map(); // sessionId -> { pc, iceQueue, remoteDescSet }
@@ -769,8 +771,8 @@
 
   /* ---------------- WebRTC P2P Direct Streaming (up to 25 GB+ with Flow Control & Auto-Resume) ---------------- */
 
-  const P2P_DISK_BATCH_BYTES = 2 * 1024 * 1024; // 2 MB batched disk writes (cuts 327k IPC calls down to 10k for 20GB)
-  const P2P_MAX_IN_FLIGHT_BYTES = 16 * 1024 * 1024; // 16 MB max un-acknowledged bytes in flight
+  const P2P_DISK_BATCH_BYTES = 4 * 1024 * 1024; // 4 MB batched disk writes (cuts disk IPC overhead on 20GB+ files)
+  const P2P_MAX_IN_FLIGHT_BYTES = 32 * 1024 * 1024; // 32 MB un-acknowledged window to saturate high-speed pipes
   let activeWakeLock = null;
 
   async function acquireTransferWakeLock() {
@@ -871,7 +873,7 @@
         dc.binaryType = 'arraybuffer';
         dc.bufferedAmountLowThreshold = P2P_LOW_WATER;
         dc.onopen = () => {
-          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer', startOffset);
+          streamFileOverDataChannel(file, dc, sig.sessionId, payload?.fromDevice?.name || 'peer', startOffset, pc);
         };
       };
 
@@ -926,7 +928,7 @@
     }
   }
 
-  async function streamFileOverDataChannel(file, dc, sessionId, peerName, startOffset = 0) {
+  async function streamFileOverDataChannel(file, dc, sessionId, peerName, startOffset = 0, pc = null) {
     const total = file.size || 1;
     let offset = Math.max(0, Math.min(total, Number(startOffset) || 0));
     let ackedBytes = offset;
@@ -935,9 +937,16 @@
     const sentAtStart = offset;
     let lastUiUpdate = 0;
 
+    // Dynamically pick largest safe SCTP chunk (up to 240 KB when peer allows >=256 KB, falling back to 64 KB)
+    const negotiatedSctp = Number(pc?.sctp?.maxMessageSize) || P2P_DEFAULT_CHUNK_BYTES;
+    let chunkBytes = Math.min(
+      P2P_MAX_CHUNK_BYTES,
+      Math.max(P2P_DEFAULT_CHUNK_BYTES, Math.floor(negotiatedSctp / 1024) * 1024)
+    );
+
     acquireTransferWakeLock();
     if (offset === 0) {
-      toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P ⚡`, 'info');
+      toast(`streaming ${file.name} (${fmtBytes(total)}) directly to ${peerName} via P2P (${Math.round(chunkBytes / 1024)}KB chunks) ⚡`, 'info');
     } else {
       toast(`resuming ${file.name} from ${fmtBytes(offset)}... ⚡`, 'info');
     }
@@ -984,7 +993,7 @@
         };
         const check = () => {
           if (dc.readyState !== 'open') { finish(new Error('DataChannel closed')); return; }
-          if (dc.bufferedAmount <= P2P_LOW_WATER && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES) {
+          if (dc.bufferedAmount <= P2P_LOW_WATER && offset - ackedBytes <= P2P_MAX_IN_FLIGHT_BYTES / 2) {
             finish();
           }
         };
@@ -1005,21 +1014,39 @@
     try {
       while (offset < total) {
         if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
-        if (dc.bufferedAmount > P2P_MAX_BUFFERED || offset - ackedBytes > P2P_MAX_IN_FLIGHT_BYTES) {
-          await waitForBufferAndAck();
-        }
-        const slice = file.slice(offset, offset + P2P_CHUNK_BYTES);
-        const buf = await slice.arrayBuffer();
-        dc.send(buf);
-        offset += buf.byteLength;
+        // Read 4 MB from disk in one await instead of per-chunk to avoid async disk overhead
+        const blockEnd = Math.min(total, offset + P2P_READ_AHEAD_BYTES);
+        const blockBuf = new Uint8Array(await file.slice(offset, blockEnd).arrayBuffer());
+        let pos = 0;
 
-        const now = Date.now();
-        if (now - lastUiUpdate >= 120 || offset >= total) {
-          lastUiUpdate = now;
-          const pct = Math.min(100, (offset / total) * 100);
-          const elapsedSec = Math.max(0.2, (now - t0) / 1000);
-          const speedMbps = ((offset - sentAtStart) / (1024 * 1024) / elapsedSec).toFixed(1);
-          setProgress(`P2P · ${file.name} · ${fmtBytes(offset)} / ${fmtBytes(total)} (${speedMbps} MB/s)`, pct);
+        while (pos < blockBuf.byteLength) {
+          if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
+          if (dc.bufferedAmount > P2P_MAX_BUFFERED || offset - ackedBytes > P2P_MAX_IN_FLIGHT_BYTES) {
+            await waitForBufferAndAck();
+          }
+          const endPos = Math.min(blockBuf.byteLength, pos + chunkBytes);
+          const packet = blockBuf.subarray(pos, endPos);
+          try {
+            dc.send(packet);
+            pos = endPos;
+            offset += packet.byteLength;
+          } catch (sendErr) {
+            if (chunkBytes > P2P_DEFAULT_CHUNK_BYTES) {
+              // Peer SCTP stack rejected large message size — step down safely to 64 KB
+              chunkBytes = P2P_DEFAULT_CHUNK_BYTES;
+              continue;
+            }
+            throw sendErr;
+          }
+
+          const now = Date.now();
+          if (now - lastUiUpdate >= 120 || offset >= total) {
+            lastUiUpdate = now;
+            const pct = Math.min(100, (offset / total) * 100);
+            const elapsedSec = Math.max(0.2, (now - t0) / 1000);
+            const speedMbps = ((offset - sentAtStart) / (1024 * 1024) / elapsedSec).toFixed(1);
+            setProgress(`P2P · ${file.name} · ${fmtBytes(offset)} / ${fmtBytes(total)} (${speedMbps} MB/s)`, pct);
+          }
         }
       }
 
@@ -1127,7 +1154,7 @@
           sink.memChunks.push(sliceCopy);
         }
         flushedBytes += bytesInBatch;
-        if (activeDc && activeDc.readyState === 'open' && (forceAck || flushedBytes % (2 * P2P_DISK_BATCH_BYTES) < P2P_DISK_BATCH_BYTES)) {
+        if (activeDc && activeDc.readyState === 'open') {
           try { activeDc.send(JSON.stringify({ ack: flushedBytes })); } catch {}
         }
       });
