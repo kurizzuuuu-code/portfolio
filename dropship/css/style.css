@@ -78,6 +78,20 @@
   --shadow-window: 0 6px 0 rgba(47, 10, 68, 0.9), 0 26px 48px -20px rgba(28, 4, 46, 0.65);
   --container: 1240px;
   --container-wide: 1340px;
+
+  /* sakuga-progress palette matching KURIZU.DROPSHIP purple theme */
+  --sk-card: var(--paper);
+  --sk-ink: var(--ink);
+  --sk-dim: var(--orchid);
+  --sk-soft: var(--lilac);
+  --sk-pri: var(--pink);
+  --sk-pri-ink: var(--ink);
+  --sk-acc: var(--pink-hot);
+  --sk-fill: var(--pink-hot);
+  --sk-track: #ead9fb;
+  --sk-bw: 2.8px;
+  --sk-sh: 0 5px 0 var(--ink);
+  --sk-progress-width: 280px;
 }
 
 /* ---------- reset + base ---------- */
@@ -902,7 +916,7 @@ code, kbd { font-family: var(--font-pixel); }
   object-fit: contain;
   image-rendering: pixelated;
 }
-.avatar--lg { width: 86px; height: 86px; padding: 4px; border-radius: 13px; }
+.avatar--lg { width: 64px; height: 64px; padding: 4px; border-radius: 11px; }
 .avatar--md { width: 58px; height: 58px; }
 .avatar--sm { width: 38px; height: 38px; padding: 2px; border-width: 2px; box-shadow: 0 2px 0 var(--ink); border-radius: 8px; }
 
@@ -942,9 +956,9 @@ code, kbd { font-family: var(--font-pixel); }
   display: block;
   width: 100%;
   margin-top: 1px;
-  padding: 1px 0 3px;
+  padding: 2px 4px 4px;
   font-family: var(--font-ui);
-  font-size: 17px;
+  font-size: 14.5px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--ink);
@@ -1978,6 +1992,21 @@ code, kbd { font-family: var(--font-pixel); }
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(24, 4, 40, 0.72);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.dialog--sakuga[open] {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  margin: auto;
+  height: fit-content;
+}
 .dialog--qr { width: min(430px, calc(100vw - 28px)); }
 
 .window--dialog {
@@ -2421,6 +2450,7 @@ html.js-reveal [data-reveal].is-revealed {
   .hero h1 { max-width: 100%; }
   .hero__mascot { max-width: 340px; margin-inline: auto; padding-top: 20px; }
   .float--h1 { display: none; }
+  .app-body { grid-template-columns: 1fr; min-height: 0; }
   .app-side {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -2708,6 +2738,46 @@ body.is-windowed .statusbar {
   padding-inline: 6px;
   font-size: 10px;
 }
+
+/* Sakuga Download Progress Container (preserves 70px top cloud + ~110px ground/pct clearance) */
+.sakuga-dl-progress {
+  margin-top: 12px;
+  padding: 12px 10px 14px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: visible;
+}
+
+.sakuga-dl-progress[hidden] {
+  display: none !important;
+}
+
+.sakuga-dl-progress__meta {
+  width: 100%;
+  margin: 10px 0 0;
+  padding-top: 8px;
+  border-top: 1.5px dashed rgba(47, 10, 68, 0.2);
+  text-align: center;
+  font-family: var(--font-pixel);
+  font-size: 7.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--grape);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sakuga-dl-progress sakuga-progress {
+  --sk-progress-width: min(280px, 100%);
+  max-width: 100%;
+  margin-inline: auto;
+}
+
 
 
 

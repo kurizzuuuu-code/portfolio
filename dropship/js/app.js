@@ -223,6 +223,7 @@
     statusDot: $('#statusDot'),
     statusClock: $('#statusClock'),
     windowBadge: $('#windowBadge'),
+    incomingBackdrop: $('#incomingBackdrop'),
     incomingDialog: $('#incomingDialog'),
     incomingBody: $('#incomingBody'),
     incomingBadge: $('#incomingBadge'),
@@ -790,17 +791,41 @@
     } catch {}
   }
 
-  function updateP2pDialogProgress(text, pct, visible = true) {
+  function updateP2pDialogProgress(text, fraction, visible = true, opts = {}) {
     const wrap = $('#p2pDialogProgress', el.incomingBody);
     const labelEl = $('#p2pDialogLabel', el.incomingBody);
-    const pctEl = $('#p2pDialogPct', el.incomingBody);
-    const barEl = $('#p2pDialogBar', el.incomingBody);
+    const progEl = $('#p2pSakugaProgress', el.incomingBody);
     if (!wrap) return;
     wrap.hidden = !visible;
     if (labelEl) labelEl.textContent = text;
-    const clamped = Math.max(0, Math.min(100, Math.round(pct || 0)));
-    if (pctEl) pctEl.textContent = `${clamped}%`;
-    if (barEl) barEl.style.width = `${clamped}%`;
+    if (progEl) {
+      if (opts.label) progEl.setAttribute('label', opts.label);
+      if (opts.reset && typeof progEl.reset === 'function') {
+        progEl.reset();
+      } else if (typeof progEl.set === 'function') {
+        const clamped = Math.max(0, Math.min(1, Number(fraction) || 0));
+        progEl.set(clamped, Boolean(opts.instant));
+      }
+    }
+  }
+
+  function waitForSakugaDone(progEl) {
+    return new Promise((resolve) => {
+      if (!progEl || typeof progEl.set !== 'function' || progEl.done) {
+        resolve();
+        return;
+      }
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(fallbackTimer);
+        progEl.removeEventListener('sakuga:done', finish);
+        resolve();
+      };
+      progEl.addEventListener('sakuga:done', finish, { once: true });
+      const fallbackTimer = setTimeout(finish, 4500);
+    });
   }
 
   async function sendP2pSignal(to, transferId, signal) {
@@ -1072,6 +1097,13 @@
     }
 
     acquireTransferWakeLock();
+    const progEl = $('#p2pSakugaProgress', el.incomingBody);
+    updateP2pDialogProgress(
+      `preparing ${file.name} (${fmtBytes(file.size)})...`,
+      0,
+      true,
+      { reset: true, label: `Downloading ${file.name}` }
+    );
     const totalBytes = Math.max(1, Number(file.size) || 1);
     let flushedBytes = 0; // Bytes safely committed to disk sink
     let receivedBytes = 0; // Total bytes received including current 2MB batch
@@ -1121,7 +1153,7 @@
           attemptNum > 1
             ? `auto-resuming P2P stream from ${fmtBytes(flushedBytes)} (attempt ${attemptNum})...`
             : `connecting direct P2P tunnel to ${transfer.from?.name || 'sender'}...`,
-          (flushedBytes / totalBytes) * 100,
+          flushedBytes / totalBytes,
           true
         );
 
@@ -1224,16 +1256,16 @@
           const now = Date.now();
           if (now - lastUiUpdate >= 120 || receivedBytes >= totalBytes) {
             lastUiUpdate = now;
-            const pct = Math.min(100, (receivedBytes / totalBytes) * 100);
+            const frac = Math.min(1, receivedBytes / totalBytes);
             const elapsed = Math.max(0.2, (now - t0) / 1000);
             const speedMbps = (receivedBytes / (1024 * 1024) / elapsed).toFixed(1);
             updateP2pDialogProgress(
               `streaming P2P · ${fmtBytes(receivedBytes)} / ${fmtBytes(totalBytes)} (${speedMbps} MB/s)`,
-              pct,
+              frac,
               true
             );
             if (buttonEl) {
-              buttonEl.textContent = `${Math.round(pct)}%`;
+              buttonEl.textContent = `${Math.round(frac * 100)}%`;
             }
           }
         };
@@ -1298,7 +1330,9 @@
         link.remove();
       }
 
-      updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) via P2P ♡`, 100, true);
+      updateP2pDialogProgress(`finishing ${file.name}...`, 1, true);
+      await waitForSakugaDone(progEl);
+      updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) via P2P ♡`, 1, true);
       if (buttonEl) {
         buttonEl.disabled = false;
         buttonEl.innerHTML = `${icon('i-check')}saved`;
@@ -1312,7 +1346,7 @@
       if (sink.kind === 'opfs' && sink.rootDir && sink.tempName) {
         try { await sink.rootDir.removeEntry(sink.tempName); } catch {}
       }
-      updateP2pDialogProgress(`P2P interrupted at ${fmtBytes(flushedBytes)} — click retry to resume`, (flushedBytes / totalBytes) * 100, true);
+      updateP2pDialogProgress(`P2P interrupted at ${fmtBytes(flushedBytes)} — click retry to resume`, flushedBytes / totalBytes, true);
       if (buttonEl) {
         buttonEl.disabled = false;
         buttonEl.innerHTML = `${icon('i-download')}retry P2P`;
@@ -1350,8 +1384,12 @@
     state.activeOfferId = id;
     if (transfer.status === 'pending') renderOfferPending(transfer);
     else renderOfferResult(transfer);
+    if (el.incomingBackdrop) el.incomingBackdrop.hidden = false;
     if (!el.incomingDialog.open) {
-      try { el.incomingDialog.showModal(); } catch { /* ancient browser */ }
+      try {
+        if (typeof el.incomingDialog.show === 'function') el.incomingDialog.show();
+        else el.incomingDialog.setAttribute('open', '');
+      } catch { /* ancient browser */ }
     }
   }
 
@@ -1477,9 +1515,9 @@
               <button class="mini-btn" type="button" data-download="${esc(f.id)}" data-name="${esc(f.name)}">${icon('i-download')}${f.p2p ? 'stream & save' : 'save'}</button>
             </div>`).join('')}
         </div>
-        <div class="progress" id="p2pDialogProgress" hidden aria-live="polite" style="margin-top:10px">
-          <div class="progress__label"><span id="p2pDialogLabel">streaming P2P...</span><b id="p2pDialogPct">0%</b></div>
-          <div class="progress__track"><span id="p2pDialogBar"></span></div>
+        <div class="sakuga-dl-progress" id="p2pDialogProgress" hidden aria-live="polite">
+          <sakuga-progress id="p2pSakugaProgress" label="Downloading file" done-label="Saved ✓"></sakuga-progress>
+          <p class="sakuga-dl-progress__meta" id="p2pDialogLabel">preparing download...</p>
         </div>
         <p class="download-hint">${transfer.p2p ? 'direct WebRTC P2P stream — keep both tabs open until 100%.' : 'your browser may ask to allow multiple downloads if you hit save all.'}</p>`
       : '';
@@ -1528,27 +1566,110 @@
 
   /* ---------------- download ---------------- */
 
-  async function downloadFile(file, transfer, buttonEl) {
-    if (file.p2p && !demoMode && transfer) {
-      await downloadP2pFile(transfer, file, buttonEl);
-      return;
-    }
+  function triggerBlobDownload(url, filename) {
     const link = document.createElement('a');
-    link.href = demoBlobs.get(file.id) || `${API_BASE}/api/file/${encodeURIComponent(file.id)}?download=1`;
-    link.download = file.name || 'file';
+    link.href = url;
+    link.download = filename || 'file';
     document.body.appendChild(link);
     link.click();
     link.remove();
   }
 
+  async function downloadFile(file, transfer, buttonEl) {
+    if (file.p2p && !demoMode && transfer) {
+      await downloadP2pFile(transfer, file, buttonEl);
+      return;
+    }
+
+    const progEl = $('#p2pSakugaProgress', el.incomingBody);
+    const hasProgressUi = Boolean(progEl && el.incomingDialog.open);
+    const downloadUrl = demoBlobs.get(file.id) || `${API_BASE}/api/file/${encodeURIComponent(file.id)}?download=1`;
+
+    if (buttonEl) buttonEl.disabled = true;
+
+    if (hasProgressUi && demoMode) {
+      updateP2pDialogProgress(`downloading ${file.name} (${fmtBytes(file.size)})...`, 0, true, {
+        reset: true,
+        label: `Downloading ${file.name}`,
+      });
+      progEl.set(0.35);
+      await new Promise((r) => setTimeout(r, 180));
+      progEl.set(1);
+      await waitForSakugaDone(progEl);
+      triggerBlobDownload(downloadUrl, file.name);
+      updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) ♡`, 1, true);
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.innerHTML = `${icon('i-check')}saved`;
+      }
+      toast(`saved ${file.name} ♡`, 'success');
+      soundSparkle();
+      return;
+    }
+
+    if (hasProgressUi && !demoMode && typeof window.fetch === 'function') {
+      try {
+        updateP2pDialogProgress(`downloading ${file.name} (${fmtBytes(file.size)})...`, 0, true, {
+          reset: true,
+          label: `Downloading ${file.name}`,
+        });
+        const response = await fetch(downloadUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const total = Number(response.headers.get('content-length')) || Number(file.size) || 0;
+        const reader = response.body && response.body.getReader ? response.body.getReader() : null;
+        if (reader) {
+          const chunks = [];
+          let loaded = 0;
+          let lastUi = 0;
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            if (value) {
+              chunks.push(value);
+              loaded += value.byteLength || 0;
+              const now = Date.now();
+              if (now - lastUi >= 90) {
+                lastUi = now;
+                const frac = total > 0 ? Math.min(0.99, loaded / total) : 0.5;
+                updateP2pDialogProgress(`downloading ${file.name} · ${fmtBytes(loaded)}${total ? ` / ${fmtBytes(total)}` : ''}`, frac, true);
+              }
+            }
+          }
+          const blob = new Blob(chunks, { type: file.type || 'application/octet-stream' });
+          const blobUrl = URL.createObjectURL(blob);
+          p2pDownloadedBlobs.set(file.id, blobUrl);
+          updateP2pDialogProgress(`finishing ${file.name}...`, 1, true);
+          await waitForSakugaDone(progEl);
+          triggerBlobDownload(blobUrl, file.name);
+          updateP2pDialogProgress(`saved ${file.name} (${fmtBytes(file.size)}) ♡`, 1, true);
+          if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.innerHTML = `${icon('i-check')}saved`;
+          }
+          toast(`saved ${file.name} ♡`, 'success');
+          soundSparkle();
+          return;
+        }
+      } catch {
+        // Fallback to standard browser download if streaming fetch fails
+      }
+    }
+
+    triggerBlobDownload(downloadUrl, file.name);
+    if (buttonEl) {
+      buttonEl.disabled = false;
+      buttonEl.innerHTML = `${icon('i-check')}saved`;
+    }
+  }
+
   async function downloadAll(transfer) {
     const files = transfer.files || [];
     if (!files.length) return;
-    if (transfer.p2p && !demoMode) {
+    if ((transfer.p2p && !demoMode) || el.incomingDialog.open) {
       for (const file of files) {
         const btn = el.incomingBody.querySelector(`[data-download="${CSS.escape(file.id)}"]`);
         try {
-          await downloadP2pFile(transfer, file, btn);
+          await downloadFile(file, transfer, btn);
         } catch {
           break;
         }
@@ -1975,6 +2096,10 @@
       });
     });
 
+    el.incomingBackdrop?.addEventListener('click', () => {
+      if (el.incomingDialog.open) el.incomingDialog.close();
+    });
+
     el.deviceGrid.addEventListener('click', (event) => {
       const card = event.target.closest('[data-device-id]');
       if (card) {
@@ -2107,8 +2232,12 @@
       if (allButton) {
         const transfer = state.transfers.get(state.activeOfferId);
         if (transfer) {
-          downloadAll(transfer);
           allButton.disabled = true;
+          try {
+            await downloadAll(transfer);
+          } finally {
+            allButton.disabled = false;
+          }
         }
         return;
       }
@@ -2118,23 +2247,23 @@
         const transfer = state.transfers.get(state.activeOfferId);
         const file = transfer?.files?.find((f) => f.id === oneButton.dataset.download);
         if (file) {
-          if (file.p2p && !demoMode) {
-            downloadFile(file, transfer, oneButton);
-          } else {
-            downloadFile(file, transfer, oneButton);
-            oneButton.disabled = true;
-            oneButton.innerHTML = `${icon('i-check')}saved`;
-          }
+          downloadFile(file, transfer, oneButton);
         }
       }
     });
 
     el.incomingDialog.addEventListener('close', () => {
+      if (el.incomingBackdrop) el.incomingBackdrop.hidden = true;
       state.activeOfferId = null;
       setTimeout(maybeShowOffer, 240);
     });
 
     document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && el.incomingDialog.open) {
+        event.preventDefault();
+        el.incomingDialog.close();
+        return;
+      }
       if (event.key === 'Escape' && el.body.classList.contains('tray-open') && !el.incomingDialog.open) {
         closeTray();
       }
