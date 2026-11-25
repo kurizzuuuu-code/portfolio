@@ -116,27 +116,25 @@
   function createSpeedTracker(initialBytes = 0) {
     const startBytes = Number(initialBytes) || 0;
     const startTime = Date.now();
-    let lastBytes = startBytes;
-    let lastTime = startTime;
-    let emaBps = 0;
+    const samples = [{ t: startTime, b: startBytes }];
 
     return {
       sample(currentBytes, totalBytes) {
         const now = Date.now();
         const bytes = Number(currentBytes) || 0;
         const total = Number(totalBytes) || 0;
-        const dt = (now - lastTime) / 1000;
-        if (dt >= 0.4) {
-          const instBps = Math.max(0, (bytes - lastBytes) / dt);
-          emaBps = emaBps > 0 ? (emaBps * 0.65 + instBps * 0.35) : instBps;
-          lastBytes = bytes;
-          lastTime = now;
+        if (now - samples[samples.length - 1].t >= 200) {
+          samples.push({ t: now, b: bytes });
         }
-        const avgBps = Math.max(0, (bytes - startBytes) / Math.max(0.25, (now - startTime) / 1000));
-        const bps = emaBps > 0 ? emaBps : avgBps;
+        while (samples.length > 2 && now - samples[1].t > 3000) {
+          samples.shift();
+        }
+        const anchor = samples[0];
+        const dt = Math.max(0.25, (now - anchor.t) / 1000);
+        const bps = Math.max(0, (bytes - anchor.b) / dt);
         const mbps = bps / (1024 * 1024);
         const remaining = Math.max(0, total - bytes);
-        const etaText = (bps > 1024 && now - startTime >= 400)
+        const etaText = (bps > 1024 && now - startTime >= 800)
           ? formatEta(remaining / bps)
           : 'calculating ETA...';
         return {
@@ -224,12 +222,13 @@
   const P2P_DEFAULT_CHUNK_BYTES = 64 * 1024; // safe fallback chunk size
   const P2P_MAX_CHUNK_BYTES = 240 * 1024; // up to ~240 KB per dc.send() when peer SCTP supports >=256 KB
   const P2P_READ_AHEAD_BYTES = 4 * 1024 * 1024; // 4 MB disk read-ahead per await (cuts async waits 64x)
-  const P2P_MAX_BUFFERED = 8 * 1024 * 1024; // 8 MB high-water mark (1 stream)
-  const P2P_LOW_WATER = 3 * 1024 * 1024; // 3 MB low-water resume threshold (1 stream)
+  const P2P_MAX_BUFFERED = 2 * 1024 * 1024; // 2 MB high-water mark (prevents UDP queue bufferbloat)
+  const P2P_LOW_WATER = 512 * 1024; // 512 KB low-water resume threshold (1 stream)
   const P2P_PARALLEL_LANES = 4; // 4 parallel WebRTC DataChannels for files >= 16 MB
   const P2P_PARALLEL_MIN_BYTES = 16 * 1024 * 1024; // 16 MB threshold
-  const P2P_LANE_MAX_BUFFERED = 4 * 1024 * 1024; // 4 MB buffer per parallel lane
-  const P2P_LANE_LOW_WATER = 1.5 * 1024 * 1024; // 1.5 MB resume watermark per parallel lane
+  const P2P_STRIPE_BYTES = 2 * 1024 * 1024; // 2 MB interleaved stripes (sequential disk append, zero NTFS zero-fill)
+  const P2P_LANE_MAX_BUFFERED = 1 * 1024 * 1024; // 1 MB per lane (= 4 MB total across 4 lanes)
+  const P2P_LANE_LOW_WATER = 256 * 1024; // 256 KB resume watermark per parallel lane
   const p2pOutgoingFiles = new Map(); // fileId -> File object on sender PC
   const p2pDownloadedBlobs = new Map(); // fileId -> objectURL if buffered in RAM
   const p2pSessions = new Map(); // sessionId -> { pc, iceQueue, remoteDescSet }
@@ -835,10 +834,9 @@
 
   /* ---------------- WebRTC P2P Direct Streaming (up to 25 GB+ with Flow Control & Auto-Resume) ---------------- */
 
-  const P2P_DISK_BATCH_BYTES = 4 * 1024 * 1024; // 4 MB batched disk writes (1 stream)
-  const P2P_LANE_DISK_BATCH_BYTES = 2 * 1024 * 1024; // 2 MB batch per lane when 4x parallel (= max 8 MB RAM)
-  const P2P_MAX_IN_FLIGHT_BYTES = 32 * 1024 * 1024; // 32 MB un-acknowledged window (1 stream)
-  const P2P_LANE_MAX_IN_FLIGHT = 16 * 1024 * 1024; // 16 MB per lane (= 64 MB aggregate in-flight)
+  const P2P_DISK_BATCH_BYTES = 2 * 1024 * 1024; // 2 MB batched disk writes (1 stream)
+  const P2P_MAX_IN_FLIGHT_BYTES = 16 * 1024 * 1024; // 16 MB un-acknowledged window (1 stream)
+  const P2P_LANE_MAX_IN_FLIGHT = 12 * 1024 * 1024; // 12 MB (= 6 stripes) reorder window per parallel lane
   let activeWakeLock = null;
 
   async function acquireTransferWakeLock() {
@@ -958,6 +956,8 @@
       const laneStart = sig.laneStart != null ? Math.max(0, Math.min(startOffset, Number(sig.laneStart))) : 0;
       const laneIndex = Math.max(0, Number(sig.laneIndex) || 0);
       const laneCount = Math.max(1, Math.min(P2P_PARALLEL_LANES, Number(sig.laneCount) || 1));
+      const stripeBytes = Math.max(0, Number(sig.stripeBytes) || 0);
+      const startStripe = Math.max(0, Number(sig.startStripe) || laneIndex);
       const batchId = sig.batchId || sig.sessionId;
       const pc = new RTCPeerConnection(RTC_CONFIG);
       const sess = { pc, iceQueue: [], remoteDescSet: false };
@@ -983,6 +983,8 @@
             laneStart,
             laneIndex,
             laneCount,
+            stripeBytes,
+            startStripe,
             batchId,
           });
         };
@@ -1272,13 +1274,30 @@
     const total = file.size || 1;
     const laneIndex = Math.max(0, Number(laneOpts.laneIndex) || 0);
     const laneCount = Math.max(1, Number(laneOpts.laneCount) || 1);
+    const stripeBytes = Math.max(0, Number(laneOpts.stripeBytes) || 0);
+    const isStriped = laneCount > 1 && stripeBytes > 0;
+    const totalStripes = isStriped ? Math.ceil(total / stripeBytes) : 0;
+    const startStripe = isStriped ? Math.max(laneIndex, Number(laneOpts.startStripe) || laneIndex) : 0;
+
+    const laneDoneBytesBefore = (stripeIdx) => {
+      let sum = 0;
+      for (let s = laneIndex; s < stripeIdx && s < totalStripes; s += laneCount) {
+        sum += Math.min(stripeBytes, total - s * stripeBytes);
+      }
+      return sum;
+    };
+
     const laneStart = Math.max(0, Math.min(total, Number(laneOpts.laneStart) || 0));
     const endOffset = laneOpts.endOffset != null ? Math.max(laneStart, Math.min(total, Number(laneOpts.endOffset))) : total;
     const batchId = laneOpts.batchId || sessionId;
     let offset = Math.max(laneStart, Math.min(endOffset, Number(startOffset) || 0));
-    let ackedBytes = offset;
+    let sentLaneBytes = isStriped ? laneDoneBytesBefore(startStripe) : Math.max(0, offset - laneStart);
+    let ackedBytes = isStriped ? sentLaneBytes : offset;
     let ackWaitResolver = null;
     let cancelled = false;
+
+    const currentProgressBytes = () => (isStriped ? sentLaneBytes : offset);
+    const currentInFlight = () => currentProgressBytes() - ackedBytes;
 
     const maxBuffered = laneCount > 1 ? P2P_LANE_MAX_BUFFERED : P2P_MAX_BUFFERED;
     const lowWater = laneCount > 1 ? P2P_LANE_LOW_WATER : P2P_LOW_WATER;
@@ -1304,8 +1323,7 @@
     if (group.cancelled) return;
 
     group.lanes.set(laneIndex, {
-      doneBytes: Math.max(0, offset - laneStart),
-      rangeLen: Math.max(0, endOffset - laneStart),
+      doneBytes: sentLaneBytes,
       done: false,
     });
     const sessionEntry = {
@@ -1341,10 +1359,10 @@
     if (!group.toasted) {
       group.toasted = true;
       const modeLabel = laneCount > 1 ? `${laneCount}x parallel · ${Math.round(chunkBytes / 1024)}KB chunks` : `${Math.round(chunkBytes / 1024)}KB chunks`;
-      if (offset === laneStart) {
+      if (sentLaneBytes === 0 && offset === laneStart) {
         toast(`streaming ${file.name} (${fmtBytes(total)}) to ${peerName} via P2P (${modeLabel}) ⚡`, 'info');
       } else {
-        toast(`resuming ${file.name} from ${fmtBytes(offset)}... ⚡`, 'info');
+        toast(`resuming ${file.name}... ⚡`, 'info');
       }
     }
 
@@ -1360,7 +1378,7 @@
         statsMon?.handleControlMessage(msg);
         if (typeof msg.ack === 'number' && msg.ack > ackedBytes) {
           ackedBytes = msg.ack;
-          if (ackWaitResolver && offset - ackedBytes <= maxInFlight / 2) {
+          if (ackWaitResolver && currentInFlight() <= maxInFlight && dc.bufferedAmount <= lowWater) {
             const r = ackWaitResolver;
             ackWaitResolver = null;
             r();
@@ -1373,14 +1391,13 @@
       new Promise((resolve, reject) => {
         if (cancelled || group.cancelled) { reject(new Error('Transfer cancelled')); return; }
         if (dc.readyState !== 'open') { reject(new Error('DataChannel closed')); return; }
-        const bufferOk = dc.bufferedAmount <= lowWater;
-        const ackOk = offset - ackedBytes <= maxInFlight;
-        if (bufferOk && ackOk) { resolve(); return; }
+        if (dc.bufferedAmount <= lowWater && currentInFlight() <= maxInFlight) { resolve(); return; }
 
         let settled = false;
         const finish = (err) => {
           if (settled) return;
           settled = true;
+          clearInterval(pollTimer);
           clearTimeout(safetyTimer);
           dc.removeEventListener('bufferedamountlow', check);
           dc.removeEventListener('close', onClose);
@@ -1391,15 +1408,17 @@
         const check = () => {
           if (cancelled || group.cancelled) { finish(new Error('Transfer cancelled')); return; }
           if (dc.readyState !== 'open') { finish(new Error('DataChannel closed')); return; }
-          if (dc.bufferedAmount <= lowWater && offset - ackedBytes <= maxInFlight / 2) {
+          if (dc.bufferedAmount <= lowWater && currentInFlight() <= maxInFlight) {
             finish();
           }
         };
         const onClose = () => finish(new Error('DataChannel closed mid-transfer'));
-        // Safety timeout in case an ACK packet is delayed while SCTP buffer is already empty
+        // 100ms poll guards against missed bufferedamountlow events in Chromium
+        const pollTimer = setInterval(check, 100);
+        // Safety release only when SCTP send queue is drained and ACK is delayed
         const safetyTimer = setTimeout(() => {
           if (dc.readyState === 'open' && dc.bufferedAmount <= lowWater) {
-            ackedBytes = offset;
+            ackedBytes = currentProgressBytes();
             finish();
           }
         }, 4000);
@@ -1409,56 +1428,69 @@
         ackWaitResolver = check;
       });
 
-    try {
-      while (offset < endOffset && !cancelled && !group.cancelled) {
+    const sendBlock = async (blockBuf) => {
+      let pos = 0;
+      while (pos < blockBuf.byteLength && !cancelled && !group.cancelled) {
         if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
-        // Read up to 4 MB from disk in one await instead of per-chunk to avoid async disk overhead
-        const blockEnd = Math.min(endOffset, offset + P2P_READ_AHEAD_BYTES);
-        const blockBuf = new Uint8Array(await file.slice(offset, blockEnd).arrayBuffer());
-        let pos = 0;
+        if (dc.bufferedAmount > maxBuffered || currentInFlight() > maxInFlight) {
+          await waitForBufferAndAck();
+        }
+        const endPos = Math.min(blockBuf.byteLength, pos + chunkBytes);
+        const packet = blockBuf.subarray(pos, endPos);
+        try {
+          dc.send(packet);
+          pos = endPos;
+          if (isStriped) sentLaneBytes += packet.byteLength;
+          else offset += packet.byteLength;
+        } catch (sendErr) {
+          if (chunkBytes > P2P_DEFAULT_CHUNK_BYTES) {
+            // Peer SCTP stack rejected large message size — step down safely to 64 KB
+            chunkBytes = P2P_DEFAULT_CHUNK_BYTES;
+            continue;
+          }
+          throw sendErr;
+        }
 
-        while (pos < blockBuf.byteLength && !cancelled && !group.cancelled) {
+        const laneState = group.lanes.get(laneIndex);
+        if (laneState) laneState.doneBytes = isStriped ? sentLaneBytes : Math.max(0, offset - laneStart);
+
+        const now = Date.now();
+        if (now - group.lastUiUpdate >= 120) {
+          group.lastUiUpdate = now;
+          let aggSent = 0;
+          for (const l of group.lanes.values()) aggSent += l.doneBytes;
+          const pct = Math.min(100, (aggSent / total) * 100);
+          const { mbpsText, etaText } = group.speed.sample(aggSent, total);
+          const tag = laneCount > 1 ? `P2P (${laneCount}x)` : 'P2P';
+          setProgress(`${tag} · ${file.name} · ${fmtBytes(aggSent)} / ${fmtBytes(total)} · ${mbpsText} MB/s · ${etaText}`, pct);
+        }
+      }
+    };
+
+    try {
+      if (isStriped) {
+        for (let s = startStripe; s < totalStripes && !cancelled && !group.cancelled; s += laneCount) {
           if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
-          if (dc.bufferedAmount > maxBuffered || offset - ackedBytes > maxInFlight) {
-            await waitForBufferAndAck();
-          }
-          const endPos = Math.min(blockBuf.byteLength, pos + chunkBytes);
-          const packet = blockBuf.subarray(pos, endPos);
-          try {
-            dc.send(packet);
-            pos = endPos;
-            offset += packet.byteLength;
-          } catch (sendErr) {
-            if (chunkBytes > P2P_DEFAULT_CHUNK_BYTES) {
-              // Peer SCTP stack rejected large message size — step down safely to 64 KB
-              chunkBytes = P2P_DEFAULT_CHUNK_BYTES;
-              continue;
-            }
-            throw sendErr;
-          }
-
-          const laneState = group.lanes.get(laneIndex);
-          if (laneState) laneState.doneBytes = Math.max(0, offset - laneStart);
-
-          const now = Date.now();
-          if (now - group.lastUiUpdate >= 120 || offset >= endOffset) {
-            group.lastUiUpdate = now;
-            let aggSent = 0;
-            for (const l of group.lanes.values()) aggSent += l.doneBytes;
-            const pct = Math.min(100, (aggSent / total) * 100);
-            const { mbpsText, etaText } = group.speed.sample(aggSent, total);
-            const tag = laneCount > 1 ? `P2P (${laneCount}x)` : 'P2P';
-            setProgress(`${tag} · ${file.name} · ${fmtBytes(aggSent)} / ${fmtBytes(total)} · ${mbpsText} MB/s · ${etaText}`, pct);
-          }
+          const sStart = s * stripeBytes;
+          const sEnd = Math.min(total, sStart + stripeBytes);
+          const blockBuf = new Uint8Array(await file.slice(sStart, sEnd).arrayBuffer());
+          await sendBlock(blockBuf);
+        }
+      } else {
+        while (offset < endOffset && !cancelled && !group.cancelled) {
+          if (dc.readyState !== 'open') throw new Error('Peer connection interrupted');
+          const blockEnd = Math.min(endOffset, offset + P2P_READ_AHEAD_BYTES);
+          const blockBuf = new Uint8Array(await file.slice(offset, blockEnd).arrayBuffer());
+          await sendBlock(blockBuf);
         }
       }
 
       if (cancelled || group.cancelled) return;
 
-      dc.send(JSON.stringify({ eof: true, laneIndex, size: endOffset - laneStart, name: file.name }));
+      dc.send(JSON.stringify({ eof: true, laneIndex, size: isStriped ? sentLaneBytes : (endOffset - laneStart), name: file.name }));
       const laneState = group.lanes.get(laneIndex);
       if (laneState) {
-        laneState.doneBytes = Math.max(0, endOffset - laneStart);
+        laneState.doneBytes = isStriped ? sentLaneBytes : Math.max(0, endOffset - laneStart);
         laneState.done = true;
       }
 
@@ -1563,7 +1595,9 @@
     const progEl = $('#p2pSakugaProgress', el.incomingBody);
     const totalBytes = Math.max(1, Number(file.size) || 1);
     const laneCount = (sink.writable && totalBytes >= P2P_PARALLEL_MIN_BYTES) ? P2P_PARALLEL_LANES : 1;
-    const batchSize = laneCount > 1 ? P2P_LANE_DISK_BATCH_BYTES : P2P_DISK_BATCH_BYTES;
+    const isStriped = laneCount > 1;
+    const stripeBytes = isStriped ? P2P_STRIPE_BYTES : 0;
+    const totalStripes = isStriped ? Math.ceil(totalBytes / stripeBytes) : 0;
 
     updateP2pDialogProgress(
       `preparing ${file.name} (${fmtBytes(file.size)})${laneCount > 1 ? ` · ${laneCount}x parallel` : ''}...`,
@@ -1572,28 +1606,48 @@
       { reset: true, label: `Downloading ${file.name}` }
     );
 
-    const baseSlice = laneCount > 1
-      ? Math.max(P2P_DEFAULT_CHUNK_BYTES, Math.floor(totalBytes / laneCount / P2P_DEFAULT_CHUNK_BYTES) * P2P_DEFAULT_CHUNK_BYTES)
-      : totalBytes;
     const lanes = [];
     for (let i = 0; i < laneCount; i += 1) {
-      const laneStart = i * baseSlice;
-      const end = (i === laneCount - 1) ? totalBytes : Math.min(totalBytes, (i + 1) * baseSlice);
       lanes.push({
         index: i,
-        laneStart,
-        end,
-        queuedPos: laneStart,
-        flushedPos: laneStart,
-        receivedPos: laneStart,
+        laneStart: 0,
+        end: totalBytes,
+        queuedPos: 0,
+        flushedPos: 0,
+        receivedPos: 0,
+        currentStripe: i,
+        stripeBuf: null,
+        stripeLen: 0,
+        stripePos: 0,
+        receivedLaneBytes: 0,
+        committedLaneBytes: 0,
+        flushedLaneBytes: 0,
         activeDc: null,
-        batchBuf: new Uint8Array(batchSize),
-        batchSize,
+        batchBuf: isStriped ? null : new Uint8Array(P2P_DISK_BATCH_BYTES),
+        batchSize: P2P_DISK_BATCH_BYTES,
         batchLen: 0,
         done: false,
       });
     }
 
+    const prepareStripe = (lane) => {
+      if (!isStriped || lane.currentStripe >= totalStripes) {
+        lane.stripeBuf = null;
+        lane.stripeLen = 0;
+        lane.stripePos = 0;
+        return;
+      }
+      lane.stripeLen = Math.min(stripeBytes, totalBytes - lane.currentStripe * stripeBytes);
+      lane.stripeBuf = new Uint8Array(lane.stripeLen);
+      lane.stripePos = 0;
+    };
+    if (isStriped) {
+      for (const l of lanes) prepareStripe(l);
+    }
+
+    const completedStripes = new Map();
+    let nextWriteStripe = 0;
+    let totalWrittenBytes = 0;
     let writeQueue = Promise.resolve();
     const speed = createSpeedTracker(0);
     let lastUiUpdate = 0;
@@ -1604,6 +1658,7 @@
     setDownloadCancelable(() => {
       if (cancelled) return;
       cancelled = true;
+      completedStripes.clear();
       for (const lane of lanes) {
         if (lane.activeDc && lane.activeDc.readyState === 'open') {
           try { lane.activeDc.send(JSON.stringify({ cancel: true })); } catch {}
@@ -1619,7 +1674,32 @@
       }
     });
 
+    const drainCompletedStripes = () => {
+      while (!cancelled && completedStripes.has(nextWriteStripe)) {
+        const entry = completedStripes.get(nextWriteStripe);
+        completedStripes.delete(nextWriteStripe);
+        nextWriteStripe += 1;
+        const { data, lane, laneBytesAfter } = entry;
+        const bytesInStripe = data.byteLength;
+        writeQueue = writeQueue.then(async () => {
+          if (cancelled) return;
+          if (sink.writable) {
+            await sink.writable.write(data);
+          } else if (sink.memChunks) {
+            sink.memChunks.push(data);
+          }
+          totalWrittenBytes += bytesInStripe;
+          lane.flushedLaneBytes = laneBytesAfter;
+          if (!cancelled && lane.activeDc && lane.activeDc.readyState === 'open') {
+            try { lane.activeDc.send(JSON.stringify({ ack: lane.flushedLaneBytes })); } catch {}
+          }
+        });
+      }
+      return writeQueue;
+    };
+
     const flushLaneBatch = (lane) => {
+      if (isStriped) return drainCompletedStripes();
       if (lane.batchLen === 0 || cancelled) return writeQueue;
       const sliceCopy = lane.batchBuf.subarray(0, lane.batchLen).slice();
       const bytesInBatch = sliceCopy.byteLength;
@@ -1630,15 +1710,12 @@
       writeQueue = writeQueue.then(async () => {
         if (cancelled) return;
         if (sink.writable) {
-          if (laneCount > 1) {
-            await sink.writable.write({ type: 'write', position: writePos, data: sliceCopy });
-          } else {
-            await sink.writable.write(sliceCopy);
-          }
+          await sink.writable.write(sliceCopy);
         } else if (sink.memChunks) {
           sink.memChunks.push(sliceCopy);
         }
-        lane.flushedPos = writePos + bytesInBatch;
+        totalWrittenBytes = writePos + bytesInBatch;
+        lane.flushedPos = totalWrittenBytes;
         if (!cancelled && lane.activeDc && lane.activeDc.readyState === 'open') {
           try { lane.activeDc.send(JSON.stringify({ ack: lane.flushedPos })); } catch {}
         }
@@ -1650,7 +1727,9 @@
       if (cancelled) return;
       const now = Date.now();
       let totalReceived = 0;
-      for (const l of lanes) totalReceived += Math.max(0, l.receivedPos - l.laneStart);
+      for (const l of lanes) {
+        totalReceived += isStriped ? l.receivedLaneBytes : Math.max(0, l.receivedPos - l.laneStart);
+      }
       if (!force && now - lastUiUpdate < 120 && totalReceived < totalBytes) return;
       lastUiUpdate = now;
 
@@ -1694,7 +1773,7 @@
         if (lane.index === 0) {
           if (buttonEl) {
             buttonEl.disabled = true;
-            buttonEl.textContent = attemptNum > 1 ? `resuming (${Math.round((lane.flushedPos / totalBytes) * 100)}%)...` : 'connecting P2P...';
+            buttonEl.textContent = attemptNum > 1 ? `resuming...` : 'connecting P2P...';
           }
           if (attemptNum === 1) {
             updateP2pDialogProgress(
@@ -1732,11 +1811,16 @@
             reject({ cancelled: true, fatal: true });
             return;
           }
-          // Flush any partial batch collected before disconnect so we can resume cleanly from lane.flushedPos
-          try { await flushLaneBatch(lane); } catch {}
-          lane.receivedPos = lane.flushedPos;
-          lane.queuedPos = lane.flushedPos;
-          lane.batchLen = 0;
+          if (isStriped) {
+            // Keep already-finished stripes intact; discard only partial current stripe and resume at currentStripe
+            lane.receivedLaneBytes = lane.committedLaneBytes;
+            prepareStripe(lane);
+          } else {
+            try { await flushLaneBatch(lane); } catch {}
+            lane.receivedPos = lane.flushedPos;
+            lane.queuedPos = lane.flushedPos;
+            lane.batchLen = 0;
+          }
           reject({ err: err || new Error('P2P connection dropped'), fatal });
         };
 
@@ -1771,7 +1855,8 @@
         };
 
         dc.onclose = () => {
-          if (!finished && lane.receivedPos < lane.end) {
+          const incomplete = isStriped ? (lane.currentStripe < totalStripes) : (lane.receivedPos < lane.end);
+          if (!finished && incomplete) {
             handleAttemptDisconnect(new Error('DataChannel closed before EOF'), false);
           }
         };
@@ -1792,7 +1877,10 @@
             if (msg.ping || msg.pong || msg.stats || msg.cancel) return;
             if (msg.eof && !finished) {
               finished = true;
-              flushLaneBatch(lane)
+              const finalizeLane = isStriped
+                ? drainCompletedStripes()
+                : flushLaneBatch(lane);
+              finalizeLane
                 .then(() => {
                   lane.done = true;
                   cleanupAttempt();
@@ -1804,20 +1892,46 @@
           }
 
           const rawChunk = new Uint8Array(ev.data);
-          const remainingInLane = Math.max(0, lane.end - lane.receivedPos);
-          const byteLen = Math.min(rawChunk.byteLength || 0, remainingInLane);
-          if (byteLen <= 0) return;
-          lane.receivedPos += byteLen;
+          if (isStriped) {
+            let readPos = 0;
+            while (readPos < rawChunk.byteLength && lane.currentStripe < totalStripes) {
+              if (!lane.stripeBuf) prepareStripe(lane);
+              const space = lane.stripeLen - lane.stripePos;
+              const toCopy = Math.min(space, rawChunk.byteLength - readPos);
+              lane.stripeBuf.set(rawChunk.subarray(readPos, readPos + toCopy), lane.stripePos);
+              lane.stripePos += toCopy;
+              lane.receivedLaneBytes += toCopy;
+              readPos += toCopy;
+              if (lane.stripePos >= lane.stripeLen) {
+                const finishedIdx = lane.currentStripe;
+                lane.committedLaneBytes = lane.receivedLaneBytes;
+                completedStripes.set(finishedIdx, {
+                  data: lane.stripeBuf,
+                  lane,
+                  laneBytesAfter: lane.committedLaneBytes,
+                });
+                lane.stripeBuf = null;
+                lane.currentStripe += laneCount;
+                prepareStripe(lane);
+                drainCompletedStripes();
+              }
+            }
+          } else {
+            const remainingInLane = Math.max(0, lane.end - lane.receivedPos);
+            const byteLen = Math.min(rawChunk.byteLength || 0, remainingInLane);
+            if (byteLen <= 0) return;
+            lane.receivedPos += byteLen;
 
-          let readPos = 0;
-          while (readPos < byteLen) {
-            const space = lane.batchSize - lane.batchLen;
-            const toCopy = Math.min(space, byteLen - readPos);
-            lane.batchBuf.set(rawChunk.subarray(readPos, readPos + toCopy), lane.batchLen);
-            lane.batchLen += toCopy;
-            readPos += toCopy;
-            if (lane.batchLen >= lane.batchSize) {
-              flushLaneBatch(lane);
+            let readPos = 0;
+            while (readPos < byteLen) {
+              const space = lane.batchSize - lane.batchLen;
+              const toCopy = Math.min(space, byteLen - readPos);
+              lane.batchBuf.set(rawChunk.subarray(readPos, readPos + toCopy), lane.batchLen);
+              lane.batchLen += toCopy;
+              readPos += toCopy;
+              if (lane.batchLen >= lane.batchSize) {
+                flushLaneBatch(lane);
+              }
             }
           }
 
@@ -1838,6 +1952,8 @@
             fileId: file.id,
             laneIndex: lane.index,
             laneCount,
+            stripeBytes,
+            startStripe: lane.currentStripe,
             laneStart: lane.laneStart,
             startOffset: lane.flushedPos,
             endOffset: lane.end,
@@ -1867,6 +1983,7 @@
     try {
       await Promise.all(lanes.map((lane) => runLaneWithRetries(lane)));
       if (cancelled) throw { cancelled: true, fatal: true };
+      if (isStriped) await drainCompletedStripes();
       await writeQueue;
       setDownloadCancelable(null);
 
@@ -1932,8 +2049,7 @@
         return { cancelled: true };
       }
 
-      let totalFlushed = 0;
-      for (const l of lanes) totalFlushed += Math.max(0, l.flushedPos - l.laneStart);
+      const totalFlushed = totalWrittenBytes;
       updateP2pDialogProgress(`P2P interrupted at ${fmtBytes(totalFlushed)} — click retry to resume`, totalFlushed / totalBytes, true);
       if (buttonEl) {
         buttonEl.disabled = false;
