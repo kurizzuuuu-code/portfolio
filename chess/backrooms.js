@@ -388,6 +388,10 @@
     const hintLabel = hudEl ? hudEl.querySelector('#brHintLabel') : null;
     const levelLabel = hudEl ? hudEl.querySelector('#brLevelLabel') : null;
     const flashBtn = hudEl ? hudEl.querySelector('#brFlashBtn') : null;
+    const vhsStampEl = hudEl ? hudEl.querySelector('#brVhsStamp') : null;
+    let lastVhsStampKey = '';
+    let vhsGlitchSpike = 0;
+    let lastSceneRenderCalls = 0;
     let joyPointerId = null;
     let joyX = 0; // -1..1 strafe
     let joyY = 0; // -1..1 forward (positive = forward)
@@ -426,6 +430,112 @@
       0.1,
       380
     );
+
+    // Lightweight VHS / Found-Footage post-processing pass (shared by Plains and Level 0)
+    function getVhsTargetSize(w, h) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      return {
+        w: Math.max(320, Math.floor(Math.max(1, w) * dpr * 0.85)),
+        h: Math.max(180, Math.floor(Math.max(1, h) * dpr * 0.85)),
+      };
+    }
+    const initVhsSz = getVhsTargetSize(canvas.clientWidth || window.innerWidth, canvas.clientHeight || window.innerHeight);
+    const vhsTarget = new THREE.WebGLRenderTarget(initVhsSz.w, initVhsSz.h, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+    const vhsPostScene = new THREE.Scene();
+    const vhsPostCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    const vhsPostMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tDiffuse: { value: vhsTarget.texture },
+        uTime: { value: 0 },
+        uIntensity: { value: 1.0 },
+        uRealm: { value: 0.0 },
+        uResolution: { value: new THREE.Vector2(initVhsSz.w, initVhsSz.h) },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 0.0, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform float uTime;
+        uniform float uIntensity;
+        uniform float uRealm;
+        uniform vec2 uResolution;
+        varying vec2 vUv;
+
+        float vhsHash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        void main() {
+          // Subtle camcorder lens curvature
+          vec2 cUv = vUv - 0.5;
+          float r2 = dot(cUv, cUv);
+          vec2 uv = cUv * (1.0 + 0.068 * r2) + 0.5;
+          if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            gl_FragColor = vec4(0.01, 0.008, 0.014, 1.0);
+            return;
+          }
+
+          // Slow VHS tracking bar + subtle scanline jitter + bottom head-switching band
+          float barCenter = fract(uTime * 0.085);
+          float barDist = abs(uv.y - barCenter);
+          float barGate = 0.32 + 0.68 * step(0.65, sin(uTime * 0.85));
+          float trackingBand = smoothstep(0.032, 0.0, barDist) * barGate * uIntensity;
+          float lineNoise = (vhsHash(vec2(floor(uv.y * 260.0), floor(uTime * 24.0))) - 0.5);
+          float microJitter = sin(uv.y * 195.0 + uTime * 11.5) * 0.0005 * uIntensity;
+          float headSwitch = smoothstep(0.030, 0.0, uv.y);
+
+          vec2 sampleUv = uv;
+          sampleUv.x += microJitter;
+          sampleUv.x += lineNoise * trackingBand * 0.014;
+          sampleUv.x += lineNoise * headSwitch * (0.018 * uIntensity);
+          sampleUv = clamp(sampleUv, 0.001, 0.999);
+
+          // Chromatic aberration & analog tape horizontal chroma smear
+          float ca = (0.0016 + 0.0038 * r2) * uIntensity + trackingBand * 0.0042;
+          float r = texture2D(tDiffuse, clamp(sampleUv + vec2(ca, 0.0), 0.001, 0.999)).r;
+          vec3 centerTap = texture2D(tDiffuse, sampleUv).rgb;
+          float b = texture2D(tDiffuse, clamp(sampleUv - vec2(ca, 0.0005), 0.001, 0.999)).b;
+          vec3 smearTap = texture2D(tDiffuse, clamp(sampleUv - vec2(0.0030, 0.0), 0.001, 0.999)).rgb;
+
+          vec3 col = mix(vec3(r, centerTap.g, b), smearTap, 0.16);
+          col = pow(max(col, vec3(0.0)), vec3(0.92));
+
+          // Tracking snow & bottom head-switching static streaks
+          float snow = vhsHash(vec2(floor(uv.x * uResolution.x * 0.5), floor(uv.y * uResolution.y) + floor(uTime * 30.0)));
+          col += vec3(snow) * trackingBand * 0.16;
+          col = mix(col, vec3(snow * 0.65 + 0.18), headSwitch * step(0.62, snow) * 0.55);
+
+          // CRT scanlines + animated camcorder film grain
+          float scan = 1.0 - (0.06 + 0.03 * uRealm) * (0.5 + 0.5 * sin(uv.y * uResolution.y * 1.15));
+          float grain = (vhsHash(floor(uv.xy * uResolution * 0.68) + vec2(fract(uTime * 19.3) * 100.0, 0.0)) - 0.5) * (0.052 + 0.048 * uIntensity);
+          col = col * scan + grain;
+
+          // Subtle 90s magnetic tape grade + camcorder vignette
+          float luma = dot(col, vec3(0.299, 0.587, 0.114));
+          col = mix(vec3(luma), col, mix(0.88, 0.84, uRealm));
+          col = col * 0.97 + mix(vec3(0.012, 0.011, 0.015), vec3(0.008, 0.010, 0.007), uRealm);
+          float vig = smoothstep(0.98, 0.28, length(cUv * vec2(1.16, 1.04)));
+          col *= mix(0.46, 1.0, vig);
+
+          gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        }
+      `,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const vhsPostQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), vhsPostMat);
+    vhsPostQuad.frustumCulled = false;
+    vhsPostScene.add(vhsPostQuad);
 
     const ambientLight = new THREE.AmbientLight(0xc8def4, 0.48);
     const hemiLight = new THREE.HemisphereLight(0x9fd0ff, 0x32401b, 0.70);
@@ -2311,6 +2421,7 @@
     }
 
     function playStaticVanishSfx() {
+      vhsGlitchSpike = 1.0;
       const ctx = getAudio();
       if (!ctx) return;
       try {
@@ -2443,6 +2554,21 @@
 
     function stepSimulation(dt, directStepX, directStepZ) {
       brTime += dt;
+      vhsGlitchSpike = Math.max(0, vhsGlitchSpike - dt * 2.8);
+      if (vhsStampEl) {
+        const totalFrames = Math.max(0, Math.floor(brTime * 30));
+        const ff = String(totalFrames % 30).padStart(2, '0');
+        const totalSec = Math.floor(totalFrames / 30);
+        const ss = String(totalSec % 60).padStart(2, '0');
+        const mm = String(Math.floor(totalSec / 60) % 60).padStart(2, '0');
+        const hh = String(Math.floor(totalSec / 3600) % 24).padStart(2, '0');
+        const key = `${currentRealm}:${hh}:${mm}:${ss}:${ff}`;
+        if (key !== lastVhsStampKey) {
+          lastVhsStampKey = key;
+          const dateLabel = currentRealm === 'level0' ? 'OCT 28 1998' : 'JAN 14 1996';
+          vhsStampEl.textContent = `REC · ${dateLabel} · ${hh}:${mm}:${ss}:${ff}`;
+        }
+      }
       const clampedDt = Math.min(dt, 0.06);
 
       // Movement (either interactive WASD or scripted test displacement)
@@ -3013,6 +3139,7 @@
     function exit() {
       if (!active) return;
       active = false;
+      renderer.setRenderTarget(null);
       renderer.shadowMap.enabled = true;
       if (dangerEl) dangerEl.style.setProperty('--danger', '0');
       if (jumpscareEl) jumpscareEl.hidden = true;
@@ -3035,7 +3162,15 @@
     }
 
     function renderActiveScene() {
+      renderer.setRenderTarget(vhsTarget);
+      renderer.clear();
       renderer.render(currentRealm === 'level0' ? l0Scene : brScene, brCamera);
+      lastSceneRenderCalls = renderer.info && renderer.info.render ? renderer.info.render.calls : 0;
+      renderer.setRenderTarget(null);
+      vhsPostMat.uniforms.uTime.value = brTime;
+      vhsPostMat.uniforms.uRealm.value = currentRealm === 'level0' ? 1.0 : 0.0;
+      vhsPostMat.uniforms.uIntensity.value = 1.0 + (currentRealm === 'level0' ? l0Danger * 1.45 : 0) + vhsGlitchSpike * 1.25;
+      renderer.render(vhsPostScene, vhsPostCam);
     }
 
     function update(dt) {
@@ -3080,7 +3215,8 @@
         plainsFogEnabled: Boolean(brScene.fog),
         plainsVisibleHouses,
         plainsTotalHouses: plainsHouseTiles.length,
-        renderCalls: renderer.info && renderer.info.render ? renderer.info.render.calls : null,
+        renderCalls: lastSceneRenderCalls,
+        vhsFilterActive: true,
         watcherPos: {
           x: +watcherPos.x.toFixed(2),
           y: +watcherPos.y.toFixed(2),
@@ -3116,6 +3252,9 @@
     function resize(w, h) {
       brCamera.aspect = Math.max(1, w) / Math.max(1, h);
       brCamera.updateProjectionMatrix();
+      const sz = getVhsTargetSize(w, h);
+      vhsTarget.setSize(sz.w, sz.h);
+      vhsPostMat.uniforms.uResolution.value.set(sz.w, sz.h);
     }
 
     return {
