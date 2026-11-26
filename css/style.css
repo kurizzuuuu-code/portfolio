@@ -6861,6 +6861,31 @@ body.is-desktop-os .os-floating-win.is-maximized {
 .dropship-win__url .icon {
   color: var(--grape);
 }
+.chess-url-form {
+  flex: 0 1 360px;
+  min-width: 220px;
+  cursor: text;
+}
+.chess-url-form:focus-within {
+  border-color: var(--grape);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.35);
+}
+.chess-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.os-floating-win[data-win-id="chess"] {
+  z-index: 84 !important;
+}
 .dropship-win__actions {
   display: inline-flex;
   align-items: center;
@@ -7741,6 +7766,50 @@ body.is-wisteria-mad .pet__bubble {
   .game-wisteria__bubble p {
     font-size: 11px;
   }
+}
+
+/* Easy-mode 3D Chess Horror Easter Egg — Desktop Glitch State */
+@keyframes chessIconGlitch {
+  0%, 72%, 100% {
+    transform: translate3d(0, 0, 0) skewX(0deg);
+    filter: none;
+  }
+  74% {
+    transform: translate3d(-4px, 1px, 0) skewX(-5deg);
+    filter: drop-shadow(-3px 0 #ff2a6d) drop-shadow(3px 0 #05d9e8);
+  }
+  77% {
+    transform: translate3d(5px, -2px, 0) skewX(4deg);
+    filter: drop-shadow(3px 0 #ff2a6d) drop-shadow(-2px 0 #c084fc);
+  }
+  81% {
+    transform: translate3d(-2px, 2px, 0) skewX(0deg);
+    filter: invert(0.14) saturate(1.7);
+  }
+}
+
+body.is-chess-glitched .desktop-icon {
+  animation: chessIconGlitch 1.35s steps(2, end) infinite;
+}
+
+body.is-chess-glitched .desktop-icon:nth-child(2n) {
+  animation-delay: -0.42s;
+  animation-duration: 1.05s;
+}
+
+body.is-chess-glitched .desktop-icon:nth-child(3n) {
+  animation-delay: -0.78s;
+  animation-duration: 1.55s;
+}
+
+body.is-chess-glitched .desktop-icon__label {
+  color: #fecdd3 !important;
+  text-shadow: -2px 0 #ff2a6d, 2px 0 #05d9e8 !important;
+}
+
+body.is-chess-glitched .desktop-icon__frame {
+  border-color: #ff2a6d !important;
+  box-shadow: 0 0 14px rgba(255, 42, 109, 0.55) !important;
 }
 
 

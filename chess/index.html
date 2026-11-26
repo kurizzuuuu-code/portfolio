@@ -384,6 +384,109 @@
     .promo-btn:hover, .card-btn:hover { background: var(--lime); transform: translateY(-1px); }
     .card-btn { width: 100%; padding: 11px 14px; background: var(--lime); }
 
+    /* Reality Snap White-Violet Flash & Backrooms HUD */
+    .reality-flash {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      pointer-events: none;
+      opacity: 0;
+      background: radial-gradient(circle at center, #ffffff 0%, #f5d0fe 48%, #c084fc 100%);
+      transition: opacity 0.24s ease-out;
+    }
+    .reality-flash.is-active {
+      opacity: 1;
+      transition: opacity 0.04s linear;
+    }
+
+    .backrooms-hud {
+      position: fixed;
+      inset: 0;
+      z-index: 35;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 12px;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.025) 0px,
+        rgba(255, 255, 255, 0.025) 1px,
+        transparent 1px,
+        transparent 3px
+      );
+    }
+    .backrooms-hud[hidden],
+    .chess-topbar[hidden],
+    .chess-bottom[hidden],
+    .wisteria-speech[hidden] { display: none !important; }
+    .backrooms-hud__top, .backrooms-hud__bottom {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .backrooms-hud__top > *, .backrooms-hud__bottom > * { pointer-events: auto; }
+    .br-rec {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      background: rgba(12, 5, 22, 0.78);
+      border: 2px solid rgba(255, 94, 168, 0.65);
+      border-radius: 10px;
+      color: #fff;
+      font-family: var(--font-pixel);
+      font-size: 9px;
+      letter-spacing: 0.06em;
+    }
+    .br-rec i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff2a6d;
+      animation: pulseDot 0.7s infinite alternate;
+    }
+    .br-hint {
+      padding: 6px 11px;
+      background: rgba(12, 5, 22, 0.72);
+      border: 1.5px solid rgba(216, 180, 254, 0.32);
+      border-radius: 9px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #f3e8ff;
+    }
+    .br-realms {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 6px;
+      background: rgba(12, 5, 22, 0.8);
+      border: 2px solid rgba(216, 180, 254, 0.35);
+      border-radius: 12px;
+    }
+    .br-btn {
+      appearance: none;
+      border: 1.5px solid rgba(216, 180, 254, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-family: var(--font-pixel);
+      font-size: 8px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .br-btn.is-active {
+      background: linear-gradient(135deg, #c084fc, #ff5ea8);
+      color: #19052c;
+      border-color: #19052c;
+    }
+    .br-btn--exit {
+      background: rgba(255, 42, 109, 0.28);
+      border-color: rgba(255, 94, 168, 0.75);
+    }
+
     @media (max-width: 720px) {
       .hud-title { display: none; }
       .pill-btn, .act-btn { font-size: 7px; padding: 5px 7px; }
@@ -467,10 +570,24 @@
     </div>
   </div>
 
+  <div class="reality-flash" id="realityFlash" aria-hidden="true"></div>
+
+  <aside class="backrooms-hud" id="backroomsHud" hidden aria-label="Wisteria Backrooms explorer controls">
+    <div class="backrooms-hud__top">
+      <div class="br-rec"><i></i><span id="brLevelLabel">LEVEL 94 · MOTION (PLAINS)</span></div>
+      <div class="br-hint" id="brHintLabel">WASD move · Move mouse or click for 360° look · ESC wake up</div>
+    </div>
+    <div class="backrooms-hud__bottom">
+      <span></span>
+      <button type="button" class="br-btn br-btn--exit" id="brExitBtn">Wake Up (Back to Chess)</button>
+    </div>
+  </aside>
+
   <script src="../game/three.min.js"></script>
   <script src="../game/GLTFLoader.js"></script>
   <script src="../game/player_model_data.js"></script>
   <script src="chess-engine.js"></script>
+  <script src="backrooms.js"></script>
 
   <script>
   (() => {
@@ -562,9 +679,9 @@
 
     /* ---------------- Three.js Scene & Lighting ---------------- */
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x160728, 0.045);
+    scene.fog = new THREE.FogExp2(0x1f0a3a, 0.0042);
 
-    const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.08, 50);
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.08, 260);
 
     let renderer;
     try {
@@ -584,10 +701,12 @@
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.58));
-    scene.add(new THREE.HemisphereLight(0xfef4ff, 0x3b1863, 1.1));
+    const ambientLight = new THREE.AmbientLight(0xf3e8ff, 0.56);
+    scene.add(ambientLight);
+    const hemiLight = new THREE.HemisphereLight(0xfef4ff, 0x3b1863, 1.05);
+    scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff5fb, 1.35);
+    const keyLight = new THREE.DirectionalLight(0xfff5fb, 1.25);
     keyLight.position.set(2.4, 4.4, 2.8);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.set(1024, 1024);
@@ -601,7 +720,11 @@
     keyLight.shadow.bias = -0.0005;
     scene.add(keyLight);
 
-    const wisteriaRimLight = new THREE.DirectionalLight(0xc084fc, 0.95);
+    const moonBackLight = new THREE.DirectionalLight(0xe9d5ff, 1.15);
+    moonBackLight.position.set(0, 3.6, -12);
+    scene.add(moonBackLight);
+
+    const wisteriaRimLight = new THREE.DirectionalLight(0xc084fc, 0.85);
     wisteriaRimLight.position.set(-2.2, 2.6, -2.5);
     scene.add(wisteriaRimLight);
 
@@ -609,27 +732,467 @@
     frontFillLight.position.set(0, 1.8, 2.2);
     scene.add(frontFillLight);
 
-    // Floating atmospheric sparkles
-    const spCount = 54;
-    const spGeo = new THREE.BufferGeometry();
-    const spPos = new Float32Array(spCount * 3);
-    for (let i = 0; i < spCount; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = 1.1 + Math.random() * 2.4;
-      spPos[i * 3] = Math.cos(a) * r;
-      spPos[i * 3 + 1] = -0.2 + Math.random() * 2.1;
-      spPos[i * 3 + 2] = Math.sin(a) * r;
+    const voidSpotLight = new THREE.SpotLight(0xe879f9, 0, 12, 0.58, 0.65);
+    voidSpotLight.position.set(0, 2.4, -0.2);
+    voidSpotLight.target.position.set(0, 0.05, -1.15);
+    scene.add(voidSpotLight);
+    scene.add(voidSpotLight.target);
+
+    /* ---------------- Starry Sky Dome, Half-Moon & Flat Twilight Water ---------------- */
+    const WATER_Y = -0.78;
+
+    const GLSL_NOISE = `
+      float hash21(vec2 p) {
+        p = fract(p * vec2(123.34, 456.21));
+        p += dot(p, p + 45.32);
+        return fract(p.x * p.y);
+      }
+      float vnoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash21(i);
+        float b = hash21(i + vec2(1.0, 0.0));
+        float c = hash21(i + vec2(0.0, 1.0));
+        float d = hash21(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float v = 0.0;
+        float a = 0.5;
+        mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+        for (int i = 0; i < 6; i++) {
+          v += a * vnoise(p);
+          p = rot * p * 2.04 + vec2(13.1, 7.7);
+          a *= 0.5;
+        }
+        return v;
+      }
+    `;
+
+    // 1. Deep purple starry nebula night sky dome
+    const skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {},
+      vertexShader: `
+        varying vec3 vWorldPos;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorldPos;
+        ${GLSL_NOISE}
+        void main() {
+          vec3 dir = normalize(vWorldPos - vec3(0.0, ${WATER_Y.toFixed(2)}, 0.0));
+          float h = clamp(dir.y, 0.0, 1.0);
+          vec3 horizonCol = vec3(0.20, 0.06, 0.35);
+          vec3 midCol = vec3(0.095, 0.022, 0.20);
+          vec3 zenithCol = vec3(0.025, 0.006, 0.072);
+          vec3 col = mix(horizonCol, midCol, smoothstep(0.0, 0.22, h));
+          col = mix(col, zenithCol, smoothstep(0.18, 0.72, h));
+
+          // Subtle cosmic purple-magenta nebula wisps
+          vec2 nebUv = vec2(atan(dir.x, -dir.z) * 1.9, dir.y * 5.2);
+          float n1 = fbm(nebUv * 1.35 + vec2(1.4, 2.2));
+          float n2 = fbm(nebUv * 2.8 - vec2(4.1, 0.9));
+          float neb = smoothstep(0.42, 0.82, n1 * 0.65 + n2 * 0.35) * smoothstep(0.01, 0.16, h);
+          col += vec3(0.26, 0.06, 0.40) * neb * 0.72;
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    const skyDome = new THREE.Mesh(new THREE.SphereGeometry(180, 32, 20), skyMat);
+    skyDome.renderOrder = -2;
+    scene.add(skyDome);
+
+    // 2. Soft circular glow sprite helper for lunar halo
+    function createGlowTexture(innerHex = 'rgba(255,255,255,1)', midHex = 'rgba(232,121,249,0.55)') {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+      grad.addColorStop(0.0, innerHex);
+      grad.addColorStop(0.28, midHex);
+      grad.addColorStop(0.65, 'rgba(168,85,247,0.08)');
+      grad.addColorStop(1.0, 'rgba(0,0,0,0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 128, 128);
+      const tex = new THREE.CanvasTexture(c);
+      tex.encoding = THREE.sRGBEncoding;
+      return tex;
     }
-    spGeo.setAttribute('position', new THREE.BufferAttribute(spPos, 3));
-    const sparkles = new THREE.Points(spGeo, new THREE.PointsMaterial({
-      color: 0xf4a8ff, size: 0.04, transparent: true, opacity: 0.72, depthWrite: false
-    }));
-    scene.add(sparkles);
+
+    const moonHaloTex = createGlowTexture('rgba(244,230,255,0.42)', 'rgba(186,128,248,0.18)');
+    const moonHalo = new THREE.Mesh(
+      new THREE.PlaneGeometry(74, 74),
+      new THREE.MeshBasicMaterial({ map: moonHaloTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
+    );
+    moonHalo.position.set(0, WATER_Y + 1.5, -94);
+    moonHalo.renderOrder = -1;
+    scene.add(moonHalo);
+
+    // 3. Organic 3D-shaded fBm lunar disk partially submerged beneath WATER_Y
+    const moonMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: true,
+      fog: false,
+      uniforms: {},
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        ${GLSL_NOISE}
+        void main() {
+          vec2 p = (vUv - 0.5) * 2.0;
+          float r2 = dot(p, p);
+          float r = sqrt(r2);
+          float edgeAlpha = smoothstep(1.0, 0.976, r);
+          if (edgeAlpha <= 0.001) discard;
+
+          // Map disk onto sphere normal for authentic 3D curvature & limb brightening
+          vec3 sp = vec3(p, sqrt(max(0.0, 1.0 - r2)));
+          vec2 sphereUv = sp.xy / (0.65 + sp.z * 0.55);
+
+          // Multi-scale organic lunar maria, highlands, and micro crater grit
+          float mariaMask = fbm(sphereUv * 2.1 + vec2(3.7, 1.2));
+          float ridgeDetail = fbm(sphereUv * 6.8 - vec2(2.3, 5.1));
+          float microDetail = fbm(sphereUv * 18.0 + vec2(8.4, 3.9));
+
+          // Bright radial Tycho-style impact burst + ray streaks on upper-left face
+          vec2 rayCenter = vec2(-0.18, 0.16);
+          vec2 dRay = p - rayCenter;
+          float rayDist = length(dRay);
+          float rayAng = atan(dRay.y, dRay.x);
+          float streaks = pow(vnoise(vec2(rayAng * 9.0, rayDist * 3.5)), 2.2) * exp(-rayDist * 2.8);
+          float craterCore = exp(-rayDist * rayDist * 65.0);
+
+          // Slope shading from fine fBm gradient + overhead front lunar sunlight
+          float eps = 0.015;
+          float hC = ridgeDetail * 0.65 + microDetail * 0.35;
+          float hX = fbm((sphereUv + vec2(eps, 0.0)) * 6.8 - vec2(2.3, 5.1));
+          float hY = fbm((sphereUv + vec2(0.0, eps)) * 6.8 - vec2(2.3, 5.1));
+          vec3 bumpN = normalize(vec3((hC - hX) * 5.0, (hC - hY) * 5.0, 1.0));
+          float sunDot = clamp(dot(normalize(sp + bumpN * 0.25), normalize(vec3(-0.22, 0.32, 0.92))), 0.0, 1.0);
+
+          float maria = smoothstep(0.42, 0.68, mariaMask);
+          vec3 mariaCol = vec3(0.58, 0.45, 0.75);
+          vec3 highlandCol = vec3(0.95, 0.91, 1.0);
+          vec3 baseCol = mix(highlandCol, mariaCol, maria * 0.72);
+
+          // Modulate with crater grit, ray ejecta, and 3D lunar lighting
+          baseCol *= 0.80 + 0.28 * (ridgeDetail * 0.55 + microDetail * 0.45);
+          baseCol = mix(baseCol, vec3(1.0, 0.98, 1.0), clamp(streaks * 0.52 + craterCore * 0.65, 0.0, 0.75));
+          baseCol *= 0.76 + 0.34 * pow(sunDot, 0.65);
+
+          // Soft bright lunar atmospheric rim glow
+          float rim = pow(1.0 - sp.z, 2.8);
+          vec3 finalCol = mix(baseCol, vec3(1.0, 0.97, 1.0), rim * 0.48);
+          gl_FragColor = vec4(finalCol, edgeAlpha);
+        }
+      `,
+    });
+    const moonMesh = new THREE.Mesh(new THREE.CircleGeometry(23.5, 96), moonMat);
+    // Centered behind Wisteria and submerged below WATER_Y for a realistic rising half-moon
+    moonMesh.position.set(0, WATER_Y - 2.2, -92);
+    moonMesh.renderOrder = 0;
+    scene.add(moonMesh);
+
+    // 4. Twinkling starry purple night sky (pinpoint stars + 4-point cross glints)
+    const starCount = 1050;
+    const starPositions = new Float32Array(starCount * 3);
+    const starColors = new Float32Array(starCount * 3);
+    const starPhases = new Float32Array(starCount);
+    const starSizes = new Float32Array(starCount);
+    const starPalette = [
+      new THREE.Color(0xffffff),
+      new THREE.Color(0xf5d0fe),
+      new THREE.Color(0xe879f9),
+      new THREE.Color(0xc084fc),
+      new THREE.Color(0xf472b6),
+    ];
+    for (let i = 0; i < starCount; i++) {
+      const az = Math.random() * Math.PI * 2;
+      const el = 0.015 + Math.pow(Math.random(), 1.45) * 0.92;
+      const rad = 128 + Math.random() * 26;
+      const cosEl = Math.cos(el);
+      starPositions[i * 3] = Math.cos(az) * cosEl * rad;
+      starPositions[i * 3 + 1] = WATER_Y + Math.sin(el) * rad;
+      starPositions[i * 3 + 2] = Math.sin(az) * cosEl * rad;
+      const col = starPalette[i % starPalette.length];
+      starColors[i * 3] = col.r;
+      starColors[i * 3 + 1] = col.g;
+      starColors[i * 3 + 2] = col.b;
+      starPhases[i] = Math.random() * Math.PI * 2;
+      starSizes[i] = 2.0 + Math.pow(Math.random(), 2.2) * 7.5;
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeo.setAttribute('aColor', new THREE.BufferAttribute(starColors, 3));
+    starGeo.setAttribute('aPhase', new THREE.BufferAttribute(starPhases, 1));
+    starGeo.setAttribute('aSize', new THREE.BufferAttribute(starSizes, 1));
+    const starMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: `
+        attribute vec3 aColor;
+        attribute float aPhase;
+        attribute float aSize;
+        uniform float uTime;
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vSpark;
+        void main() {
+          vColor = aColor;
+          vAlpha = 0.42 + 0.58 * (0.5 + 0.5 * sin(uTime * 1.4 + aPhase));
+          vSpark = step(4.6, aSize);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vSpark;
+        void main() {
+          vec2 q = gl_PointCoord - vec2(0.5);
+          float d = length(q);
+          if (d > 0.5) discard;
+          float core = exp(-d * d * 38.0);
+          float crossRay = (exp(-abs(q.x) * 26.0) * exp(-abs(q.y) * 5.5) + exp(-abs(q.y) * 26.0) * exp(-abs(q.x) * 5.5)) * 0.42 * vSpark;
+          float glow = clamp(core + crossRay, 0.0, 1.0);
+          gl_FragColor = vec4(mix(vColor, vec3(1.0), smoothstep(0.16, 0.0, d)), glow * vAlpha);
+        }
+      `,
+    });
+    const starField = new THREE.Points(starGeo, starMat);
+    starField.renderOrder = -1;
+    scene.add(starField);
+
+    // 5. Silky ray-reflected flat twilight water with natural moon reflection & subtle leg ripples
+    const waterMat = new THREE.ShaderMaterial({
+      transparent: false,
+      depthWrite: true,
+      fog: false,
+      uniforms: {
+        uTime: { value: 0 },
+      },
+      vertexShader: `
+        varying vec3 vWorldPos;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec3 vWorldPos;
+        ${GLSL_NOISE}
+
+        float waterHeight(vec2 p) {
+          // Calm glassy lake waves (stretched horizontally without high-frequency far moiré)
+          float h = 0.0;
+          h += 0.58 * vnoise(vec2(p.x * 1.15 + uTime * 0.06, p.y * 4.2 + uTime * 0.30));
+          h += 0.28 * vnoise(vec2(p.x * 2.4 - uTime * 0.09, p.y * 9.5 - uTime * 0.44));
+          h += 0.14 * vnoise(vec2(p.x * 4.8 + uTime * 0.12, p.y * 18.0 + uTime * 0.58));
+          return h;
+        }
+
+        vec2 legRippleGrad(vec2 p, vec2 c, float phaseOff) {
+          vec2 dp = p - c;
+          float d = length(dp);
+          if (d > 1.1 || d < 0.025) return vec2(0.0);
+          float env = exp(-d * 4.8) * smoothstep(0.025, 0.09, d);
+          float wave = cos(d * 40.0 - uTime * 2.1 + phaseOff);
+          return (dp / d) * wave * env * 0.042;
+        }
+
+        void main() {
+          vec2 p = vWorldPos.xz;
+          float dist = length(p);
+          vec3 I = normalize(vWorldPos - cameraPosition);
+
+          // Compute calm anisotropic wave normal via finite differences
+          float eps = 0.055;
+          float h0 = waterHeight(p);
+          float hx = waterHeight(p + vec2(eps, 0.0));
+          float hz = waterHeight(p + vec2(0.0, eps));
+          float waveAmp = mix(0.036, 0.011, smoothstep(2.0, 26.0, dist));
+          vec2 grad = vec2((h0 - hx) / eps, (h0 - hz) / eps) * waveAmp;
+
+          // Tight delicate concentric wave perturbation around the 4 table leg points
+          grad += legRippleGrad(p, vec2(-1.08, -0.78), 0.0);
+          grad += legRippleGrad(p, vec2( 1.08, -0.78), 1.5);
+          grad += legRippleGrad(p, vec2(-1.08,  0.84), 3.1);
+          grad += legRippleGrad(p, vec2( 1.08,  0.84), 4.6);
+
+          vec3 N = normalize(vec3(grad.x, 1.0, grad.y));
+          vec3 R = reflect(I, N);
+          R.y = abs(R.y); // planar water surface reflection ray
+
+          // Schlick Fresnel blending deep foreground plum with silky horizon sky reflection
+          float ndotv = clamp(dot(-I, N), 0.02, 1.0);
+          float fresnel = 0.08 + 0.84 * pow(1.0 - ndotv, 3.2);
+
+          vec3 baseBody = vec3(0.14, 0.065, 0.25);
+          vec3 reflHorizon = vec3(0.56, 0.46, 0.72);
+          vec3 reflSky = vec3(0.24, 0.11, 0.39);
+          vec3 reflCol = mix(reflHorizon, reflSky, smoothstep(0.0, 0.28, R.y));
+
+          // Analytical reflection of the rising half-moon & lunar aura on plane z = -92
+          if (R.z < -0.001) {
+            float tMoon = (-92.0 - vWorldPos.z) / R.z;
+            if (tMoon > 0.0) {
+              vec3 hit = vWorldPos + R * tMoon;
+              vec2 mOff = hit.xy - vec2(0.0, (${WATER_Y.toFixed(2)}) - 2.2);
+              float mr = length(mOff);
+              float diskMask = smoothstep(24.0, 22.0, mr) * smoothstep((${WATER_Y.toFixed(2)}) - 0.6, (${WATER_Y.toFixed(2)}) + 0.8, hit.y);
+              float haloMask = exp(-pow(mr / 30.0, 2.0)) * 0.34;
+              float texVar = 0.78 + 0.22 * vnoise(mOff * 0.22);
+              vec3 moonGlow = vec3(0.96, 0.91, 1.0) * diskMask * texVar + vec3(0.76, 0.60, 0.95) * haloMask;
+              reflCol += moonGlow * 0.92;
+            }
+          }
+
+          vec3 col = mix(baseBody, reflCol, fresnel);
+
+          // Soft misty atmospheric horizon blend so horizon edge looks photographic
+          col = mix(col, vec3(0.50, 0.39, 0.66), smoothstep(24.0, 96.0, dist) * 0.55);
+
+          // Soft inverted reflection of tabletop, 4 table legs, and Wisteria's silhouette
+          float waveWobble = N.x * 1.4;
+          vec2 tp = vec2(p.x + waveWobble * 0.08, p.y);
+          vec2 tDist = abs(tp - vec2(0.0, 0.14)) - vec2(1.16, 0.88);
+          float tableRefl = smoothstep(0.32, -0.04, max(tDist.x, tDist.y)) * smoothstep(2.4, 0.2, p.y);
+          float legsRefl =
+            smoothstep(0.11, 0.03, abs(p.x + waveWobble * 0.05 + 1.08)) * smoothstep(-0.82, -0.68, p.y) * smoothstep(0.0, -0.58, p.y) +
+            smoothstep(0.11, 0.03, abs(p.x + waveWobble * 0.05 - 1.08)) * smoothstep(-0.82, -0.68, p.y) * smoothstep(0.0, -0.58, p.y) +
+            smoothstep(0.11, 0.03, abs(p.x + waveWobble * 0.06 + 1.08)) * smoothstep(0.80, 0.92, p.y) * smoothstep(1.95, 0.96, p.y) +
+            smoothstep(0.11, 0.03, abs(p.x + waveWobble * 0.06 - 1.08)) * smoothstep(0.80, 0.92, p.y) * smoothstep(1.95, 0.96, p.y);
+          col *= 1.0 - clamp(tableRefl * 0.48 + legsRefl * 0.36, 0.0, 0.62);
+
+          // Soft lavender reflection silhouette under Wisteria between back legs
+          float wisteriaRefl = exp(-pow((p.x + waveWobble * 0.08) / 0.36, 2.0) - pow((p.y + 0.62) / 0.42, 2.0));
+          col += vec3(0.45, 0.34, 0.62) * wisteriaRefl * 0.32;
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    const waterMesh = new THREE.Mesh(new THREE.PlaneGeometry(280, 280), waterMat);
+    waterMesh.rotation.x = -Math.PI / 2;
+    waterMesh.position.set(0, WATER_Y, 0);
+    waterMesh.renderOrder = 1;
+    scene.add(waterMesh);
+
+    // 6. Crisp, dainty drifting purple fireflies (no heavy water reflection blobs)
+    const fireflyCount = 105;
+    const ffPositions = new Float32Array(fireflyCount * 3);
+    const ffColors = new Float32Array(fireflyCount * 3);
+    const ffSizes = new Float32Array(fireflyCount);
+    const ffPhases = new Float32Array(fireflyCount);
+    const ffMeta = [];
+    const ffPalette = [
+      new THREE.Color(0xf0abfc),
+      new THREE.Color(0xe879f9),
+      new THREE.Color(0xc084fc),
+      new THREE.Color(0xf472b6),
+    ];
+
+    for (let i = 0; i < fireflyCount; i++) {
+      const farLayer = i >= 60;
+      const spreadX = farLayer ? (Math.random() - 0.5) * 16.0 : (Math.random() - 0.5) * 5.6;
+      const baseZ = farLayer ? -2.8 - Math.random() * 14.0 : -3.4 + Math.random() * 5.4;
+      const baseY = WATER_Y + 0.16 + Math.random() * (farLayer ? 3.2 : 1.9);
+      ffMeta.push({
+        bx: spreadX,
+        by: baseY,
+        bz: baseZ,
+        sx: 0.20 + Math.random() * 0.32,
+        sy: 0.14 + Math.random() * 0.25,
+        sz: 0.18 + Math.random() * 0.28,
+        fx: 0.24 + Math.random() * 0.42,
+        fy: 0.30 + Math.random() * 0.50,
+        fz: 0.22 + Math.random() * 0.38,
+        phase: Math.random() * Math.PI * 2,
+      });
+      ffPositions[i * 3] = spreadX;
+      ffPositions[i * 3 + 1] = baseY;
+      ffPositions[i * 3 + 2] = baseZ;
+      const col = ffPalette[i % ffPalette.length];
+      ffColors[i * 3] = col.r;
+      ffColors[i * 3 + 1] = col.g;
+      ffColors[i * 3 + 2] = col.b;
+      ffSizes[i] = farLayer ? (12.0 + Math.random() * 10.0) : (11.0 + Math.random() * 11.0);
+      ffPhases[i] = Math.random() * Math.PI * 2;
+    }
+
+    const fireflyGeo = new THREE.BufferGeometry();
+    fireflyGeo.setAttribute('position', new THREE.BufferAttribute(ffPositions, 3));
+    fireflyGeo.setAttribute('aColor', new THREE.BufferAttribute(ffColors, 3));
+    fireflyGeo.setAttribute('aSize', new THREE.BufferAttribute(ffSizes, 1));
+    fireflyGeo.setAttribute('aPhase', new THREE.BufferAttribute(ffPhases, 1));
+
+    const fireflyMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+      uniforms: {
+        uTime: { value: 0 },
+      },
+      vertexShader: `
+        attribute vec3 aColor;
+        attribute float aSize;
+        attribute float aPhase;
+        uniform float uTime;
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          vColor = aColor;
+          float pulse = 0.40 + 0.60 * (0.5 + 0.5 * sin(uTime * 1.9 + aPhase));
+          vAlpha = pulse;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          gl_PointSize = clamp((aSize * (0.85 + 0.28 * pulse)) / max(0.85, -mv.z * 0.42), 2.8, 24.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+        void main() {
+          float d = length(gl_PointCoord - vec2(0.5));
+          if (d > 0.5) discard;
+          float halo = exp(-d * d * 18.0);
+          float core = smoothstep(0.16, 0.0, d);
+          vec3 col = mix(vColor, vec3(1.0), core * 0.88);
+          gl_FragColor = vec4(col, (halo * 0.72 + core * 0.55) * vAlpha);
+        }
+      `,
+    });
+
+    const fireflies = new THREE.Points(fireflyGeo, fireflyMat);
+    fireflies.renderOrder = 3;
+    scene.add(fireflies);
 
     /* ---------------- Camera Orbit Presets ---------------- */
     const CAM_PRESETS = [
-      { name: 'Classic', target: new THREE.Vector3(0, 0.28, -0.24), theta: 0.0, phi: 1.03, radius: 2.82 },
-      { name: 'Wisteria', target: new THREE.Vector3(0, 0.36, -0.44), theta: 0.24, phi: 1.10, radius: 2.28 },
+      { name: 'Moonlight', target: new THREE.Vector3(0, 0.04, -0.18), theta: 0.0, phi: 1.36, radius: 3.42 },
+      { name: 'Classic', target: new THREE.Vector3(0, 0.24, -0.22), theta: 0.0, phi: 1.04, radius: 2.82 },
+      { name: 'Wisteria', target: new THREE.Vector3(0, 0.34, -0.44), theta: 0.24, phi: 1.24, radius: 2.38 },
       { name: 'Overhead', target: new THREE.Vector3(0, 0.06, 0.0), theta: 0.0, phi: 0.32, radius: 2.35 },
     ];
     let camPresetIdx = 0;
@@ -640,8 +1203,8 @@
     let radius = CAM_PRESETS[0].radius, targetRadius = radius;
 
     function updateCamera(dt) {
-      targetPhi = Math.max(0.18, Math.min(Math.PI / 2 - 0.05, targetPhi));
-      targetRadius = Math.max(1.35, Math.min(4.2, targetRadius));
+      targetPhi = Math.max(0.18, Math.min(Math.PI / 2 - 0.04, targetPhi));
+      targetRadius = Math.max(1.35, Math.min(4.6, targetRadius));
       const k = Math.min(1, dt * 10);
       theta += (targetTheta - theta) * k;
       phi += (targetPhi - phi) * k;
@@ -864,6 +1427,174 @@
     const _qTarget = new THREE.Quaternion(), _qAxis = new THREE.Quaternion();
     const _axX = new THREE.Vector3(1, 0, 0), _axY = new THREE.Vector3(0, 1, 0), _axZ = new THREE.Vector3(0, 0, 1);
     const _restHandTarget = new THREE.Vector3();
+    const _snapHandTarget = new THREE.Vector3();
+
+    /* ---------------- Easy-Mode Horror Easter Egg & Backrooms Controller ---------------- */
+    const realityFlashEl = document.getElementById('realityFlash');
+    const backroomsHudEl = document.getElementById('backroomsHud');
+    const topBarEl = document.querySelector('.chess-topbar');
+    const bottomBarEl = document.querySelector('.chess-bottom');
+
+    const egg = {
+      stage: 0, // 0=normal, 1=first check twitch, 2=swapped+rewound, 3=pitch-black void+desktop glitch, 4=snapped to backrooms
+      twitchIntensity: 0,
+      voidActive: false,
+      snapAnim: null,
+      boardSpin: null,
+      nextTwitchAt: 0,
+      twitchUntil: 0,
+      twitchOffset: { x: 0, y: 0, z: 0 },
+    };
+
+    function notifyParentEgg(stage, payload = {}) {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'kurizu-chess-egg', stage, ...payload }, '*');
+        }
+      } catch {}
+    }
+
+    function playHorrorSfx(kind) {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        if (kind === 'checkSting') {
+          [220, 233.08, 311.13].forEach((freq) => {
+            const osc = ctx.createOscillator();
+            const g = ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, now);
+            osc.frequency.exponentialRampToValueAtTime(freq * 0.72, now + 0.55);
+            g.gain.setValueAtTime(0.001, now);
+            g.gain.exponentialRampToValueAtTime(0.045, now + 0.03);
+            g.gain.exponentialRampToValueAtTime(0.0001, now + 0.62);
+            osc.connect(g).connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.65);
+          });
+        } else if (kind === 'rewindStep') {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(190, now);
+          osc.frequency.exponentialRampToValueAtTime(520, now + 0.14);
+          g.gain.setValueAtTime(0.001, now);
+          g.gain.exponentialRampToValueAtTime(0.09, now + 0.08);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+          osc.connect(g).connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.17);
+        } else if (kind === 'voidDrop') {
+          const osc = ctx.createOscillator();
+          const g = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(115, now);
+          osc.frequency.exponentialRampToValueAtTime(34, now + 0.9);
+          g.gain.setValueAtTime(0.001, now);
+          g.gain.exponentialRampToValueAtTime(0.22, now + 0.04);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
+          osc.connect(g).connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 1.0);
+        } else if (kind === 'snap') {
+          // Crisp finger snap click + bandpass transient
+          const len = Math.floor(ctx.sampleRate * 0.08);
+          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.014));
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = 2400;
+          bp.Q.value = 1.8;
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.32, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+          src.connect(bp).connect(g).connect(ctx.destination);
+          src.start(now);
+
+          const pop = ctx.createOscillator();
+          const pg = ctx.createGain();
+          pop.type = 'triangle';
+          pop.frequency.setValueAtTime(980, now);
+          pop.frequency.exponentialRampToValueAtTime(320, now + 0.06);
+          pg.gain.setValueAtTime(0.16, now);
+          pg.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
+          pop.connect(pg).connect(ctx.destination);
+          pop.start(now);
+          pop.stop(now + 0.08);
+        }
+      } catch {}
+    }
+
+    function setVoidEnvironment(on) {
+      egg.voidActive = Boolean(on);
+      const show = !egg.voidActive;
+      skyDome.visible = show;
+      moonMesh.visible = show;
+      moonHalo.visible = show;
+      starField.visible = show;
+      waterMesh.visible = show;
+      fireflies.visible = show;
+      if (egg.voidActive) {
+        scene.background = new THREE.Color(0x000000);
+        scene.fog.color.setHex(0x050008);
+        scene.fog.density = 0.08;
+        ambientLight.intensity = 0.18;
+        hemiLight.intensity = 0.24;
+        keyLight.intensity = 0.35;
+        moonBackLight.intensity = 0.12;
+        wisteriaRimLight.intensity = 1.45;
+        wisteriaRimLight.color.setHex(0xff2a6d);
+        frontFillLight.intensity = 0.25;
+        voidSpotLight.intensity = 2.35;
+      } else {
+        scene.background = null;
+        scene.fog.color.setHex(0x1f0a3a);
+        scene.fog.density = 0.0042;
+        ambientLight.intensity = 0.56;
+        hemiLight.intensity = 1.05;
+        keyLight.intensity = 1.25;
+        moonBackLight.intensity = 1.15;
+        wisteriaRimLight.intensity = 0.85;
+        wisteriaRimLight.color.setHex(0xc084fc);
+        frontFillLight.intensity = 0.65;
+        voidSpotLight.intensity = 0;
+      }
+    }
+
+    const backrooms = window.WisteriaBackrooms
+      ? window.WisteriaBackrooms.create({
+          renderer,
+          canvas,
+          hudEl: backroomsHudEl,
+          getAudio,
+          onExit: () => {
+            if (topBarEl) topBarEl.hidden = false;
+            if (bottomBarEl) bottomBarEl.hidden = false;
+            if (wisteriaSpeech) wisteriaSpeech.hidden = false;
+            boardGroup.visible = true;
+            const p = CAM_PRESETS[0];
+            desiredTarget.copy(p.target);
+            targetTheta = p.theta;
+            targetPhi = p.phi;
+            targetRadius = p.radius;
+            resetBoard();
+          },
+        })
+      : {
+          enter: () => {},
+          setRealm: () => {},
+          exit: () => {},
+          isActive: () => false,
+          getRealm: () => 'plains',
+          update: () => {},
+          resize: () => {},
+        };
 
     function applyBoneEulerOffset(name, rx, ry, rz) {
       const b = rig.bones[name];
@@ -894,9 +1625,27 @@
       applyBoneEulerOffset('mixamorigSpine1', lean * 0.35 + breath * 0.018, rig.spineYaw * 0.35, 0);
       applyBoneEulerOffset('mixamorigSpine2', lean * 0.30 + breath * 0.020, rig.spineYaw * 0.30, thinkTilt * 0.35);
 
-      // Head tracks player / board
-      applyBoneEulerOffset('mixamorigNeck', 0.08 + rig.headPitch * 0.45, rig.headYaw * 0.45, thinkTilt * 0.65);
-      applyBoneEulerOffset('mixamorigHead', 0.06 + rig.headPitch * 0.55, rig.headYaw * 0.55, thinkTilt);
+      // Head tracks player / board + optional Easy-Mode horror twitch
+      let twX = 0, twY = 0, twZ = 0;
+      if (egg.twitchIntensity > 0 && !egg.snapAnim) {
+        const nowMs = t * 1000;
+        if (nowMs >= egg.nextTwitchAt) {
+          const mag = 0.44 * Math.min(1.5, egg.twitchIntensity);
+          egg.twitchOffset.x = (Math.random() - 0.5) * mag * 0.7;
+          egg.twitchOffset.y = (Math.random() - 0.5) * mag;
+          egg.twitchOffset.z = (Math.random() - 0.5) * mag * 1.25;
+          egg.twitchUntil = nowMs + 45 + Math.random() * 75;
+          const quietGap = Math.max(120, (240 + Math.random() * 780) / Math.max(0.7, egg.twitchIntensity));
+          egg.nextTwitchAt = egg.twitchUntil + quietGap;
+        }
+        if (nowMs < egg.twitchUntil) {
+          twX = egg.twitchOffset.x;
+          twY = egg.twitchOffset.y;
+          twZ = egg.twitchOffset.z;
+        }
+      }
+      applyBoneEulerOffset('mixamorigNeck', 0.08 + rig.headPitch * 0.45 + twX * 0.4, rig.headYaw * 0.45 + twY * 0.4, thinkTilt * 0.65 + twZ * 0.45);
+      applyBoneEulerOffset('mixamorigHead', 0.06 + rig.headPitch * 0.55 + twX, rig.headYaw * 0.55 + twY, thinkTilt + twZ);
 
       // Bounce reaction on captures / checkmate & update world matrices before solving resting arm IK
       if (rig.bounceT > 0) {
@@ -907,12 +1656,36 @@
       }
       rig.model.updateMatrixWorld(true);
 
-      // Relaxed seated hands resting cleanly on the table clear of back-rank pieces
+      // Relaxed seated hands resting cleanly on the table clear of back-rank pieces (or raised for finger snap)
       const restY = BOARD_Y + 0.04 + breath * 0.008;
       _restHandTarget.set(0.54, restY, -0.86);
       solveArmIK('Left', _restHandTarget, 1, true);
-      _restHandTarget.set(-0.54, restY, -0.86);
-      solveArmIK('Right', _restHandTarget, 1, true);
+      if (egg.snapAnim) {
+        const sa = egg.snapAnim;
+        const reachWeight = sa.phase === 'raise' ? sa.p : (sa.phase === 'done' ? Math.max(0, 1 - sa.p) : 1);
+        _restHandTarget.set(-0.54, restY, -0.86);
+        solveArmIK('Right', _restHandTarget, 1, true);
+        const snapY = sa.snapped ? 0.295 : 0.25;
+        _snapHandTarget.set(-0.12, snapY, -0.78);
+        solveArmIK('Right', _snapHandTarget, Math.min(1, reachWeight), true);
+        // Finger snap curl & flick pose on right hand bones
+        const pinch = sa.snapped ? -0.15 : 0.68;
+        applyBoneEulerOffset('mixamorigRightHandRing1', 1.15, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandRing2', 1.2, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandPinky1', 1.2, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandPinky2', 1.2, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandThumb1', pinch * 0.65, 0, pinch * 0.45);
+        applyBoneEulerOffset('mixamorigRightHandMiddle1', pinch * 1.1, 0, 0);
+      } else {
+        applyBoneEulerOffset('mixamorigRightHandRing1', 0, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandRing2', 0, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandPinky1', 0, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandPinky2', 0, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandThumb1', 0, 0, 0);
+        applyBoneEulerOffset('mixamorigRightHandMiddle1', 0, 0, 0);
+        _restHandTarget.set(-0.54, restY, -0.86);
+        solveArmIK('Right', _restHandTarget, 1, true);
+      }
 
       rig.model.updateMatrixWorld(true);
     }
@@ -1093,10 +1866,35 @@
       loader.load('../game/rigged-modelkurizu.glb', onOk, undefined, () => finishLoading());
     }
 
+    let bootEggTriggered = false;
     function finishLoading() {
       loadingEl.classList.add('is-hidden');
       setTimeout(() => { loadingEl.style.display = 'none'; }, 360);
+      if (!bootEggTriggered && new URLSearchParams(location.search).get('egg') === 'plains') {
+        bootEggTriggered = true;
+        setTimeout(() => {
+          if (!egg.snapAnim && !backrooms.isActive()) {
+            difficulty = 'easy';
+            document.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('is-active', b.dataset.diff === 'easy'));
+            triggerSnapToBackrooms();
+          }
+        }, 350);
+      }
     }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== 'kurizu-chess-cmd') return;
+      if (data.action === 'trigger-snap-plains') {
+        if (!backrooms.isActive() && !egg.snapAnim) {
+          difficulty = 'easy';
+          document.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('is-active', b.dataset.diff === 'easy'));
+          triggerSnapToBackrooms();
+        }
+      } else if (data.action === 'reset-chess') {
+        resetBoard();
+      }
+    });
 
     /* ---------------- Chess State, 3D Pieces & Visual Sync ---------------- */
     const game = new ChessGame();
@@ -1389,10 +2187,34 @@
 
           const st = game.getStatus();
           if (st.over) {
-            busy = false;
-            updateHud();
-            showGameOverModal(st);
+            if (st.state === 'checkmate' && st.winner === 'w' && difficulty === 'easy') {
+              if (egg.stage < 2) {
+                triggerBoardSwapEasterEgg();
+              } else {
+                triggerSnapToBackrooms();
+              }
+            } else {
+              busy = false;
+              updateHud();
+              showGameOverModal(st);
+            }
           } else {
+            if (difficulty === 'easy' && record.isCheck) {
+              if (egg.stage === 0) {
+                egg.stage = 1;
+                egg.twitchIntensity = 0.78;
+                playHorrorSfx('checkSting');
+                notifyParentEgg('check1', { rate: 0.84, glitchIcons: false });
+                setWisteriaBanter('...did you just check me?! i don’t like that.', true, 0.04);
+              } else if (egg.stage === 2) {
+                egg.stage = 3;
+                egg.twitchIntensity = 1.35;
+                setVoidEnvironment(true);
+                playHorrorSfx('voidDrop');
+                notifyParentEgg('void-glitch', { rate: 0.66, glitchIcons: true });
+                setWisteriaBanter('WHY WON’T YOU JUST LOSE?! ...look at your desktop.', true, 0.06);
+              }
+            }
             triggerWisteriaTurn();
           }
         },
@@ -1480,6 +2302,133 @@
           setTimeout(runLocalFallback, 90);
         }
       });
+    }
+
+    function swapGameColorsAndMirror(g) {
+      const nextBoard = Array.from({ length: 8 }, () => Array(8).fill(null));
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = g.board[7 - r][c];
+          if (!p) continue;
+          nextBoard[r][c] = p === p.toUpperCase() ? p.toLowerCase() : p.toUpperCase();
+        }
+      }
+      g.board = nextBoard;
+      g.turn = 'b';
+      g.castling = {
+        K: g.castling.k,
+        Q: g.castling.q,
+        k: g.castling.K,
+        q: g.castling.Q,
+      };
+      g.ep = g.ep ? { r: 7 - g.ep.r, c: g.ep.c } : null;
+      g.history = [];
+      g.positionCounts = new Map();
+      g.positionCounts.set(g.positionKey(), 1);
+    }
+
+    function pickCheckingMove(g) {
+      if (g.inCheck('w')) return null; // swapped side cannot leave White already in check on Black's turn
+      const legal = g.getAllLegalMoves('b');
+      if (!legal.length) return null;
+      const nonMateChecks = [];
+      const mateChecks = [];
+      for (const m of legal) {
+        const after = g.clone();
+        const rec = after.makeMove(m);
+        if (rec && rec.isCheck) {
+          const opp = after.getAllLegalMoves('w');
+          if (opp.length > 0) nonMateChecks.push(m);
+          else mateChecks.push(m);
+        }
+      }
+      if (nonMateChecks.length) return nonMateChecks[0];
+      if (mateChecks.length) return mateChecks[0];
+      return null;
+    }
+
+    function findCheckingMoveAfterUndoAndSwap(undoCount) {
+      const sim = game.clone();
+      sim.history = game.history.slice();
+      for (let i = 0; i < undoCount && sim.history.length; i++) {
+        sim.undoMove();
+      }
+      swapGameColorsAndMirror(sim);
+      return pickCheckingMove(sim);
+    }
+
+    async function triggerBoardSwapEasterEgg() {
+      busy = true;
+      egg.twitchIntensity = 1.0;
+      playHorrorSfx('checkSting');
+      notifyParentEgg('check1', { rate: 0.80, glitchIcons: false });
+      setWisteriaBanter('N O .   Y O U   D I D N ’ T   W I N .', true, 0.06);
+
+      await new Promise((r) => setTimeout(r, 520));
+
+      // Search ideal undo count [3, 2, 1, 4] that yields an immediate Black counter-check after board swap
+      let bestK = Math.min(3, game.history.length);
+      for (const k of [3, 2, 1, 4]) {
+        if (k <= game.history.length && findCheckingMoveAfterUndoAndSwap(k)) {
+          bestK = k;
+          break;
+        }
+      }
+
+      for (let i = 0; i < bestK && game.history.length; i++) {
+        game.undoMove();
+        selectedSq = null;
+        clearLegalMarkers();
+        rebuildPiecesFromGame();
+        playHorrorSfx('rewindStep');
+        await new Promise((r) => setTimeout(r, 290));
+      }
+
+      // 180-degree eerie board spin + color swap
+      await new Promise((resolve) => {
+        egg.boardSpin = { t: 0, dur: 0.62, onDone: resolve };
+      });
+      boardGroup.rotation.y = 0;
+      swapGameColorsAndMirror(game);
+      egg.stage = 2;
+      rebuildPiecesFromGame();
+
+      let counterMove = pickCheckingMove(game);
+      if (!counterMove) {
+        counterMove = chooseBestMove(game, 'hard');
+      }
+      setWisteriaBanter('my turn.  N O W   Y O U ’ R E   I N   C H E C K . ♡', true, 0.05);
+      if (counterMove) {
+        await new Promise((r) => setTimeout(r, 220));
+        playWisteriaMoveAnimation(counterMove);
+      } else {
+        busy = false;
+        updateHud();
+      }
+    }
+
+    function triggerSnapToBackrooms() {
+      busy = true;
+      egg.stage = 4;
+      egg.twitchIntensity = 0;
+      setVoidEnvironment(true);
+      notifyParentEgg('snap-backrooms', { rate: 0.62, glitchIcons: true });
+
+      // Erase board & table so only Wisteria sitting in her chair remains in the void
+      boardGroup.visible = false;
+      clearLegalMarkers();
+      selectedSq = null;
+      if (topBarEl) topBarEl.hidden = true;
+      if (bottomBarEl) bottomBarEl.hidden = true;
+      setWisteriaBanter('...fine. have fun getting out. 🫰', true, 0);
+
+      // Zoom camera cleanly to Wisteria alone in the dark void
+      desiredTarget.set(0, 0.24, -1.25);
+      targetTheta = 0.0;
+      targetPhi = 1.44;
+      targetRadius = 1.62;
+
+      egg.snapAnim = { t: 0, dur: 1.55, phase: 'raise', p: 0, snapped: false };
     }
 
     async function triggerWisteriaTurn() {
@@ -1787,10 +2736,12 @@
     }
 
     canvas.addEventListener('pointerdown', (e) => {
+      if (backrooms.isActive() || egg.snapAnim) return;
       pointerDownPos = { x: e.clientX, y: e.clientY, btn: e.button };
       draggingOrbit = true;
     });
     window.addEventListener('pointermove', (e) => {
+      if (backrooms.isActive() || egg.snapAnim) return;
       if (draggingOrbit && pointerDownPos) {
         const dx = e.clientX - pointerDownPos.x;
         const dy = e.clientY - pointerDownPos.y;
@@ -1804,6 +2755,7 @@
       }
     });
     window.addEventListener('pointerup', (e) => {
+      if (backrooms.isActive() || egg.snapAnim) { draggingOrbit = false; pointerDownPos = null; return; }
       if (!draggingOrbit || !pointerDownPos) { draggingOrbit = false; return; }
       const moved = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       const wasLeft = pointerDownPos.btn === 0;
@@ -1815,6 +2767,7 @@
       }
     });
     canvas.addEventListener('wheel', (e) => {
+      if (backrooms.isActive() || egg.snapAnim) return;
       e.preventDefault();
       targetRadius += e.deltaY * 0.0018;
     }, { passive: false });
@@ -1825,6 +2778,13 @@
       btn.addEventListener('click', () => {
         difficulty = btn.dataset.diff;
         document.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('is-active', b === btn));
+        if (difficulty !== 'easy' && egg.stage > 0) {
+          egg.stage = 0;
+          egg.twitchIntensity = 0;
+          egg.snapAnim = null;
+          setVoidEnvironment(false);
+          notifyParentEgg('reset', { rate: 1, glitchIcons: false });
+        }
         const msg = {
           easy: 'easy mode! okay i will take a tiny nap while playing ♡',
           medium: 'medium mode — a chill cozy match! ✨',
@@ -1842,6 +2802,19 @@
       playerAnim = null;
       wisteriaAnim = null;
       pendingPromo = null;
+      egg.stage = 0;
+      egg.twitchIntensity = 0;
+      egg.snapAnim = null;
+      egg.boardSpin = null;
+      boardGroup.rotation.y = 0;
+      boardGroup.visible = true;
+      if (topBarEl) topBarEl.hidden = false;
+      if (bottomBarEl) bottomBarEl.hidden = false;
+      if (wisteriaSpeech) wisteriaSpeech.hidden = false;
+      if (realityFlashEl) realityFlashEl.classList.remove('is-active');
+      if (backrooms.isActive()) backrooms.exit();
+      setVoidEnvironment(false);
+      notifyParentEgg('reset', { rate: 1, glitchIcons: false });
       promoModal.hidden = true;
       endModal.hidden = true;
       clearLegalMarkers();
@@ -1901,6 +2874,7 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      backrooms.resize(window.innerWidth, window.innerHeight);
     });
 
     /* ---------------- Main Render Loop ---------------- */
@@ -1910,6 +2884,49 @@
       const dt = Math.min(0.05, (now - lastTs) / 1000);
       lastTs = now;
       const t = now * 0.001;
+
+      if (backrooms.isActive()) {
+        backrooms.update(dt, t);
+        return;
+      }
+
+      if (egg.boardSpin) {
+        egg.boardSpin.t = Math.min(1, egg.boardSpin.t + dt / egg.boardSpin.dur);
+        const u = egg.boardSpin.t * egg.boardSpin.t * (3 - 2 * egg.boardSpin.t);
+        boardGroup.rotation.y = u * Math.PI;
+        if (egg.boardSpin.t >= 1) {
+          const done = egg.boardSpin.onDone;
+          egg.boardSpin = null;
+          done();
+        }
+      }
+
+      if (egg.snapAnim) {
+        const sa = egg.snapAnim;
+        sa.t += dt / sa.dur;
+        if (sa.t < 0.42) {
+          sa.phase = 'raise';
+          sa.p = sa.t / 0.42;
+        } else if (sa.t < 0.65) {
+          sa.phase = 'hold';
+          sa.p = 1;
+        } else {
+          if (!sa.snapped) {
+            sa.snapped = true;
+            playHorrorSfx('snap');
+            if (realityFlashEl) realityFlashEl.classList.add('is-active');
+          }
+          sa.phase = 'hold';
+          sa.p = 1;
+          if (sa.t >= 0.92) {
+            egg.snapAnim = null;
+            if (wisteriaSpeech) wisteriaSpeech.hidden = true;
+            backrooms.enter('plains');
+            setTimeout(() => { if (realityFlashEl) realityFlashEl.classList.remove('is-active'); }, 220);
+            return;
+          }
+        }
+      }
 
       if (rig.bounceT > 0) rig.bounceT = Math.max(0, rig.bounceT - dt);
       rig.headPitch += (rig.targetHeadPitch - rig.headPitch) * Math.min(1, dt * 6);
@@ -1967,7 +2984,21 @@
         }
       }
 
-      sparkles.rotation.y = t * 0.08;
+      // Animate twilight water, twinkling stars, and drifting purple fireflies
+      waterMat.uniforms.uTime.value = t;
+      starMat.uniforms.uTime.value = t;
+      fireflyMat.uniforms.uTime.value = t;
+
+      const posAttr = fireflyGeo.attributes.position;
+      const pa = posAttr.array;
+      for (let i = 0; i < fireflyCount; i++) {
+        const m = ffMeta[i];
+        pa[i * 3] = m.bx + Math.sin(t * m.fx + m.phase) * m.sx;
+        pa[i * 3 + 1] = m.by + Math.sin(t * m.fy + m.phase * 1.37) * m.sy;
+        pa[i * 3 + 2] = m.bz + Math.cos(t * m.fz + m.phase * 0.83) * m.sz;
+      }
+      posAttr.needsUpdate = true;
+
       updateCamera(dt);
       renderer.render(scene, camera);
     }
@@ -1999,6 +3030,31 @@
         const btn = document.querySelector(`[data-diff="${d}"]`);
         if (btn) btn.click();
       },
+      getEggState: () => ({
+        stage: egg.stage,
+        twitchIntensity: egg.twitchIntensity,
+        voidActive: egg.voidActive,
+        boardVisible: boardGroup.visible,
+        snapActive: Boolean(egg.snapAnim),
+        inBackrooms: backrooms.isActive(),
+        realm: backrooms.getRealm(),
+      }),
+      loadTestFen: (fen, pushHistoryMoves = []) => {
+        game.loadFen(fen);
+        for (const m of pushHistoryMoves) {
+          if (!game.makeMove(m)) break;
+        }
+        busy = false;
+        selectedSq = null;
+        playerAnim = null;
+        wisteriaAnim = null;
+        clearLegalMarkers();
+        rebuildPiecesFromGame();
+      },
+      setBackroomsRealm: (id) => backrooms.setRealm(id),
+      walkBackroomsForTest: (dz, dyaw, dtSim) => backrooms.stepForTest?.(dz, dyaw, dtSim),
+      getPlainsDebug: () => backrooms.getDebugState?.(),
+      exitBackrooms: () => backrooms.exit(),
       resetBoard,
     };
   })();

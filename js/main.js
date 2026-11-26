@@ -1826,6 +1826,155 @@
     if (data.state === "gameover" || data.state === "menu") refreshArcadeBest();
   });
 
+  /* ---- 3D Chess Easy-Mode Horror Easter Egg (Music Slowdown + Glitched Desktop Icons) ---- */
+  let chessGlitchTimer = 0;
+  const CHESS_GLITCH_LABELS = ["wisteria.exe", "DON'T_WIN", "ERR_0x666", "LOOK_BACK", "CHECKMATE", "???_VOID"];
+
+  function setDesktopChessGlitch(active) {
+    const on = Boolean(active);
+    document.body.classList.toggle("is-chess-glitched", on);
+    if (chessGlitchTimer) {
+      window.clearInterval(chessGlitchTimer);
+      chessGlitchTimer = 0;
+    }
+    const labels = $$(".desktop-icon__label");
+    if (on) {
+      labels.forEach((lbl) => {
+        if (lbl.dataset.chessOrigLabel === undefined) {
+          lbl.dataset.chessOrigLabel = lbl.textContent;
+        }
+      });
+      const scrambleTick = () => {
+        labels.forEach((lbl) => {
+          if (lbl.dataset.chessOrigLabel !== undefined) {
+            lbl.textContent = lbl.dataset.chessOrigLabel;
+          }
+        });
+        const count = Math.min(2, labels.length);
+        for (let i = 0; i < count; i++) {
+          const idx = Math.floor(Math.random() * labels.length);
+          const pick = labels[idx];
+          if (pick) {
+            pick.textContent = CHESS_GLITCH_LABELS[Math.floor(Math.random() * CHESS_GLITCH_LABELS.length)];
+          }
+        }
+      };
+      scrambleTick();
+      chessGlitchTimer = window.setInterval(scrambleTick, 380);
+    } else {
+      labels.forEach((lbl) => {
+        if (lbl.dataset.chessOrigLabel !== undefined) {
+          lbl.textContent = lbl.dataset.chessOrigLabel;
+          delete lbl.dataset.chessOrigLabel;
+        }
+      });
+    }
+  }
+
+  function isChessWindowOpen() {
+    const win = $("#chessWindow");
+    return Boolean(win && !win.classList.contains("is-closed") && !win.classList.contains("is-minimized"));
+  }
+
+  function nudgePetOutsideChessWindow() {
+    if (!petStage || !isChessWindowOpen()) return;
+    const win = $("#chessWindow");
+    if (!win) return;
+    const wRect = win.getBoundingClientRect();
+    const pRect = petStage.getBoundingClientRect();
+    if (wRect.width < 10 || pRect.width < 10) return;
+
+    const overlapsX = pRect.right > wRect.left + 8 && pRect.left < wRect.right - 8;
+    const overlapsY = pRect.bottom > wRect.top + 8 && pRect.top < wRect.bottom - 8;
+    if (!overlapsX || !overlapsY) return;
+
+    const vw = window.innerWidth;
+    const currentRightAnchor = pRect.left - petX;
+    const leftSlotLeft = Math.max(8, wRect.left - pRect.width - 14);
+    const rightSlotLeft = vw - pRect.width - 12;
+    const targetLeft = leftSlotLeft + pRect.width <= wRect.left + 12 ? leftSlotLeft : rightSlotLeft;
+    petX = Math.round(targetLeft - currentRightAnchor);
+    petY = 0;
+    petStage.style.transition = "transform 0.25s ease";
+    petStage.style.transform = `translate3d(${petX}px, 0, 0)`;
+    petChoiceActive = false;
+    petBubble?.classList.remove("is-visible", "has-choice");
+  }
+
+  function clearChessEggEffects() {
+    setDesktopChessGlitch(false);
+    if (!document.body.classList.contains("is-wisteria-mad")) {
+      applyPlayerPitchAndRate(1);
+    }
+    const urlInput = $("#chessUrlInput");
+    if (urlInput) urlInput.value = "kurizu://games/wisteria-chess";
+  }
+
+  window.addEventListener("message", (event) => {
+    const chessFrame = $("#chessIframe");
+    if (!chessFrame || event.source !== chessFrame.contentWindow) return;
+    const data = event.data;
+    if (!data || data.type !== "kurizu-chess-egg") return;
+    if (typeof data.rate === "number" && !document.body.classList.contains("is-wisteria-mad")) {
+      applyPlayerPitchAndRate(data.rate);
+    }
+    if (typeof data.glitchIcons === "boolean") {
+      setDesktopChessGlitch(data.glitchIcons);
+    }
+    const urlInput = $("#chessUrlInput");
+    if (urlInput) {
+      if (data.stage === "snap-backrooms") urlInput.value = "kurizu://games/wisteria-chess-plains";
+      else if (data.stage === "reset") urlInput.value = "kurizu://games/wisteria-chess";
+    }
+  });
+
+  function submitChessUrlCommand() {
+    const input = $("#chessUrlInput");
+    const frame = $("#chessIframe");
+    if (!input || !frame) return;
+    const raw = input.value.trim().toLowerCase();
+    input.blur();
+
+    if (/plains|level[-_\s]?94|backrooms|snap/.test(raw)) {
+      input.value = "kurizu://games/wisteria-chess-plains";
+      if (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank") {
+        frame.src = "chess/index.html?windowed=1&egg=plains";
+      } else {
+        try {
+          frame.contentWindow?.postMessage({ type: "kurizu-chess-cmd", action: "trigger-snap-plains" }, "*");
+        } catch (_) {}
+      }
+      frame.focus();
+    } else if (/wisteria-chess|chess/.test(raw)) {
+      input.value = "kurizu://games/wisteria-chess";
+      if (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank") {
+        frame.src = "chess/index.html?windowed=1";
+      } else {
+        try {
+          frame.contentWindow?.postMessage({ type: "kurizu-chess-cmd", action: "reset-chess" }, "*");
+        } catch (_) {}
+      }
+      frame.focus();
+    }
+  }
+
+  $("#chessUrlForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitChessUrlCommand();
+  });
+
+  $("#chessUrlInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      submitChessUrlCommand();
+    }
+  });
+
+  $("#chessUrlInput")?.addEventListener("pointerdown", (e) => {
+    e.stopPropagation();
+  });
+
   refreshArcadeBest();
 
   /* ============================================================
@@ -2913,6 +3062,7 @@
       if (frame && (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank")) {
         frame.src = "chess/index.html?windowed=1";
       }
+      window.setTimeout(nudgePetOutsideChessWindow, 40);
     }
   }
 
@@ -2956,6 +3106,7 @@
       iconEl.style.transform = "";
     });
     desktopIconOffsets.clear();
+    clearChessEggEffects();
     focusDesktopWindow("browser");
     playSfx("pop");
     toast("desktop reset to clean workspace ✨");
@@ -3155,6 +3306,7 @@
           win.classList.remove("is-maximized", "is-minimized", "is-focused");
           document.body.classList.toggle("has-maximized-window", !!$(".window.is-maximized"));
           win.classList.add("is-closed");
+          if (spec.id === "chess") clearChessEggEffects();
           playSfx("pop");
           updateTaskbarTray();
         }
@@ -3208,6 +3360,7 @@
         if (info) {
           info.el.classList.remove("is-maximized", "is-minimized", "is-focused");
           info.el.classList.add("is-closed");
+          if (id === "chess") clearChessEggEffects();
           playSfx("pop");
           updateTaskbarTray();
         }
@@ -4017,6 +4170,11 @@
 
   function teleportPetWithPrompt() {
     if (!petStage || petChatOpen || petIsMad) return;
+    if (isChessWindowOpen()) {
+      nudgePetOutsideChessWindow();
+      scheduleNextPetTeleport(12000);
+      return;
+    }
     petStopWalk();
     petBusy = true;
 
@@ -4119,6 +4277,11 @@
   }
 
   function goWalk(dir) {
+    if (isChessWindowOpen()) {
+      petStopWalk();
+      nudgePetOutsideChessWindow();
+      return;
+    }
     petMoodCurrent = "walk";
     window.clearTimeout(petIdleTimer);
     petStopWalk();

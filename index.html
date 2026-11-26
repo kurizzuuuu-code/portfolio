@@ -22,7 +22,7 @@
   <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/fonts.css">
-  <link rel="stylesheet" href="css/style.css?v=interactive22">
+  <link rel="stylesheet" href="css/style.css?v=interactive24">
 </head>
 <body class="is-desktop-os">
   <a class="skip-link" href="#main">skip to content</a>
@@ -1023,7 +1023,10 @@
       <span class="window__badge">3D CHESS · VS WISTERIA</span>
     </div>
     <div class="dropship-win__toolbar">
-      <span class="dropship-win__url"><svg class="icon"><use href="#i-chess"/></svg>kurizu://games/wisteria-chess</span>
+      <form class="dropship-win__url chess-url-form" id="chessUrlForm" autocomplete="off">
+        <svg class="icon"><use href="#i-chess"/></svg>
+        <input type="text" class="chess-url-input" id="chessUrlInput" value="kurizu://games/wisteria-chess" spellcheck="false" autocomplete="off" aria-label="Wisteria Chess address bar">
+      </form>
       <div class="dropship-win__actions">
         <a class="btn btn--small btn--primary" href="chess/index.html" target="_blank" rel="noopener"><svg class="icon"><use href="#i-external"/></svg>open in new tab</a>
       </div>
@@ -1150,8 +1153,8 @@
   <script src="slider.js"></script>
   <script src="tooltip.js"></script>
   <script src="button.js"></script>
-  <script src="js/site.config.js?v=interactive22"></script>
-  <script src="js/main.js?v=interactive22"></script>
+  <script src="js/site.config.js?v=interactive24"></script>
+  <script src="js/main.js?v=interactive24"></script>
   <script src="game/three.min.js"></script>
   <script src="game/GLTFLoader.js"></script>
   <script src="game/player_model_data.js"></script>
