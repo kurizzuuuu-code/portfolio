@@ -72,57 +72,68 @@
     }
   `;
 
-  function createHouseParts(palette) {
-    const grp = new THREE.Group();
+  // Merge an array of BufferGeometries (position + normal) into one non-indexed BufferGeometry
+  function mergeBakedGeos(list) {
+    let totalVerts = 0;
+    const expanded = [];
+    for (let i = 0; i < list.length; i++) {
+      const g = list[i].index ? list[i].toNonIndexed() : list[i];
+      const pos = g.attributes.position;
+      if (!pos) continue;
+      if (!g.attributes.normal) g.computeVertexNormals();
+      totalVerts += pos.count;
+      expanded.push(g);
+    }
+    const positions = new Float32Array(totalVerts * 3);
+    const normals = new Float32Array(totalVerts * 3);
+    let offset = 0;
+    for (let i = 0; i < expanded.length; i++) {
+      const p = expanded[i].attributes.position.array;
+      const n = expanded[i].attributes.normal.array;
+      positions.set(p, offset);
+      normals.set(n, offset);
+      offset += p.length;
+      expanded[i].dispose();
+    }
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    const colors = new Float32Array(totalVerts * 3);
+    colors.fill(1);
+    merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return merged;
+  }
+
+  // Bake all house sub-parts into 7 merged BufferGeometries (1 per material/part) for InstancedMesh rendering
+  function buildHouseTemplateGeometries() {
     const w = 6.8;
     const h = 6.4;
     const d = 8.2;
     const ridgeH = 3.1;
     const foundDepth = 5.2;
 
-    const wallMat = new THREE.MeshLambertMaterial({ color: palette.wall });
-    const sideWallMat = new THREE.MeshLambertMaterial({ color: palette.wallSide });
-    const trimMat = new THREE.MeshLambertMaterial({ color: 0xf4f3ed });
-    const roofMat = new THREE.MeshLambertMaterial({ color: palette.roof });
-    const glassMat = new THREE.MeshLambertMaterial({
-      color: 0x0b0e14,
-      emissive: 0x020306,
-    });
-    const doorMat = new THREE.MeshLambertMaterial({ color: palette.door || 0xebe8df });
+    const buckets = { wall: [], sideWall: [], trim: [], roof: [], glass: [], door: [], fence: [] };
+    const tmpObj = new THREE.Object3D();
+    function pushGeo(bucket, geo, px, py, pz, rx, ry, rz, parentMat) {
+      tmpObj.position.set(px || 0, py || 0, pz || 0);
+      tmpObj.rotation.set(rx || 0, ry || 0, rz || 0);
+      tmpObj.scale.set(1, 1, 1);
+      tmpObj.updateMatrix();
+      const mat = parentMat ? parentMat.clone().multiply(tmpObj.matrix) : tmpObj.matrix;
+      geo.applyMatrix4(mat);
+      buckets[bucket].push(geo);
+    }
 
-    // Grounded foundation skirt reaching deep into hillslopes
-    const foundation = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.16, foundDepth, d + 0.16),
-      wallMat
-    );
-    foundation.position.y = -foundDepth * 0.5 + 0.15;
-    grp.add(foundation);
+    pushGeo('wall', new THREE.BoxGeometry(w + 0.16, foundDepth, d + 0.16), 0, -foundDepth * 0.5 + 0.15, 0);
+    pushGeo('trim', new THREE.BoxGeometry(w + 0.24, 0.26, d + 0.24), 0, 0.13, 0);
+    pushGeo('wall', new THREE.BoxGeometry(w, h, d), 0, h * 0.5, 0);
 
-    const baseTrim = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.24, 0.26, d + 0.24),
-      trimMat
-    );
-    baseTrim.position.y = 0.13;
-    grp.add(baseTrim);
-
-    // Main two-story clapboard shell
-    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    body.position.y = h * 0.5;
-    grp.add(body);
-
-    // Corner trim boards
     for (let sx = -1; sx <= 1; sx += 2) {
       for (let sz = -1; sz <= 1; sz += 2) {
-        const corner = new THREE.Mesh(
-          new THREE.BoxGeometry(0.18, h + 0.08, 0.18),
-          trimMat
-        );
-        corner.position.set(sx * (w * 0.5 + 0.02), h * 0.5, sz * (d * 0.5 + 0.02));
-        grp.add(corner);
+        pushGeo('trim', new THREE.BoxGeometry(0.18, h + 0.08, 0.18), sx * (w * 0.5 + 0.02), h * 0.5, sz * (d * 0.5 + 0.02));
       }
     }
 
-    // Gable peak extrusion
     const gableShape = new THREE.Shape();
     gableShape.moveTo(-w * 0.5, 0);
     gableShape.lineTo(0, ridgeH);
@@ -130,67 +141,31 @@
     gableShape.closePath();
     const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: d, bevelEnabled: false });
     gableGeo.translate(0, 0, -d * 0.5);
-    const gableMesh = new THREE.Mesh(gableGeo, sideWallMat);
-    gableMesh.position.y = h;
-    grp.add(gableMesh);
+    pushGeo('sideWall', gableGeo, 0, h, 0);
 
-    // Dual pitched roof slabs + ridge cap + trim fascia
     const slopeLen = Math.hypot(w * 0.5 + 0.55, ridgeH) + 0.2;
     const slopeAngle = Math.atan2(ridgeH, w * 0.5);
-    const roofGroup = new THREE.Group();
-    roofGroup.position.y = h;
-
     [-1, 1].forEach((side) => {
-      const slab = new THREE.Mesh(
-        new THREE.BoxGeometry(slopeLen, 0.22, d + 0.8),
-        roofMat
-      );
-      slab.position.set(side * (w * 0.25 + 0.14), ridgeH * 0.5 - 0.08, 0);
-      slab.rotation.z = -side * slopeAngle;
-      roofGroup.add(slab);
-
-      const barge = new THREE.Mesh(
-        new THREE.BoxGeometry(slopeLen, 0.24, 0.14),
-        trimMat
-      );
-      barge.position.set(side * (w * 0.25 + 0.14), ridgeH * 0.5 - 0.13, d * 0.5 + 0.36);
-      barge.rotation.z = -side * slopeAngle;
-      roofGroup.add(barge);
-
-      const bargeBack = barge.clone();
-      bargeBack.position.z = -d * 0.5 - 0.36;
-      roofGroup.add(bargeBack);
+      pushGeo('roof', new THREE.BoxGeometry(slopeLen, 0.22, d + 0.8), side * (w * 0.25 + 0.14), h + ridgeH * 0.5 - 0.08, 0, 0, 0, -side * slopeAngle);
+      pushGeo('trim', new THREE.BoxGeometry(slopeLen, 0.24, 0.14), side * (w * 0.25 + 0.14), h + ridgeH * 0.5 - 0.13, d * 0.5 + 0.36, 0, 0, -side * slopeAngle);
+      pushGeo('trim', new THREE.BoxGeometry(slopeLen, 0.24, 0.14), side * (w * 0.25 + 0.14), h + ridgeH * 0.5 - 0.13, -d * 0.5 - 0.36, 0, 0, -side * slopeAngle);
     });
+    pushGeo('trim', new THREE.BoxGeometry(0.24, 0.18, d + 0.84), 0, h + ridgeH + 0.04, 0);
 
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, d + 0.84), trimMat);
-    ridge.position.set(0, ridgeH + 0.04, 0);
-    roofGroup.add(ridge);
-    grp.add(roofGroup);
-
-    // Muntin sash windows + crisp white frames + front door
+    const winParent = new THREE.Object3D();
     function addWindow(x, y, z, rotY, winW, winH) {
-      const wg = new THREE.Group();
-      wg.position.set(x, y, z);
-      wg.rotation.y = rotY;
-      wg.add(new THREE.Mesh(new THREE.BoxGeometry(winW + 0.24, winH + 0.24, 0.1), trimMat));
-      const glass = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.12), glassMat);
-      glass.position.z = 0.01;
-      wg.add(glass);
-      const mullV = new THREE.Mesh(new THREE.BoxGeometry(0.06, winH, 0.14), trimMat);
-      mullV.position.z = 0.02;
-      wg.add(mullV);
-      [-0.22, 0.22].forEach((oy) => {
-        const mullH = new THREE.Mesh(new THREE.BoxGeometry(winW, 0.06, 0.14), trimMat);
-        mullH.position.set(0, oy * winH, 0.02);
-        wg.add(mullH);
-      });
-      const sill = new THREE.Mesh(new THREE.BoxGeometry(winW + 0.36, 0.11, 0.2), trimMat);
-      sill.position.set(0, -winH * 0.5 - 0.08, 0.05);
-      wg.add(sill);
-      grp.add(wg);
+      winParent.position.set(x, y, z);
+      winParent.rotation.set(0, rotY, 0);
+      winParent.updateMatrix();
+      const pm = winParent.matrix;
+      pushGeo('trim', new THREE.BoxGeometry(winW + 0.24, winH + 0.24, 0.1), 0, 0, 0, 0, 0, 0, pm);
+      pushGeo('glass', new THREE.BoxGeometry(winW, winH, 0.12), 0, 0, 0.01, 0, 0, 0, pm);
+      pushGeo('trim', new THREE.BoxGeometry(0.06, winH, 0.14), 0, 0, 0.02, 0, 0, 0, pm);
+      pushGeo('trim', new THREE.BoxGeometry(winW, 0.06, 0.14), 0, -0.22 * winH, 0.02, 0, 0, 0, pm);
+      pushGeo('trim', new THREE.BoxGeometry(winW, 0.06, 0.14), 0, 0.22 * winH, 0.02, 0, 0, 0, pm);
+      pushGeo('trim', new THREE.BoxGeometry(winW + 0.36, 0.11, 0.2), 0, -winH * 0.5 - 0.08, 0.05, 0, 0, 0, pm);
     }
 
-    // Front & back facades
     [-1, 1].forEach((fz) => {
       const rot = fz > 0 ? 0 : Math.PI;
       const zPos = fz * (d * 0.5 + 0.04);
@@ -200,19 +175,12 @@
       addWindow(0.0, 4.45, zPos, rot, 1.02, 1.38);
       addWindow(1.7, 4.45, zPos, rot, 1.02, 1.38);
       addWindow(0.0, h + 1.45, zPos, rot, 0.85, 0.96);
-
       if (fz > 0) {
-        const dg = new THREE.Group();
-        dg.position.set(0, 1.35, zPos + 0.03);
-        dg.add(new THREE.Mesh(new THREE.BoxGeometry(1.52, 2.7, 0.1), trimMat));
-        const slab = new THREE.Mesh(new THREE.BoxGeometry(1.26, 2.48, 0.13), doorMat);
-        slab.position.z = 0.01;
-        dg.add(slab);
-        grp.add(dg);
+        pushGeo('trim', new THREE.BoxGeometry(1.52, 2.7, 0.1), 0, 1.35, zPos + 0.03);
+        pushGeo('door', new THREE.BoxGeometry(1.26, 2.48, 0.13), 0, 1.35, zPos + 0.04);
       }
     });
 
-    // Side windows
     [-1, 1].forEach((fx) => {
       const rot = fx > 0 ? Math.PI * 0.5 : -Math.PI * 0.5;
       const xPos = fx * (w * 0.5 + 0.04);
@@ -222,48 +190,47 @@
       });
     });
 
-    // Optional white picket fence corners
-    if (palette.fence) {
-      const fenceGroup = new THREE.Group();
-      for (let i = -3; i <= 3; i++) {
-        if (Math.abs(i) < 1) continue;
-        const p = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.96, 0.06), trimMat);
-        p.position.set(i * 0.92, 0.42, d * 0.5 + 1.45);
-        fenceGroup.add(p);
-      }
-      [-1, 1].forEach((s) => {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.07, 0.05), trimMat);
-        rail.position.set(s * 2.15, 0.68, d * 0.5 + 1.45);
-        fenceGroup.add(rail);
-      });
-      grp.add(fenceGroup);
+    for (let i = -3; i <= 3; i++) {
+      if (Math.abs(i) < 1) continue;
+      pushGeo('fence', new THREE.BoxGeometry(0.11, 0.96, 0.06), i * 0.92, 0.42, d * 0.5 + 1.45);
     }
+    [-1, 1].forEach((s) => {
+      pushGeo('fence', new THREE.BoxGeometry(2.1, 0.07, 0.05), s * 2.15, 0.68, d * 0.5 + 1.45);
+    });
 
-    return grp;
+    return {
+      wall: mergeBakedGeos(buckets.wall),
+      sideWall: mergeBakedGeos(buckets.sideWall),
+      trim: mergeBakedGeos(buckets.trim),
+      roof: mergeBakedGeos(buckets.roof),
+      glass: mergeBakedGeos(buckets.glass),
+      door: mergeBakedGeos(buckets.door),
+      fence: mergeBakedGeos(buckets.fence),
+    };
   }
 
-  function createWaterTower() {
-    const grp = new THREE.Group();
-    const steelMat = new THREE.MeshLambertMaterial({ color: 0x747d82 });
-    const tankMat = new THREE.MeshLambertMaterial({ color: 0x9aa4a9 });
-    const coneMat = new THREE.MeshLambertMaterial({ color: 0x6f777c });
-
+  function buildWaterTowerTemplateGeometries() {
+    const legs = [];
+    const tmpObj = new THREE.Object3D();
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI * 0.25;
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 11.4, 6), steelMat);
-      leg.position.set(Math.cos(a) * 1.45, 5.4, Math.sin(a) * 1.45);
-      leg.rotation.z = -Math.cos(a) * 0.06;
-      leg.rotation.x = Math.sin(a) * 0.06;
-      grp.add(leg);
+      const legGeo = new THREE.CylinderGeometry(0.12, 0.16, 11.4, 6);
+      tmpObj.position.set(Math.cos(a) * 1.45, 5.4, Math.sin(a) * 1.45);
+      tmpObj.rotation.set(Math.sin(a) * 0.06, 0, -Math.cos(a) * 0.06);
+      tmpObj.scale.set(1, 1, 1);
+      tmpObj.updateMatrix();
+      legGeo.applyMatrix4(tmpObj.matrix);
+      legs.push(legGeo);
     }
-    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.75, 1.75, 3.2, 14), tankMat);
-    tank.position.y = 12.1;
-    grp.add(tank);
-
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.9, 1.25, 14), coneMat);
-    roof.position.y = 14.3;
-    grp.add(roof);
-    return grp;
+    const tankGeo = new THREE.CylinderGeometry(1.75, 1.75, 3.2, 14);
+    tankGeo.translate(0, 12.1, 0);
+    const roofGeo = new THREE.ConeGeometry(1.9, 1.25, 14);
+    roofGeo.translate(0, 14.3, 0);
+    return {
+      steel: mergeBakedGeos(legs),
+      tank: tankGeo,
+      cone: roofGeo,
+    };
   }
 
   // Exact bone alignment helper so GLB Mixamo arms orient cleanly in world or character-rotated space
@@ -460,16 +427,16 @@
       380
     );
 
-    const ambientLight = new THREE.AmbientLight(0xdbe6f0, 0.62);
-    const hemiLight = new THREE.HemisphereLight(0xd9e8f5, 0x3b4822, 0.72);
-    const sunLight = new THREE.DirectionalLight(0xfff4de, 0.92);
+    const ambientLight = new THREE.AmbientLight(0xc8def4, 0.48);
+    const hemiLight = new THREE.HemisphereLight(0x9fd0ff, 0x32401b, 0.70);
+    const sunLight = new THREE.DirectionalLight(0xffe9c2, 1.08);
     sunLight.position.set(18, 28, -40);
     const flashlight = new THREE.PointLight(0xdfecff, 0, 28, 1.35);
     const watcherGlow = new THREE.PointLight(0xd8b4fe, 0, 9.5, 1.6);
 
     brScene.add(ambientLight, hemiLight, sunLight, flashlight, watcherGlow);
 
-    // Level 94 Bright Clouded Daylight Sky -> Midnight Starry Sky on Looping
+    // Level 94 Rich Sunlit Clouded Daylight Sky -> Midnight Starry Sky on Looping
     const skyPlainsMat = new THREE.ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
@@ -500,40 +467,53 @@
           );
         }
         float fbm(vec2 p) {
-          float s = 0.0; float a = 0.5;
-          for (int i = 0; i < 4; i++) { s += a * noise(p); p *= 2.03; a *= 0.5; }
+          float s = 0.0; float a = 0.52;
+          for (int i = 0; i < 4; i++) { s += a * noise(p); p *= 2.04; a *= 0.49; }
+          return s;
+        }
+        float fbmLow(vec2 p) {
+          float s = 0.0; float a = 0.54;
+          for (int i = 0; i < 3; i++) { s += a * noise(p); p *= 2.04; a *= 0.49; }
           return s;
         }
         void main() {
           vec3 dir = normalize(vDir);
           float h = clamp(dir.y, -0.1, 1.0);
 
-          vec3 dayZenith = vec3(0.45, 0.64, 0.80);
-          vec3 dayHorizon = vec3(0.77, 0.83, 0.88);
-          vec3 duskZenith = vec3(0.14, 0.17, 0.28);
-          vec3 duskHorizon = vec3(0.28, 0.30, 0.38);
-          vec3 nightZenith = vec3(0.015, 0.015, 0.042);
-          vec3 nightHorizon = vec3(0.045, 0.04, 0.085);
+          vec3 dayZenith = vec3(0.28, 0.54, 0.84);
+          vec3 dayMid = vec3(0.56, 0.74, 0.90);
+          vec3 dayHorizon = vec3(0.84, 0.88, 0.90);
+          vec3 duskZenith = vec3(0.11, 0.14, 0.28);
+          vec3 duskHorizon = vec3(0.32, 0.28, 0.38);
+          vec3 nightZenith = vec3(0.012, 0.014, 0.040);
+          vec3 nightHorizon = vec3(0.040, 0.036, 0.080);
 
           float d1 = clamp(uDarkness * 2.0, 0.0, 1.0);
           float d2 = clamp(uDarkness * 2.0 - 1.0, 0.0, 1.0);
           vec3 skyZenith = mix(mix(dayZenith, duskZenith, d1), nightZenith, d2);
           vec3 skyHorizon = mix(mix(dayHorizon, duskHorizon, d1), nightHorizon, d2);
-          vec3 sky = mix(skyHorizon, skyZenith, pow(max(0.0, h), 0.52));
+          vec3 sky = mix(skyHorizon, mix(dayMid, skyZenith, clamp(uDarkness, 0.0, 1.0)), smoothstep(0.0, 0.28, max(0.0, h)));
+          sky = mix(sky, skyZenith, smoothstep(0.18, 0.85, max(0.0, h)));
 
-          vec3 sunDir = normalize(vec3(0.24, 0.52, -0.82));
+          // Atmospheric Mie sun scatter + crisp solar disc
+          vec3 sunDir = normalize(vec3(0.24, 0.48, -0.84));
           float sunAmt = max(0.0, dot(dir, sunDir));
-          float sunScale = mix(1.0, 0.08, smoothstep(0.15, 0.85, uDarkness));
-          sky += vec3(0.95, 0.93, 0.88) * pow(sunAmt, 14.0) * 0.28 * sunScale;
-          sky += vec3(1.0, 0.98, 0.92) * smoothstep(0.996, 0.9995, sunAmt) * 0.72 * sunScale;
+          float sunScale = mix(1.0, 0.06, smoothstep(0.15, 0.85, uDarkness));
+          sky += vec3(1.0, 0.90, 0.72) * pow(sunAmt, 6.0) * 0.22 * sunScale;
+          sky += vec3(1.0, 0.95, 0.84) * pow(sunAmt, 36.0) * 0.42 * sunScale;
+          sky += vec3(1.0, 0.99, 0.94) * smoothstep(0.9965, 0.9994, sunAmt) * 0.90 * sunScale;
 
-          if (h > 0.015) {
-            vec2 uv = dir.xz / (h + 0.16) * 1.42 + vec2(uTime * 0.008, uTime * 0.003);
+          if (h > 0.012) {
+            vec2 uv = dir.xz / (h + 0.15) * 1.38 + vec2(uTime * 0.010, uTime * 0.004);
             float c = fbm(uv);
-            float cMask = smoothstep(0.42, 0.78, c) * smoothstep(0.015, 0.14, h);
-            vec3 cloudCol = mix(vec3(0.95, 0.96, 0.97), vec3(0.84, 0.87, 0.91), c);
-            cloudCol = mix(cloudCol, vec3(0.10, 0.10, 0.16), smoothstep(0.15, 0.92, uDarkness));
-            sky = mix(sky, cloudCol, cMask * mix(0.88, 0.38, uDarkness));
+            float cSun = fbmLow(uv + normalize(sunDir.xz) * 0.12);
+            float cMask = smoothstep(0.44, 0.78, c) * smoothstep(0.012, 0.13, h);
+            float rim = clamp((c - cSun) * 2.8 + 0.55, 0.0, 1.0);
+            vec3 cloudShade = vec3(0.68, 0.75, 0.84);
+            vec3 cloudLit = vec3(1.0, 0.985, 0.95) + vec3(0.18, 0.12, 0.04) * pow(sunAmt, 4.0);
+            vec3 cloudCol = mix(cloudShade, cloudLit, smoothstep(0.15, 0.88, rim));
+            cloudCol = mix(cloudCol, vec3(0.09, 0.09, 0.15), smoothstep(0.15, 0.92, uDarkness));
+            sky = mix(sky, cloudCol, cMask * mix(0.92, 0.36, uDarkness));
           }
 
           gl_FragColor = vec4(sky, 1.0);
@@ -621,10 +601,11 @@
     brScene.add(starPoints);
 
     // Infinite wrapping far-distance rolling meadow terrain (centered on camera, ±180m)
-    const groundGeo = new THREE.PlaneGeometry(360, 360, 144, 144);
+    const groundGeo = new THREE.PlaneGeometry(360, 360, 96, 96);
     groundGeo.rotateX(-Math.PI * 0.5);
     const groundMat = new THREE.ShaderMaterial({
       uniforms: {
+        uTime: { value: 0 },
         uCenterX: { value: 0 },
         uCenterZ: { value: 0 },
         uDarkness: { value: 0 },
@@ -650,6 +631,7 @@
       fragmentShader: `
         varying vec3 vWorld;
         varying vec3 vNorm;
+        uniform float uTime;
         uniform float uDarkness;
         uniform vec3 uFogColor;
         uniform float uFogDensity;
@@ -666,30 +648,54 @@
           );
         }
         void main() {
+          float nMacro = vnoise(vWorld.xz * 0.06);
           float n1 = vnoise(vWorld.xz * 0.28);
-          float n2 = vnoise(vWorld.xz * 2.1);
-          vec3 soilMoss = mix(vec3(0.11, 0.145, 0.055), vec3(0.24, 0.30, 0.09), n1 * 0.72 + n2 * 0.28);
+          float n2 = vnoise(vWorld.xz * 2.4);
+          float nFine = vnoise(vWorld.xz * 9.5);
+
+          // Rich sunlit meadow palette: cool deep valleys -> lush emerald -> golden hilltop patches
+          float hillCrest = smoothstep(-0.6, 2.2, vWorld.y);
+          vec3 valleyGreen = vec3(0.095, 0.165, 0.048);
+          vec3 meadowGreen = vec3(0.20, 0.32, 0.082);
+          vec3 sunlitHill = vec3(0.32, 0.41, 0.125);
+          vec3 soilMoss = mix(valleyGreen, meadowGreen, clamp(n1 * 0.65 + n2 * 0.35, 0.0, 1.0));
+          soilMoss = mix(soilMoss, sunlitHill, hillCrest * 0.42 + nMacro * 0.28);
+          soilMoss *= (0.90 + 0.18 * nFine);
+
           float dxRoad = abs(vWorld.x - roadCenterX(vWorld.z));
           float asphaltMask = 1.0 - smoothstep(1.9, 2.35, dxRoad);
-          float shoulderMask = (1.0 - smoothstep(2.2, 3.0, dxRoad)) * (1.0 - asphaltMask);
+          float shoulderMask = (1.0 - smoothstep(2.2, 3.15, dxRoad)) * (1.0 - asphaltMask);
 
-          vec3 roadCol = mix(vec3(0.14, 0.14, 0.15), vec3(0.22, 0.21, 0.20), n2);
+          vec3 roadCol = mix(vec3(0.11, 0.115, 0.125), vec3(0.21, 0.20, 0.19), n2 * 0.6 + nFine * 0.4);
           float centerLine = (1.0 - smoothstep(0.04, 0.09, dxRoad)) * step(0.45, fract(vWorld.z * 0.18));
-          roadCol = mix(roadCol, vec3(0.76, 0.74, 0.65), centerLine * 0.52);
+          roadCol = mix(roadCol, vec3(0.84, 0.80, 0.66), centerLine * 0.62);
 
-          vec3 col = mix(soilMoss, vec3(0.28, 0.26, 0.18), shoulderMask * 0.72);
+          vec3 col = mix(soilMoss, vec3(0.27, 0.24, 0.15), shoulderMask * 0.72);
           col = mix(col, roadCol, asphaltMask);
 
-          vec3 sunDir = normalize(vec3(0.24, 0.68, -0.69));
-          float diff = max(0.22, dot(normalize(vNorm), sunDir));
-          float dayLight = mix(1.0, 0.16, uDarkness);
-          float camDist = length(vWorld - uCameraPos);
-          float torch = uDarkness * exp(-camDist * 0.09) * 0.58;
-          col *= (0.44 + 0.64 * diff) * (dayLight + torch);
+          // Warm golden sun + cool sky hemisphere bounce + drifting cloud shadows
+          vec3 N = normalize(vNorm);
+          vec3 V = normalize(uCameraPos - vWorld);
+          vec3 sunDir = normalize(vec3(0.24, 0.56, -0.79));
+          float diff = max(0.0, dot(N, sunDir));
+          float cloudN = vnoise(vWorld.xz * 0.022 + vec2(uTime * 0.045, uTime * 0.020));
+          float cloudShadow = mix(0.74, 1.08, smoothstep(0.32, 0.72, cloudN));
+          vec3 skyFill = vec3(0.46, 0.62, 0.82) * (0.36 + 0.22 * N.y);
+          vec3 sunContrib = vec3(1.08, 0.98, 0.82) * diff * 0.92 * cloudShadow;
 
+          // Subtle asphalt sun sheen
+          vec3 H = normalize(sunDir + V);
+          float roadSpec = pow(max(0.0, dot(N, H)), 24.0) * asphaltMask * 0.28 * (1.0 - uDarkness) * cloudShadow;
+
+          float dayLight = mix(1.0, 0.14, uDarkness);
           float dist = length(vWorld - uCameraPos);
-          // No close fog; only soften the extreme 180m terrain edge into the horizon
-          float edgeFade = smoothstep(145.0, 178.0, dist);
+          float torch = uDarkness * exp(-dist * 0.088) * 0.62;
+          col = col * ((skyFill + sunContrib) * dayLight + vec3(torch)) + vec3(1.0, 0.95, 0.84) * roadSpec;
+
+          // Gentle blue aerial perspective at far distance (no heavy fog) + smooth edge fade at 180m
+          vec3 aerialCol = mix(vec3(0.62, 0.76, 0.88), uFogColor, uDarkness);
+          col = mix(col, aerialCol, smoothstep(55.0, 175.0, dist) * 0.34);
+          float edgeFade = smoothstep(148.0, 178.0, dist);
           col = mix(col, uFogColor, clamp(edgeFade, 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }
@@ -699,10 +705,10 @@
     groundMesh.frustumCulled = false;
     brScene.add(groundMesh);
 
-    // 52,000 Lush Thicker Tall Curved Shader Grass Blades (48m x 48m forward-biased carpet, behind-player culled)
-    const GRASS_COUNT = 52000;
+    // 28,000 Lush Thicker Tall Curved Shader Grass Blades (48m x 48m forward-biased carpet, behind-player culled, 2-seg fast GPU)
+    const GRASS_COUNT = 28000;
     const GRASS_SPAN = 48.0;
-    const SEGS = 3; // 6 triangles per blade for smooth graceful arch
+    const SEGS = 2; // 4 triangles per blade for smooth graceful arch at high FPS
     const bladeVerts = [];
     const bladeNorms = [];
     const bladeYs = [];
@@ -771,7 +777,19 @@
         varying float vTone;
         varying vec3 vWorldPos;
         varying float vRoadMask;
+        varying float vCloudShadow;
+        varying float vWindWave;
         ${GLSL_TERRAIN}
+        float gHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float gNoise(vec2 p) {
+          vec2 i = floor(p); vec2 f = fract(p);
+          vec2 u = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(gHash(i), gHash(i + vec2(1.0, 0.0)), u.x),
+            mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), u.x),
+            u.y
+          );
+        }
         void main() {
           float span = 48.0;
           float wx = mod(aOffset.x - uCenterX + span * 0.5, span) - span * 0.5 + uCenterX;
@@ -780,7 +798,7 @@
           // Derender grass blades outside/behind the player's forward view cone
           vec2 fromPlayer = vec2(wx, wz) - uCameraPos.xz;
           float pDist = length(fromPlayer) + 0.001;
-          if (pDist > 2.4 && dot(fromPlayer / pDist, uCamFwdXZ) < 0.22) {
+          if (pDist > 2.4 && dot(fromPlayer / pDist, uCamFwdXZ) < 0.28) {
             gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
             return;
           }
@@ -793,10 +811,11 @@
           float edgeShrink = 1.0 - smoothstep(31.0, 38.0, pDist);
           float bh = aBladeMeta.y * (0.25 + 0.75 * vRoadMask) * edgeShrink;
           float lean = aBladeMeta.z;
-          float bw = 0.044 + 0.028 * aBladeMeta.w;
+          float bw = 0.056 + 0.032 * aBladeMeta.w;
 
           // Multi-frequency wild gust wave
-          float gust = sin(uTime * 1.45 + wx * 0.34 + wz * 0.24) * 0.55
+          float waveSin = sin(uTime * 1.45 + wx * 0.34 + wz * 0.24);
+          float gust = waveSin * 0.55
                      + sin(uTime * 2.85 + wx * 0.78 - wz * 0.41) * 0.25
                      + 0.20;
           float flex = aBladeY * aBladeY;
@@ -822,6 +841,9 @@
           }
 
           vec3 worldPos = vec3(wx + wp.x, wy + wp.y - 0.04, wz + wp.z);
+          float cloudN = gNoise(vec2(wx, wz) * 0.022 + vec2(uTime * 0.045, uTime * 0.020));
+          vCloudShadow = mix(0.74, 1.08, smoothstep(0.32, 0.72, cloudN));
+          vWindWave = 0.5 + 0.5 * waveSin;
           vH = aBladeY;
           vTone = aBladeMeta.w;
           vWorldPos = worldPos;
@@ -833,30 +855,30 @@
         varying float vTone;
         varying vec3 vWorldPos;
         varying float vRoadMask;
+        varying float vCloudShadow;
+        varying float vWindWave;
         uniform float uDarkness;
-        uniform vec3 uFogColor;
-        uniform float uFogDensity;
         uniform vec3 uCameraPos;
         void main() {
           if (vRoadMask < 0.06) discard;
-          // Deep olive root -> warm meadow green -> golden dry straw tips
-          vec3 rootCol = mix(vec3(0.065, 0.09, 0.025), vec3(0.09, 0.125, 0.035), vTone);
-          vec3 midCol = mix(vec3(0.22, 0.30, 0.075), vec3(0.30, 0.38, 0.10), vTone);
-          vec3 tipCol = mix(vec3(0.44, 0.48, 0.16), vec3(0.56, 0.52, 0.22), vTone);
+          // Deep lush root -> vibrant emerald meadow -> warm sunlit golden tips
+          vec3 rootCol = mix(vec3(0.055, 0.088, 0.022), vec3(0.085, 0.130, 0.032), vTone);
+          vec3 midCol = mix(vec3(0.18, 0.32, 0.068), vec3(0.28, 0.42, 0.095), vTone);
+          vec3 tipCol = mix(vec3(0.46, 0.54, 0.16), vec3(0.62, 0.58, 0.22), vTone);
           vec3 col = vH < 0.55
             ? mix(rootCol, midCol, vH / 0.55)
             : mix(midCol, tipCol, (vH - 0.55) / 0.45);
 
-          // Root contact AO + subsurface sunlit scatter
-          float ao = mix(0.28, 1.06, smoothstep(0.0, 0.85, vH));
+          float ao = mix(0.24, 1.08, smoothstep(0.0, 0.85, vH));
           vec3 viewDir = normalize(uCameraPos - vWorldPos);
-          vec3 sunDir = normalize(vec3(0.24, 0.34, -0.91));
-          float backlit = pow(max(0.0, dot(-viewDir, sunDir)), 3.0) * vH * 0.38 * (1.0 - uDarkness);
+          vec3 sunDir = normalize(vec3(0.24, 0.36, -0.90));
+          float backlit = pow(max(0.0, dot(-viewDir, sunDir)), 2.6) * vH * 0.52 * (1.0 - uDarkness) * vCloudShadow;
+          float tipSheen = smoothstep(0.65, 1.0, vH) * (0.06 + 0.14 * vWindWave) * (1.0 - uDarkness) * vCloudShadow;
 
-          float dayScale = mix(1.0, 0.16, uDarkness);
+          float dayScale = mix(1.0, 0.14, uDarkness);
           float camDist = length(vWorldPos - uCameraPos);
-          float torch = uDarkness * exp(-camDist * 0.105) * 0.62;
-          col = (col * ao + vec3(0.45, 0.50, 0.18) * backlit) * (dayScale + torch);
+          float torch = uDarkness * exp(-camDist * 0.10) * 0.65;
+          col = (col * ao * vCloudShadow + vec3(0.56, 0.62, 0.18) * backlit + vec3(0.52, 0.56, 0.24) * tipSheen) * (dayScale + torch);
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -917,7 +939,9 @@
     const plainsHouseTiles = [];
     for (const seed of rawHouseSeeds) {
       const hill = findNearbyHillCrest(seed.ox, seed.oz, housePlacements, 16.0);
-      const template = createHouseParts(seed);
+      const wallCol = new THREE.Color(seed.wall);
+      const sideWallCol = new THREE.Color(seed.wallSide);
+      const roofCol = new THREE.Color(seed.roof);
       housePlacements.push({
         ox: hill.x,
         oz: hill.z,
@@ -928,36 +952,50 @@
         cosInv: Math.cos(seed.rot),
         sinInv: Math.sin(seed.rot),
       });
-      // 3x3 far-distance tile grid (252m x 252m); behind-player houses are derendered each frame
+      // 3x3 far-distance tile grid (252m x 252m) packed into 7 InstancedMeshes (10 total draw calls vs ~7,774!)
       for (let gx = -1; gx <= 1; gx++) {
         for (let gz = -1; gz <= 1; gz++) {
-          const clone = gx === 0 && gz === 0 ? template : template.clone();
-          clone.position.set(gx * TILE + hill.x, hill.y + 0.08, gz * TILE + hill.z);
-          clone.rotation.y = seed.rot;
-          brScene.add(clone);
           plainsHouseTiles.push({
-            mesh: clone,
             ox: hill.x,
             oz: hill.z,
             oy: hill.y + 0.08,
+            rot: seed.rot,
             gx,
             gz,
+            wallCol,
+            sideWallCol,
+            roofCol,
+            fence: Boolean(seed.fence),
           });
         }
       }
     }
 
+    const MAX_HOUSES = plainsHouseTiles.length;
+    const houseGeos = buildHouseTemplateGeometries();
+    const houseInstWall = new THREE.InstancedMesh(houseGeos.wall, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_HOUSES);
+    const houseInstSide = new THREE.InstancedMesh(houseGeos.sideWall, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_HOUSES);
+    const houseInstRoof = new THREE.InstancedMesh(houseGeos.roof, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAX_HOUSES);
+    const houseInstTrim = new THREE.InstancedMesh(houseGeos.trim, new THREE.MeshLambertMaterial({ color: 0xf4f3ed }), MAX_HOUSES);
+    const houseInstGlass = new THREE.InstancedMesh(houseGeos.glass, new THREE.MeshLambertMaterial({ color: 0x0b0e14, emissive: 0x020306 }), MAX_HOUSES);
+    const houseInstDoor = new THREE.InstancedMesh(houseGeos.door, new THREE.MeshLambertMaterial({ color: 0xebe8df }), MAX_HOUSES);
+    const houseInstFence = new THREE.InstancedMesh(houseGeos.fence, new THREE.MeshLambertMaterial({ color: 0xf4f3ed }), MAX_HOUSES);
+    const _initWhite = new THREE.Color(0xffffff);
+    houseInstWall.setColorAt(0, _initWhite);
+    houseInstSide.setColorAt(0, _initWhite);
+    houseInstRoof.setColorAt(0, _initWhite);
+    [houseInstWall, houseInstSide, houseInstRoof, houseInstTrim, houseInstGlass, houseInstDoor, houseInstFence].forEach((im) => {
+      im.frustumCulled = false;
+      im.count = 0;
+      brScene.add(im);
+    });
+
     const TOWER_RADIUS = 2.2;
     const waterTowerPos = findNearbyHillCrest(-25, -24, housePlacements, 13.0);
-    const waterTowerTemplate = createWaterTower();
     const plainsTowerTiles = [];
     for (let gx = -1; gx <= 1; gx++) {
       for (let gz = -1; gz <= 1; gz++) {
-        const clone = gx === 0 && gz === 0 ? waterTowerTemplate : waterTowerTemplate.clone();
-        clone.position.set(gx * TILE + waterTowerPos.x, waterTowerPos.y - 0.1, gz * TILE + waterTowerPos.z);
-        brScene.add(clone);
         plainsTowerTiles.push({
-          mesh: clone,
           ox: waterTowerPos.x,
           oz: waterTowerPos.z,
           oy: waterTowerPos.y - 0.1,
@@ -966,6 +1004,16 @@
         });
       }
     }
+    const towerGeos = buildWaterTowerTemplateGeometries();
+    const towerInstSteel = new THREE.InstancedMesh(towerGeos.steel, new THREE.MeshLambertMaterial({ color: 0x747d82 }), plainsTowerTiles.length);
+    const towerInstTank = new THREE.InstancedMesh(towerGeos.tank, new THREE.MeshLambertMaterial({ color: 0x9aa4a9 }), plainsTowerTiles.length);
+    const towerInstCone = new THREE.InstancedMesh(towerGeos.cone, new THREE.MeshLambertMaterial({ color: 0x6f777c }), plainsTowerTiles.length);
+    [towerInstSteel, towerInstTank, towerInstCone].forEach((im) => {
+      im.frustumCulled = false;
+      im.count = 0;
+      brScene.add(im);
+    });
+    const _instDummy = new THREE.Object3D();
     let plainsVisibleHouses = 0;
 
     // Resolve OBB collisions against wrapped houses + radial collision against wrapped water tower
@@ -1116,22 +1164,22 @@
       watcherGroup.position.copy(watcherPos);
     }
 
-    /* ---------------- LEVEL 0 · THE LOBBY (Dark Halls, Rare Lights, Flashlight & Faster Stealth Chaser) ---------------- */
+    /* ---------------- LEVEL 0 · THE LOBBY (Deep Dark Halls, Smooth Rare Lights, Flashlight Stealth & Fast Chaser) ---------------- */
     const L0_TILE = 48.0;
     const L0_H = 4.5;
     const L0_PLAYER_R = 0.45;
-    const l0FogColor = new THREE.Color(0x0c0a05);
-    const l0FogDensity = 0.025;
+    const l0FogColor = new THREE.Color(0x030201);
+    const l0FogDensity = 0.036;
 
     const l0Scene = new THREE.Scene();
     l0Scene.background = l0FogColor.clone();
     l0Scene.fog = new THREE.FogExp2(l0FogColor.getHex(), l0FogDensity);
 
-    const l0Ambient = new THREE.AmbientLight(0x262010, 0.24);
-    const l0Hemi = new THREE.HemisphereLight(0x3c341a, 0x0b0904, 0.24);
-    const l0CamLight = new THREE.PointLight(0xfff3c4, 0.18, 10, 1.4);
+    const l0Ambient = new THREE.AmbientLight(0x120f08, 0.08);
+    const l0Hemi = new THREE.HemisphereLight(0x1a160c, 0x040302, 0.08);
+    const l0CamLight = new THREE.PointLight(0xffeec2, 0.05, 5.5, 1.8);
     const l0FlashTarget = new THREE.Object3D();
-    const l0FlashSpot = new THREE.SpotLight(0xfff4d6, 2.8, 36, Math.PI / 5.2, 0.52, 1.35);
+    const l0FlashSpot = new THREE.SpotLight(0xfff4d6, 3.8, 40, Math.PI / 5.0, 0.55, 1.25);
     l0FlashSpot.target = l0FlashTarget;
     l0Scene.add(l0Ambient, l0Hemi, l0CamLight, l0FlashSpot, l0FlashTarget);
 
@@ -1146,20 +1194,28 @@
           u.y
         );
       }
-      // Rare working fluorescent lights (~18% of panels shine)
+      // Smooth 3x3 neighborhood radial ceiling light pools (~16% of panels shine, ZERO boxed grid cutoffs!)
       float l0PanelLight(vec2 xz, float time, float danger) {
-        vec2 cell = floor(xz / 4.8);
-        vec2 local = fract(xz / 4.8) - 0.5;
-        float r = l0Hash(cell);
-        float lit = step(0.82, r);
-        if (lit < 0.5) return 0.0;
-        float flick = r > 0.94 ? (0.62 + 0.38 * sin(time * 24.0 + r * 60.0) * sin(time * 9.0 + r * 17.0)) : 1.0;
-        if (danger > 0.05) {
-          float panicFlick = 0.38 + 0.62 * sin(time * 38.0 + r * 95.0);
-          flick = mix(flick, panicFlick, danger * 0.85);
+        vec2 baseCell = floor(xz / 4.8);
+        float total = 0.0;
+        for (int ox = -1; ox <= 1; ox++) {
+          for (int oz = -1; oz <= 1; oz++) {
+            vec2 cell = baseCell + vec2(float(ox), float(oz));
+            float r = l0Hash(cell);
+            if (r < 0.84) continue;
+            float flick = r > 0.94 ? (0.62 + 0.38 * sin(time * 24.0 + r * 60.0) * sin(time * 9.0 + r * 17.0)) : 1.0;
+            if (danger > 0.05) {
+              float panicFlick = 0.35 + 0.65 * sin(time * 38.0 + r * 95.0);
+              flick = mix(flick, panicFlick, danger * 0.85);
+            }
+            vec2 center = (cell + 0.5) * 4.8;
+            vec2 diff = (xz - center) / 4.8;
+            float d2 = dot(diff, diff);
+            float pool = exp(-d2 * 2.65) * smoothstep(2.05, 0.30, d2);
+            total += pool * flick;
+          }
         }
-        float d = length(local * vec2(1.0, 1.25));
-        return exp(-d * d * 3.8) * flick;
+        return min(total, 1.35);
       }
       float l0FlashCone(vec3 worldPos, vec3 camPos, vec3 camDir, float on) {
         if (on < 0.01) return 0.0;
@@ -1167,9 +1223,10 @@
         float dist = length(toFrag);
         vec3 dir = toFrag / max(0.001, dist);
         float c = dot(dir, normalize(camDir));
-        float core = smoothstep(0.86, 0.965, c);
-        float spill = smoothstep(0.76, 0.92, c) * 0.38;
-        float beam = max(core, spill) * exp(-dist * 0.048);
+        float hotspot = smoothstep(0.915, 0.985, c);
+        float core = smoothstep(0.84, 0.955, c) * 0.78;
+        float spill = smoothstep(0.73, 0.90, c) * 0.28;
+        float beam = max(max(hotspot, core), spill) * exp(-dist * 0.044);
         return beam * on;
       }
     `;
@@ -1223,14 +1280,14 @@
 
           float overhead = l0PanelLight(vWorld.xz, uTime, uDanger);
           float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
-          vec3 lightMul = vec3(0.09 + 0.92 * overhead) + vec3(1.45, 1.38, 1.15) * flash;
+          vec3 lightMul = vec3(0.022 + 0.92 * overhead) + vec3(1.85, 1.74, 1.42) * flash;
           col *= lightMul;
           col = mix(col, col * vec3(1.22, 0.58, 0.58), uDanger * 0.42);
 
           float dist = length(vWorld - uCameraPos);
           float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
           float edgeFog = smoothstep(34.0, 48.0, dist);
-          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - flash * 0.45), edgeFog), 0.0, 1.0));
+          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - flash * 0.55), edgeFog), 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -1284,7 +1341,7 @@
           vec2 cell = floor(vWorld.xz / 4.8);
           vec2 cLocal = fract(vWorld.xz / 4.8) - 0.5;
           float r = l0Hash(cell);
-          float lit = step(0.82, r);
+          float lit = step(0.84, r);
           float dead = 1.0 - lit;
           float flick = (r > 0.94 || uDanger > 0.08)
             ? mix(1.0, 0.44 + 0.56 * sin(uTime * 34.0 + r * 80.0), max(step(0.94, r) * 0.4, uDanger * 0.85))
@@ -1293,21 +1350,21 @@
           float inPanel = step(abs(cLocal.x), 0.145) * step(abs(cLocal.y), 0.095);
           float frame = step(abs(cLocal.x), 0.165) * step(abs(cLocal.y), 0.115) * (1.0 - inPanel);
           float louvre = 0.88 + 0.12 * sin(cLocal.x * 160.0);
-          float halo = exp(-length(cLocal * vec2(1.0, 1.35)) * 4.5);
+          float smoothGlow = l0PanelLight(vWorld.xz, uTime, uDanger);
           float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
 
-          float tileLight = 0.08 + 0.88 * halo * lit * flick + flash * 1.15;
+          float tileLight = 0.02 + 0.82 * smoothGlow + flash * 1.45;
           vec3 col = tileCol * tileLight;
-          col = mix(col, vec3(0.14, 0.12, 0.07) * (0.35 + flash), frame);
+          col = mix(col, vec3(0.10, 0.09, 0.05) * (0.18 + smoothGlow * 0.8 + flash * 1.2), frame);
           vec3 tubeActive = mix(vec3(1.0, 0.96, 0.82), vec3(1.0, 0.48, 0.52), uDanger * 0.45) * louvre;
-          vec3 deadTube = vec3(0.08, 0.075, 0.05) * (0.4 + flash * 1.3);
+          vec3 deadTube = vec3(0.05, 0.045, 0.03) * (0.25 + flash * 1.4);
           vec3 tubeCol = mix(tubeActive * flick, deadTube, dead);
           col = mix(col, tubeCol, inPanel);
 
           float dist = length(vWorld - uCameraPos);
           float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
           float edgeFog = smoothstep(34.0, 48.0, dist);
-          float keepLit = clamp(inPanel * lit * 0.72 + flash * 0.42, 0.0, 0.85) * (1.0 - edgeFog);
+          float keepLit = clamp(inPanel * lit * 0.78 + flash * 0.50, 0.0, 0.85) * (1.0 - edgeFog);
           col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - keepLit), edgeFog), 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }
@@ -1370,15 +1427,15 @@
 
           float overhead = l0PanelLight(vWorld.xz, uTime, uDanger);
           float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
-          float dirShade = 0.72 + 0.28 * abs(vNorm.z);
-          float heightGrad = 0.54 + 0.46 * smoothstep(0.0, 4.3, y);
-          col *= (vec3(0.09 + 0.86 * overhead) + vec3(1.48, 1.40, 1.16) * flash) * dirShade * heightGrad;
+          float dirShade = 0.76 + 0.24 * abs(vNorm.z);
+          float heightGrad = 0.52 + 0.48 * smoothstep(0.0, 4.3, y);
+          col *= (vec3(0.022 + 0.88 * overhead) + vec3(1.88, 1.76, 1.42) * flash) * dirShade * heightGrad;
           col = mix(col, col * vec3(1.18, 0.58, 0.60), uDanger * 0.42);
 
           float dist = length(vWorld - uCameraPos);
           float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
           float edgeFog = smoothstep(34.0, 48.0, dist);
-          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - flash * 0.45), edgeFog), 0.0, 1.0));
+          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - flash * 0.55), edgeFog), 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -1915,7 +1972,7 @@
       if (l0ChaserMixer && l0SprintAction) {
         l0SprintAction.enabled = true;
         l0SprintAction.setEffectiveWeight(1);
-        l0SprintAction.setEffectiveTimeScale(l0KnowsPlayer ? (1.22 + speedScale * 0.55) : 0.88);
+        l0SprintAction.setEffectiveTimeScale(l0KnowsPlayer ? (1.58 + speedScale * 0.65) : 0.78);
         l0ChaserMixer.update(Math.min(dt, 0.25));
         if (cBones.hips && cBindQ.hipsPos) {
           cBones.hips.position.x = cBindQ.hipsPos.x;
@@ -1949,12 +2006,12 @@
         }
       }
 
-      // Crimson emissive tint ramp when closing in
+      // Subtle purple glint in the dark -> intense crimson emissive ramp when closing in
       for (let i = 0; i < cMaterials.length; i++) {
-        cMaterials[i].emissive.setRGB(0.24 + l0Danger * 0.45, 0.07, 0.28 * (1.0 - l0Danger * 0.5));
+        cMaterials[i].emissive.setRGB(0.10 + l0Danger * 0.55, 0.03, 0.14 * (1.0 - l0Danger * 0.5));
       }
       l0ChaserGlow.color.setHex(l0Danger > 0.35 ? 0xff2a6d : 0xd8b4fe);
-      l0ChaserGlow.intensity = 0.85 + l0Danger * 2.1;
+      l0ChaserGlow.intensity = 0.22 + l0Danger * 2.25;
     }
 
     function restoreChaserBindPose() {
@@ -2065,9 +2122,9 @@
         return;
       }
 
-      // Stealth & detection: flashlight ON (or < 7.5m close) reveals your exact location!
+      // Stealth & detection: very hard for Wisteria to spot you in the dark unless flashlight is ON (or < 3.6m bump)
       const wasKnowing = l0KnowsPlayer;
-      if (l0FlashlightOn || dist < 7.5) {
+      if (l0FlashlightOn || dist < 3.6) {
         l0KnowsPlayer = true;
         l0LastKnownPos.copy(pos);
       } else {
@@ -2088,7 +2145,7 @@
 
       bfsTimer -= dt;
       if (bfsTimer <= 0 || Math.hypot(bfsTargetX - l0PetPos.x, bfsTargetZ - l0PetPos.z) < 0.75) {
-        bfsTimer = 0.20;
+        bfsTimer = 0.16;
         if (!computeChaseWaypoint(activeGoalX, activeGoalZ)) {
           bfsTargetX = activeGoalX;
           bfsTargetZ = activeGoalZ;
@@ -2102,8 +2159,8 @@
       const gDist = Math.hypot(gx, gz);
       const dirX = gx / Math.max(0.001, gDist);
       const dirZ = gz / Math.max(0.001, gDist);
-      // Faster chaser when she locks onto you, slower blind search when flashlight is OFF
-      const chaseSpeed = l0KnowsPlayer ? (5.65 + l0Danger * 1.55) : 3.9;
+      // Terrifying full-speed sprint when she spots you (10.6 -> 13.4 m/s), slow blind search when flashlight is OFF
+      const chaseSpeed = l0KnowsPlayer ? (10.6 + l0Danger * 2.8) : 3.2;
       const stepDist = chaseSpeed * Math.min(dt, 0.25);
 
       const oldX = l0PetPos.x;
@@ -2284,6 +2341,7 @@
       const fx = -Math.sin(yaw);
       const fz = -Math.cos(yaw);
       let visCount = 0;
+      let fenceCount = 0;
 
       for (let i = 0; i < plainsHouseTiles.length; i++) {
         const item = plainsHouseTiles[i];
@@ -2293,13 +2351,49 @@
         const dz = hz - pos.z;
         const dist = Math.hypot(dx, dz);
         // Keep close houses always rendered; derender anything behind or outside the player's forward view
-        const inView = dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.18);
-        item.mesh.position.set(hx, item.oy, hz);
-        item.mesh.visible = inView;
-        if (inView) visCount++;
+        if (!(dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.22))) continue;
+
+        _instDummy.position.set(hx, item.oy, hz);
+        _instDummy.rotation.set(0, item.rot, 0);
+        _instDummy.scale.set(1, 1, 1);
+        _instDummy.updateMatrix();
+
+        houseInstWall.setMatrixAt(visCount, _instDummy.matrix);
+        houseInstSide.setMatrixAt(visCount, _instDummy.matrix);
+        houseInstRoof.setMatrixAt(visCount, _instDummy.matrix);
+        houseInstTrim.setMatrixAt(visCount, _instDummy.matrix);
+        houseInstGlass.setMatrixAt(visCount, _instDummy.matrix);
+        houseInstDoor.setMatrixAt(visCount, _instDummy.matrix);
+        houseInstWall.setColorAt(visCount, item.wallCol);
+        houseInstSide.setColorAt(visCount, item.sideWallCol);
+        houseInstRoof.setColorAt(visCount, item.roofCol);
+        visCount++;
+
+        if (item.fence) {
+          houseInstFence.setMatrixAt(fenceCount, _instDummy.matrix);
+          fenceCount++;
+        }
       }
       plainsVisibleHouses = visCount;
+      houseInstWall.count = visCount;
+      houseInstSide.count = visCount;
+      houseInstRoof.count = visCount;
+      houseInstTrim.count = visCount;
+      houseInstGlass.count = visCount;
+      houseInstDoor.count = visCount;
+      houseInstFence.count = fenceCount;
+      houseInstWall.instanceMatrix.needsUpdate = true;
+      houseInstSide.instanceMatrix.needsUpdate = true;
+      houseInstRoof.instanceMatrix.needsUpdate = true;
+      houseInstTrim.instanceMatrix.needsUpdate = true;
+      houseInstGlass.instanceMatrix.needsUpdate = true;
+      houseInstDoor.instanceMatrix.needsUpdate = true;
+      houseInstFence.instanceMatrix.needsUpdate = true;
+      if (houseInstWall.instanceColor) houseInstWall.instanceColor.needsUpdate = true;
+      if (houseInstSide.instanceColor) houseInstSide.instanceColor.needsUpdate = true;
+      if (houseInstRoof.instanceColor) houseInstRoof.instanceColor.needsUpdate = true;
 
+      let towerCount = 0;
       for (let i = 0; i < plainsTowerTiles.length; i++) {
         const item = plainsTowerTiles[i];
         const tx = (baseTX + item.gx) * TILE + item.ox;
@@ -2307,10 +2401,22 @@
         const dx = tx - pos.x;
         const dz = tz - pos.z;
         const dist = Math.hypot(dx, dz);
-        const inView = dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.18);
-        item.mesh.position.set(tx, item.oy, tz);
-        item.mesh.visible = inView;
+        if (!(dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.22))) continue;
+        _instDummy.position.set(tx, item.oy, tz);
+        _instDummy.rotation.set(0, 0, 0);
+        _instDummy.scale.set(1, 1, 1);
+        _instDummy.updateMatrix();
+        towerInstSteel.setMatrixAt(towerCount, _instDummy.matrix);
+        towerInstTank.setMatrixAt(towerCount, _instDummy.matrix);
+        towerInstCone.setMatrixAt(towerCount, _instDummy.matrix);
+        towerCount++;
       }
+      towerInstSteel.count = towerCount;
+      towerInstTank.count = towerCount;
+      towerInstCone.count = towerCount;
+      towerInstSteel.instanceMatrix.needsUpdate = true;
+      towerInstTank.instanceMatrix.needsUpdate = true;
+      towerInstCone.instanceMatrix.needsUpdate = true;
     }
 
     function syncAtmosphereLighting() {
@@ -2320,9 +2426,9 @@
 
       brScene.background.copy(liveFogColor);
 
-      ambientLight.intensity = 0.62 - darkness * 0.51;
-      hemiLight.intensity = 0.72 - darkness * 0.58;
-      sunLight.intensity = 0.92 - darkness * 0.80;
+      ambientLight.intensity = 0.48 - darkness * 0.39;
+      hemiLight.intensity = 0.70 - darkness * 0.56;
+      sunLight.intensity = 1.08 - darkness * 0.94;
       flashlight.intensity = darkness * 1.45;
       flashlight.position.set(pos.x, pos.y + 0.2, pos.z);
 
@@ -2381,7 +2487,7 @@
         brCamera.getWorldDirection(_flashDirVec);
         l0FlashSpot.position.set(pos.x, pos.y - 0.12, pos.z);
         l0FlashTarget.position.copy(pos).addScaledVector(_flashDirVec, 12.0);
-        l0FlashSpot.intensity = l0FlashlightOn ? 3.1 : 0.0;
+        l0FlashSpot.intensity = l0FlashlightOn ? 3.8 : 0.0;
 
         if (l0Caught) {
           animateL0ChaserGrab(dt);
@@ -2423,7 +2529,7 @@
         l0CamLight.position.set(pos.x, pos.y + 0.2, pos.z);
         l0FlashSpot.position.set(pos.x, pos.y - 0.12, pos.z);
         l0FlashTarget.position.copy(pos).addScaledVector(_flashDirVec, 12.0);
-        l0FlashSpot.intensity = l0FlashlightOn ? 3.1 : 0.0;
+        l0FlashSpot.intensity = l0FlashlightOn ? 3.8 : 0.0;
 
         wrapLevel0Entities();
         stepLevel0WisteriaChase(dt);
@@ -2543,6 +2649,7 @@
       }
 
       skyPlainsMat.uniforms.uTime.value = brTime;
+      groundMat.uniforms.uTime.value = brTime;
       groundMat.uniforms.uCenterX.value = pos.x;
       groundMat.uniforms.uCenterZ.value = pos.z;
       groundMat.uniforms.uCameraPos.value.copy(pos);
@@ -2792,6 +2899,7 @@
     function enter(realm) {
       currentRealm = realm === 'level0' ? 'level0' : 'plains';
       active = true;
+      renderer.shadowMap.enabled = false;
       keys = Object.create(null);
       resetJoystick();
       mobileSprint = false;
@@ -2905,6 +3013,7 @@
     function exit() {
       if (!active) return;
       active = false;
+      renderer.shadowMap.enabled = true;
       if (dangerEl) dangerEl.style.setProperty('--danger', '0');
       if (jumpscareEl) jumpscareEl.hidden = true;
       brCamera.rotation.z = 0;
@@ -2971,6 +3080,7 @@
         plainsFogEnabled: Boolean(brScene.fog),
         plainsVisibleHouses,
         plainsTotalHouses: plainsHouseTiles.length,
+        renderCalls: renderer.info && renderer.info.render ? renderer.info.render.calls : null,
         watcherPos: {
           x: +watcherPos.x.toFixed(2),
           y: +watcherPos.y.toFixed(2),

@@ -855,37 +855,50 @@
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    renderer.toneMappingExposure = 0.92;
 
-    const ambientLight = new THREE.AmbientLight(0xf3e8ff, 0.56);
+    const ambientLight = new THREE.AmbientLight(0x2e154a, 0.24);
     scene.add(ambientLight);
-    const hemiLight = new THREE.HemisphereLight(0xfef4ff, 0x3b1863, 1.05);
+    const hemiLight = new THREE.HemisphereLight(0xb59ce8, 0x1a092e, 0.34);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff5fb, 1.25);
-    keyLight.position.set(2.4, 4.4, 2.8);
+    const keyLight = new THREE.DirectionalLight(0xfff0fa, 1.32);
+    keyLight.position.set(2.2, 3.6, 1.9);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.mapSize.set(2048, 2048);
     keyLight.shadow.camera.near = 0.5;
-    keyLight.shadow.camera.far = 12;
-    const sc = 2.6;
+    keyLight.shadow.camera.far = 11;
+    const sc = 2.15;
     keyLight.shadow.camera.left = -sc;
     keyLight.shadow.camera.right = sc;
     keyLight.shadow.camera.top = sc;
     keyLight.shadow.camera.bottom = -sc;
-    keyLight.shadow.bias = -0.0005;
+    keyLight.shadow.bias = -0.0003;
+    keyLight.shadow.normalBias = 0.014;
+    keyLight.shadow.radius = 2.6;
     scene.add(keyLight);
 
-    const moonBackLight = new THREE.DirectionalLight(0xe9d5ff, 1.15);
-    moonBackLight.position.set(0, 3.6, -12);
+    const moonBackLight = new THREE.DirectionalLight(0xc4b5fd, 0.52);
+    moonBackLight.position.set(-1.5, 3.2, -3.8);
+    moonBackLight.castShadow = true;
+    moonBackLight.shadow.mapSize.set(1024, 1024);
+    moonBackLight.shadow.camera.near = 0.5;
+    moonBackLight.shadow.camera.far = 11;
+    moonBackLight.shadow.camera.left = -2.2;
+    moonBackLight.shadow.camera.right = 2.2;
+    moonBackLight.shadow.camera.top = 2.2;
+    moonBackLight.shadow.camera.bottom = -2.2;
+    moonBackLight.shadow.bias = -0.0004;
+    moonBackLight.shadow.normalBias = 0.015;
+    moonBackLight.shadow.radius = 2.4;
     scene.add(moonBackLight);
 
-    const wisteriaRimLight = new THREE.DirectionalLight(0xc084fc, 0.85);
-    wisteriaRimLight.position.set(-2.2, 2.6, -2.5);
+    const wisteriaRimLight = new THREE.DirectionalLight(0xc084fc, 0.36);
+    wisteriaRimLight.position.set(-2.2, 2.4, -2.5);
     scene.add(wisteriaRimLight);
 
-    const frontFillLight = new THREE.PointLight(0xffb6e3, 0.65, 8);
-    frontFillLight.position.set(0, 1.8, 2.2);
+    const frontFillLight = new THREE.PointLight(0xffb6e3, 0.20, 7);
+    frontFillLight.position.set(0, 1.6, 2.2);
     scene.add(frontFillLight);
 
     const voidSpotLight = new THREE.SpotLight(0xe879f9, 0, 12, 0.58, 0.65);
@@ -1386,6 +1399,7 @@
     const tableLegMat = new THREE.MeshStandardMaterial({ color: 0x1a092c, roughness: 0.78, metalness: 0.12 });
     const tableMesh = new THREE.Mesh(new THREE.BoxGeometry(2.45, 0.09, 1.86), tableMat);
     tableMesh.position.set(0, -0.045, 0.03);
+    tableMesh.castShadow = true;
     tableMesh.receiveShadow = true;
     boardGroup.add(tableMesh);
 
@@ -1398,19 +1412,25 @@
       boardGroup.add(leg);
     });
 
-    // Cozy velvet chair on Wisteria's side (-Z), positioned cleanly behind the table edge
+    // Cozy velvet chair on Wisteria's side (-Z), proportioned & tucked neatly so she sits squarely on the seat
     const chairGroup = new THREE.Group();
     const velvetMat = new THREE.MeshStandardMaterial({ color: 0x4b1d78, roughness: 0.85 });
-    const seatCushion = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.09, 0.56), velvetMat);
-    seatCushion.position.set(0, -0.32, -1.40);
+    const seatCushion = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.09, 0.54), velvetMat);
+    seatCushion.position.set(0, -0.34, -1.24);
+    seatCushion.castShadow = true;
+    seatCushion.receiveShadow = true;
     chairGroup.add(seatCushion);
-    const seatBack = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.86, 0.09), velvetMat);
-    seatBack.position.set(0, 0.12, -1.66);
+    const seatBack = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.84, 0.09), velvetMat);
+    seatBack.position.set(0, 0.09, -1.48);
+    seatBack.castShadow = true;
+    seatBack.receiveShadow = true;
     chairGroup.add(seatBack);
-    const chairLegGeo = new THREE.BoxGeometry(0.065, 0.56, 0.065);
-    [[-0.30, -1.16], [0.30, -1.16], [-0.30, -1.63], [0.30, -1.63]].forEach(([cx, cz]) => {
+    const chairLegGeo = new THREE.BoxGeometry(0.065, 0.54, 0.065);
+    [[-0.28, -1.02], [0.28, -1.02], [-0.28, -1.46], [0.28, -1.46]].forEach(([cx, cz]) => {
       const cLeg = new THREE.Mesh(chairLegGeo, tableLegMat);
       cLeg.position.set(cx, -0.61, cz);
+      cLeg.castShadow = true;
+      cLeg.receiveShadow = true;
       chairGroup.add(cLeg);
     });
     scene.add(chairGroup);
@@ -1430,11 +1450,12 @@
     const trimMat = new THREE.MeshStandardMaterial({ color: 0xf4c95d, roughness: 0.35, metalness: 0.65 });
     const trimMesh = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W + 0.036, 0.006, BOARD_W + 0.036), trimMat);
     trimMesh.position.set(0, BOARD_Y - 0.007, 0);
+    trimMesh.receiveShadow = true;
     boardGroup.add(trimMesh);
 
-    // 64 individual clickable squares (top flush at BOARD_Y = 0.060)
-    const lightSqMat = new THREE.MeshStandardMaterial({ color: 0xf3e8ff, roughness: 0.58, metalness: 0.04 });
-    const darkSqMat = new THREE.MeshStandardMaterial({ color: 0x5c2c90, roughness: 0.62, metalness: 0.06 });
+    // 64 individual clickable squares (top flush at BOARD_Y = 0.060, balanced satin finish so shadows read crisply)
+    const lightSqMat = new THREE.MeshStandardMaterial({ color: 0xd6c6ea, roughness: 0.64, metalness: 0.04 });
+    const darkSqMat = new THREE.MeshStandardMaterial({ color: 0x431f6b, roughness: 0.56, metalness: 0.06 });
     const tileGeo = new THREE.BoxGeometry(SQ * 0.996, 0.008, SQ * 0.996);
     const squareMeshes = [];
     const pickables = [];
@@ -1551,6 +1572,8 @@
       grp.userData = { code, color, lower, grabH: (PIECE_HEIGHTS[lower] || SQ) * 0.68 };
       grp.traverse((child) => {
         if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
           child.userData = grp.userData;
         }
       });
@@ -1712,13 +1735,13 @@
         scene.background = null;
         scene.fog.color.setHex(0x1f0a3a);
         scene.fog.density = 0.0042;
-        ambientLight.intensity = 0.56;
-        hemiLight.intensity = 1.05;
-        keyLight.intensity = 1.25;
-        moonBackLight.intensity = 1.15;
-        wisteriaRimLight.intensity = 0.85;
+        ambientLight.intensity = 0.24;
+        hemiLight.intensity = 0.34;
+        keyLight.intensity = 1.32;
+        moonBackLight.intensity = 0.52;
+        wisteriaRimLight.intensity = 0.36;
         wisteriaRimLight.color.setHex(0xc084fc);
-        frontFillLight.intensity = 0.65;
+        frontFillLight.intensity = 0.20;
         voidSpotLight.intensity = 0;
       }
     }
@@ -1780,17 +1803,17 @@
       const sway = Math.sin(t * 0.85) * 0.025;
       const thinkTilt = thinking ? Math.sin(t * 2.1) * 0.07 + 0.08 : 0;
 
-      // Seated legs (GLB UpLeg has 180deg Z roll, so +rx swings thighs forward under table and -rx bends knees down)
-      applyBoneEulerOffset('mixamorigLeftUpLeg',   1.48, 0, -0.06);
-      applyBoneEulerOffset('mixamorigRightUpLeg',  1.48, 0,  0.06);
-      applyBoneEulerOffset('mixamorigLeftLeg',    -1.52, 0,  0);
-      applyBoneEulerOffset('mixamorigRightLeg',   -1.52, 0,  0);
+      // Seated legs (GLB UpLeg has 180deg Z roll, so +rx swings thighs flat across the chair seat and -rx bends knees 90deg down)
+      applyBoneEulerOffset('mixamorigLeftUpLeg',   1.54, 0, -0.07);
+      applyBoneEulerOffset('mixamorigRightUpLeg',  1.54, 0,  0.07);
+      applyBoneEulerOffset('mixamorigLeftLeg',    -1.54, 0,  0);
+      applyBoneEulerOffset('mixamorigRightLeg',   -1.54, 0,  0);
 
-      // Torso upright + subtle breathing + dynamic lean when reaching/thinking
-      const lean = rig.spineLean + (thinking ? 0.11 : 0.03);
-      applyBoneEulerOffset('mixamorigSpine',  lean * 0.35 + breath * 0.014, rig.spineYaw * 0.35 + sway, 0);
-      applyBoneEulerOffset('mixamorigSpine1', lean * 0.35 + breath * 0.018, rig.spineYaw * 0.35, 0);
-      applyBoneEulerOffset('mixamorigSpine2', lean * 0.30 + breath * 0.020, rig.spineYaw * 0.30, thinkTilt * 0.35);
+      // Upright seated posture resting comfortably against the chair backrest + subtle breathing + dynamic lean on reach
+      const lean = rig.spineLean + (thinking ? 0.08 : 0.0);
+      applyBoneEulerOffset('mixamorigSpine',  lean * 0.35 + breath * 0.012, rig.spineYaw * 0.35 + sway, 0);
+      applyBoneEulerOffset('mixamorigSpine1', lean * 0.35 + breath * 0.015, rig.spineYaw * 0.35, 0);
+      applyBoneEulerOffset('mixamorigSpine2', lean * 0.30 + breath * 0.018, rig.spineYaw * 0.30, thinkTilt * 0.35);
 
       // Head tracks player / board + optional Easy-Mode horror twitch
       let twX = 0, twY = 0, twZ = 0;
@@ -1964,7 +1987,7 @@
               if (o.material.map) o.material.map.encoding = THREE.sRGBEncoding;
               o.material.emissive = new THREE.Color(0xffffff);
               if (o.material.map) o.material.emissiveMap = o.material.map;
-              o.material.emissiveIntensity = 0.08;
+              o.material.emissiveIntensity = 0.025;
               o.material.roughness = 0.72;
               o.material.metalness = 0;
               o.material.needsUpdate = true;
@@ -1973,14 +1996,15 @@
         });
 
         scene.add(holder);
-        holder.position.set(0, 0, -1.32);
+        holder.position.set(0, 0, -1.26);
         holder.updateMatrixWorld(true);
-        // Align seated hips onto the chair cushion surface (y = -0.22)
+        // Align actual world hips squarely onto the velvet chair cushion (seat top y = -0.295, backrest front z = -1.435)
         if (bones.mixamorigHips) {
           bones.mixamorigHips.getWorldPosition(pt);
-          holder.position.y = -0.22 - pt.y;
+          holder.position.y += (-0.175 - pt.y);
+          holder.position.z += (-1.285 - pt.z);
         } else {
-          holder.position.y = -box.min.y * scale - 0.56;
+          holder.position.y = -box.min.y * scale - 0.52;
         }
         holder.updateMatrixWorld(true);
 
@@ -3196,6 +3220,37 @@
       }),
       isModelLoaded: () => rig.loaded,
       getIkDebug: () => rig.lastIkDebug,
+      setCameraForTest: (th, ph, rad, tx, ty, tz) => {
+        theta = targetTheta = th;
+        phi = targetPhi = ph;
+        radius = targetRadius = rad;
+        if (typeof tx === 'number') {
+          camTarget.set(tx, ty, tz);
+          desiredTarget.set(tx, ty, tz);
+        }
+        updateCamera(1);
+        renderer.render(scene, camera);
+      },
+      getSittingDebug: () => {
+        if (!rig.loaded) return null;
+        const p = (name) => {
+          const b = rig.bones[name];
+          if (!b) return null;
+          const v = new THREE.Vector3();
+          b.getWorldPosition(v);
+          return { x: +v.x.toFixed(3), y: +v.y.toFixed(3), z: +v.z.toFixed(3) };
+        };
+        return {
+          hips: p('mixamorigHips'),
+          lUpLeg: p('mixamorigLeftUpLeg'),
+          lLeg: p('mixamorigLeftLeg'),
+          lFoot: p('mixamorigLeftFoot'),
+          spine2: p('mixamorigSpine2'),
+          seatTopY: -0.295,
+          seatZRange: [-1.51, -0.97],
+          backrestFrontZ: -1.435,
+        };
+      },
       makePlayerMove: (fromR, fromC, toR, toC, promo) => {
         const moves = game.getLegalMoves(fromR, fromC);
         const found = moves.find((m) => m.toR === toR && m.toC === toC && (!promo || m.promo === promo));
