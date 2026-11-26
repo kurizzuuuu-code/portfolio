@@ -266,25 +266,142 @@
     return grp;
   }
 
-  // Exact bone alignment helper so GLB Mixamo arms hang naturally down at her sides
-  function pointBoneWorld(bone, targetChild, bindParentWorldQ, bindDirWorld, desiredDirWorld, strength) {
+  // Exact bone alignment helper so GLB Mixamo arms orient cleanly in world or character-rotated space
+  function pointBoneWorld(bone, targetChild, bindParentWorldQ, bindDirWorld, desiredDirWorld, strength, charRotQ) {
     if (!bone || !bone.parent || !targetChild || !bindParentWorldQ || !bindDirWorld) return;
     const invCurParent = new THREE.Quaternion();
     bone.parent.getWorldQuaternion(invCurParent).invert();
-    const delta = new THREE.Quaternion().setFromUnitVectors(bindDirWorld, desiredDirWorld.clone().normalize());
-    const targetWorldQ = delta.multiply(bindParentWorldQ);
+    let refDir = bindDirWorld;
+    let refQ = bindParentWorldQ;
+    if (charRotQ) {
+      refDir = bindDirWorld.clone().applyQuaternion(charRotQ).normalize();
+      refQ = charRotQ.clone().multiply(bindParentWorldQ);
+    }
+    const delta = new THREE.Quaternion().setFromUnitVectors(refDir, desiredDirWorld.clone().normalize());
+    const targetWorldQ = delta.multiply(refQ);
     const targetLocalQ = invCurParent.multiply(targetWorldQ);
     bone.quaternion.slerp(targetLocalQ, strength);
+  }
+
+  // Shared loader helper for both Plains 3D Wisteria Watcher and Level 0 3D Chaser
+  function prepareKurizuRig(gltf, targetHeight, emissiveHex, emissiveIntensity) {
+    const holder = new THREE.Group();
+    const raw = gltf.scene;
+    raw.updateMatrixWorld(true);
+
+    const boneMap = {};
+    const materials = [];
+    raw.traverse((o) => {
+      if (o.isBone) boneMap[o.name] = o;
+      if (o.isMesh) {
+        o.frustumCulled = false;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        const next = mats.map((m) => {
+          const std = new THREE.MeshStandardMaterial({
+            map: m.map || null,
+            color: m.map ? new THREE.Color(0xffffff) : m.color ? m.color.clone() : new THREE.Color(0xd8b4fe),
+            emissive: m.map ? new THREE.Color(emissiveHex) : new THREE.Color(emissiveHex),
+            emissiveMap: m.map || null,
+            emissiveIntensity,
+            roughness: 0.72,
+            metalness: 0.0,
+            skinning: !!o.isSkinnedMesh,
+            transparent: !!m.transparent,
+            alphaTest: m.alphaTest || 0,
+          });
+          if (std.map) {
+            std.map.encoding = THREE.sRGBEncoding;
+            std.map.needsUpdate = true;
+          }
+          materials.push(std);
+          return std;
+        });
+        o.material = Array.isArray(o.material) ? next : next[0];
+      }
+    });
+
+    const pick = (...names) => {
+      for (const n of names) {
+        if (boneMap[n]) return boneMap[n];
+        const f = Object.keys(boneMap).find((k) => k.toLowerCase().includes(n.toLowerCase()));
+        if (f) return boneMap[f];
+      }
+      return null;
+    };
+
+    const bones = {
+      hips: pick('mixamorigHips', 'hips'),
+      spine: pick('mixamorigSpine', 'spine'),
+      spine1: pick('mixamorigSpine1', 'spine1'),
+      neck: pick('mixamorigNeck', 'neck'),
+      head: pick('mixamorigHead', 'head'),
+      lArm: pick('mixamorigLeftArm', 'leftarm'),
+      lFore: pick('mixamorigLeftForeArm', 'leftforearm'),
+      lHand: pick('mixamorigLeftHand', 'lefthand'),
+      rArm: pick('mixamorigRightArm', 'rightarm'),
+      rFore: pick('mixamorigRightForeArm', 'rightforearm'),
+      rHand: pick('mixamorigRightHand', 'righthand'),
+      lUpLeg: pick('mixamorigLeftUpLeg', 'leftupleg'),
+      lLeg: pick('mixamorigLeftLeg', 'leftleg'),
+      rUpLeg: pick('mixamorigRightUpLeg', 'rightupleg'),
+      rLeg: pick('mixamorigRightLeg', 'rightleg'),
+    };
+
+    const box = new THREE.Box3();
+    const pt = new THREE.Vector3();
+    Object.keys(boneMap).forEach((k) => {
+      boneMap[k].getWorldPosition(pt);
+      box.expandByPoint(pt);
+    });
+    const rawHeight = Math.max(0.001, (box.max.y - box.min.y) * 1.42);
+    const scale = targetHeight / rawHeight;
+    raw.scale.setScalar(scale);
+    raw.position.set(0, -box.min.y * scale + 0.06, 0);
+    holder.add(raw);
+    holder.updateMatrixWorld(true);
+
+    const bindQ = {};
+    const bindDir = {};
+    const recordChain = (key, parentBone, childBone) => {
+      if (!parentBone || !childBone) return;
+      const pwq = new THREE.Quaternion();
+      parentBone.getWorldQuaternion(pwq);
+      bindQ[key] = pwq;
+      const pPos = new THREE.Vector3();
+      const cPos = new THREE.Vector3();
+      parentBone.getWorldPosition(pPos);
+      childBone.getWorldPosition(cPos);
+      const dir = cPos.sub(pPos);
+      if (dir.lengthSq() > 1e-6) bindDir[key] = dir.normalize();
+    };
+    recordChain('lArm', bones.lArm, bones.lFore);
+    recordChain('lFore', bones.lFore, bones.lHand);
+    recordChain('rArm', bones.rArm, bones.rFore);
+    recordChain('rFore', bones.rFore, bones.rHand);
+
+    ['hips', 'spine', 'spine1', 'neck', 'head', 'lUpLeg', 'lLeg', 'rUpLeg', 'rLeg'].forEach((k) => {
+      if (bones[k]) bindQ[`${k}Local`] = bones[k].quaternion.clone();
+    });
+    if (bones.hips) {
+      bindQ.hipsPosY = bones.hips.position.y;
+      bindQ.hipsPos = bones.hips.position.clone();
+    }
+
+    return { holder, bones, bindQ, bindDir, materials, raw };
   }
 
   function create(opts) {
     const renderer = opts.renderer;
     const canvas = opts.canvas;
     const hudEl = opts.hudEl;
+    const dangerEl = opts.dangerEl || null;
+    const jumpscareEl = opts.jumpscareEl || null;
+    const onCaughtCloseSite = opts.onCaughtCloseSite || (() => {});
     const onExit = opts.onExit || (() => {});
     const getAudio = opts.getAudio || (() => null);
 
     let active = false;
+    let currentRealm = 'plains';
     let pointerLocked = false;
     let lastMouseX = null;
     let lastMouseY = null;
@@ -297,6 +414,18 @@
     let bobPhase = 0;
     let keys = Object.create(null);
 
+    // Mobile virtual joystick & sprint state
+    const joyBase = hudEl ? hudEl.querySelector('#brJoyBase') : null;
+    const joyKnob = hudEl ? hudEl.querySelector('#brJoyKnob') : null;
+    const sprintBtn = hudEl ? hudEl.querySelector('#brSprintBtn') : null;
+    const hintLabel = hudEl ? hudEl.querySelector('#brHintLabel') : null;
+    const levelLabel = hudEl ? hudEl.querySelector('#brLevelLabel') : null;
+    const flashBtn = hudEl ? hudEl.querySelector('#brFlashBtn') : null;
+    let joyPointerId = null;
+    let joyX = 0; // -1..1 strafe
+    let joyY = 0; // -1..1 forward (positive = forward)
+    let mobileSprint = false;
+
     // Wrapping & progressive darkness state
     let wrapCount = 0;
     let loopDistance = 0;
@@ -306,6 +435,7 @@
     let watcherLoaded = false;
     let watcherVisible = true;
     let watcherDisappearCount = 0;
+    let watcherFollowCount = 0;
     let watcherRespawnTimer = 0;
     let watcherPos = new THREE.Vector3(0, 0, -28);
     let twitchTimer = 0.45;
@@ -320,13 +450,14 @@
     const nightFogColor = new THREE.Color(0x06050d);
     const liveFogColor = dayFogColor.clone();
     brScene.background = liveFogColor.clone();
-    brScene.fog = new THREE.FogExp2(liveFogColor.getHex(), 0.0132);
+    // Fog removed on Plains so far-distance hills & houses render crystal clear with view-frustum culling
+    brScene.fog = null;
 
     const brCamera = new THREE.PerspectiveCamera(
       62,
       Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight),
       0.1,
-      280
+      380
     );
 
     const ambientLight = new THREE.AmbientLight(0xdbe6f0, 0.62);
@@ -343,6 +474,7 @@
       uniforms: {
         uTime: { value: 0 },
         uDarkness: { value: 0 },
+        uFogColor: { value: liveFogColor.clone() },
       },
       vertexShader: `
         varying vec3 vDir;
@@ -356,6 +488,7 @@
         varying vec3 vDir;
         uniform float uTime;
         uniform float uDarkness;
+        uniform vec3 uFogColor;
         float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float noise(vec2 p) {
           vec2 i = floor(p); vec2 f = fract(p);
@@ -388,7 +521,7 @@
           vec3 skyHorizon = mix(mix(dayHorizon, duskHorizon, d1), nightHorizon, d2);
           vec3 sky = mix(skyHorizon, skyZenith, pow(max(0.0, h), 0.52));
 
-          vec3 sunDir = normalize(vec3(0.24, 0.34, -0.91));
+          vec3 sunDir = normalize(vec3(0.24, 0.52, -0.82));
           float sunAmt = max(0.0, dot(dir, sunDir));
           float sunScale = mix(1.0, 0.08, smoothstep(0.15, 0.85, uDarkness));
           sky += vec3(0.95, 0.93, 0.88) * pow(sunAmt, 14.0) * 0.28 * sunScale;
@@ -402,6 +535,7 @@
             cloudCol = mix(cloudCol, vec3(0.10, 0.10, 0.16), smoothstep(0.15, 0.92, uDarkness));
             sky = mix(sky, cloudCol, cMask * mix(0.88, 0.38, uDarkness));
           }
+
           gl_FragColor = vec4(sky, 1.0);
         }
       `,
@@ -486,8 +620,8 @@
     starPoints.frustumCulled = false;
     brScene.add(starPoints);
 
-    // Infinite wrapping rolling meadow terrain (centered on camera)
-    const groundGeo = new THREE.PlaneGeometry(168, 168, 128, 128);
+    // Infinite wrapping far-distance rolling meadow terrain (centered on camera, ±180m)
+    const groundGeo = new THREE.PlaneGeometry(360, 360, 144, 144);
     groundGeo.rotateX(-Math.PI * 0.5);
     const groundMat = new THREE.ShaderMaterial({
       uniforms: {
@@ -554,8 +688,9 @@
           col *= (0.44 + 0.64 * diff) * (dayLight + torch);
 
           float dist = length(vWorld - uCameraPos);
-          float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
-          col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));
+          // No close fog; only soften the extreme 180m terrain edge into the horizon
+          float edgeFade = smoothstep(145.0, 178.0, dist);
+          col = mix(col, uFogColor, clamp(edgeFade, 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -564,9 +699,9 @@
     groundMesh.frustumCulled = false;
     brScene.add(groundMesh);
 
-    // 52,000 Lush Thicker Tall Curved Shader Grass Blades (36m x 36m toroidal carpet)
+    // 52,000 Lush Thicker Tall Curved Shader Grass Blades (48m x 48m forward-biased carpet, behind-player culled)
     const GRASS_COUNT = 52000;
-    const GRASS_SPAN = 36.0;
+    const GRASS_SPAN = 48.0;
     const SEGS = 3; // 6 triangles per blade for smooth graceful arch
     const bladeVerts = [];
     const bladeNorms = [];
@@ -621,6 +756,7 @@
         uFogColor: { value: liveFogColor.clone() },
         uFogDensity: { value: 0.0132 },
         uCameraPos: { value: new THREE.Vector3() },
+        uCamFwdXZ: { value: new THREE.Vector2(0, -1) },
       },
       vertexShader: `
         attribute vec3 aOffset;
@@ -630,21 +766,32 @@
         uniform float uCenterX;
         uniform float uCenterZ;
         uniform vec3 uCameraPos;
+        uniform vec2 uCamFwdXZ;
         varying float vH;
         varying float vTone;
         varying vec3 vWorldPos;
         varying float vRoadMask;
         ${GLSL_TERRAIN}
         void main() {
-          float span = 36.0;
+          float span = 48.0;
           float wx = mod(aOffset.x - uCenterX + span * 0.5, span) - span * 0.5 + uCenterX;
           float wz = mod(aOffset.z - uCenterZ + span * 0.5, span) - span * 0.5 + uCenterZ;
+
+          // Derender grass blades outside/behind the player's forward view cone
+          vec2 fromPlayer = vec2(wx, wz) - uCameraPos.xz;
+          float pDist = length(fromPlayer) + 0.001;
+          if (pDist > 2.4 && dot(fromPlayer / pDist, uCamFwdXZ) < 0.22) {
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+            return;
+          }
+
           float dxRoad = abs(wx - roadCenterX(wz));
           vRoadMask = smoothstep(2.05, 3.05, dxRoad);
 
           float wy = terrainY(wx, wz);
           float yaw = aBladeMeta.x;
-          float bh = aBladeMeta.y * (0.25 + 0.75 * vRoadMask);
+          float edgeShrink = 1.0 - smoothstep(31.0, 38.0, pDist);
+          float bh = aBladeMeta.y * (0.25 + 0.75 * vRoadMask) * edgeShrink;
           float lean = aBladeMeta.z;
           float bw = 0.044 + 0.028 * aBladeMeta.w;
 
@@ -667,8 +814,6 @@
           wp.y -= flex * (0.14 * lean + abs(gust) * 0.06);
 
           // Part tall blades cleanly away from the player
-          vec2 fromPlayer = vec2(wx, wz) - uCameraPos.xz;
-          float pDist = length(fromPlayer) + 0.001;
           if (pDist < 1.35) {
             float push = (1.35 - pDist) / 1.35;
             vec2 pushDir = fromPlayer / pDist;
@@ -712,9 +857,6 @@
           float camDist = length(vWorldPos - uCameraPos);
           float torch = uDarkness * exp(-camDist * 0.105) * 0.62;
           col = (col * ao + vec3(0.45, 0.50, 0.18) * backlit) * (dayScale + torch);
-
-          float fogFactor = 1.0 - exp(-(uFogDensity * camDist) * (uFogDensity * camDist));
-          col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -772,29 +914,59 @@
     const HOUSE_HD = 4.1 + 0.65;
     const HOUSE_RADIUS = Math.hypot(HOUSE_HW, HOUSE_HD);
     const housePlacements = [];
+    const plainsHouseTiles = [];
     for (const seed of rawHouseSeeds) {
       const hill = findNearbyHillCrest(seed.ox, seed.oz, housePlacements, 16.0);
-      const mesh = createHouseParts(seed);
-      mesh.position.set(hill.x, hill.y + 0.08, hill.z);
-      mesh.rotation.y = seed.rot;
-      brScene.add(mesh);
+      const template = createHouseParts(seed);
       housePlacements.push({
-        mesh,
         ox: hill.x,
         oz: hill.z,
+        oy: hill.y + 0.08,
         baseRot: seed.rot,
         cosR: Math.cos(-seed.rot),
         sinR: Math.sin(-seed.rot),
         cosInv: Math.cos(seed.rot),
         sinInv: Math.sin(seed.rot),
       });
+      // 3x3 far-distance tile grid (252m x 252m); behind-player houses are derendered each frame
+      for (let gx = -1; gx <= 1; gx++) {
+        for (let gz = -1; gz <= 1; gz++) {
+          const clone = gx === 0 && gz === 0 ? template : template.clone();
+          clone.position.set(gx * TILE + hill.x, hill.y + 0.08, gz * TILE + hill.z);
+          clone.rotation.y = seed.rot;
+          brScene.add(clone);
+          plainsHouseTiles.push({
+            mesh: clone,
+            ox: hill.x,
+            oz: hill.z,
+            oy: hill.y + 0.08,
+            gx,
+            gz,
+          });
+        }
+      }
     }
 
     const TOWER_RADIUS = 2.2;
     const waterTowerPos = findNearbyHillCrest(-25, -24, housePlacements, 13.0);
-    const waterTower = createWaterTower();
-    waterTower.position.set(waterTowerPos.x, waterTowerPos.y - 0.1, waterTowerPos.z);
-    brScene.add(waterTower);
+    const waterTowerTemplate = createWaterTower();
+    const plainsTowerTiles = [];
+    for (let gx = -1; gx <= 1; gx++) {
+      for (let gz = -1; gz <= 1; gz++) {
+        const clone = gx === 0 && gz === 0 ? waterTowerTemplate : waterTowerTemplate.clone();
+        clone.position.set(gx * TILE + waterTowerPos.x, waterTowerPos.y - 0.1, gz * TILE + waterTowerPos.z);
+        brScene.add(clone);
+        plainsTowerTiles.push({
+          mesh: clone,
+          ox: waterTowerPos.x,
+          oz: waterTowerPos.z,
+          oy: waterTowerPos.y - 0.1,
+          gx,
+          gz,
+        });
+      }
+    }
+    let plainsVisibleHouses = 0;
 
     // Resolve OBB collisions against wrapped houses + radial collision against wrapped water tower
     function resolveWorldCollisions(wx, wz) {
@@ -870,137 +1042,49 @@
       return best;
     }
 
-    // 3D Rigged Wisteria Watcher (replaces black cat sprite)
+    // 3D Rigged Wisteria Watcher (Plains)
     const watcherGroup = new THREE.Group();
     watcherGroup.visible = false;
     brScene.add(watcherGroup);
 
-    const wBones = {};
-    const bindQ = {};
-    const bindDir = {};
-    let watcherArmReady = false;
+    let wBones = {};
+    let bindQ = {};
+    let bindDir = {};
 
     function setupWatcherModel(gltf) {
-      const holder = new THREE.Group();
-      const raw = gltf.scene;
-      raw.updateMatrixWorld(true);
-
-      const boneMap = {};
-      raw.traverse((o) => {
-        if (o.isBone) boneMap[o.name] = o;
-        if (o.isMesh) {
-          o.frustumCulled = false;
-          const mats = Array.isArray(o.material) ? o.material : [o.material];
-          const next = mats.map((m) => {
-            const std = new THREE.MeshStandardMaterial({
-              map: m.map || null,
-              color: m.map ? new THREE.Color(0xffffff) : m.color ? m.color.clone() : new THREE.Color(0xd8b4fe),
-              emissive: m.map ? new THREE.Color(0x2d1845) : new THREE.Color(0x1f1035),
-              emissiveMap: m.map || null,
-              emissiveIntensity: 0.14,
-              roughness: 0.72,
-              metalness: 0.0,
-              skinning: !!o.isSkinnedMesh,
-              transparent: !!m.transparent,
-              alphaTest: m.alphaTest || 0,
-            });
-            if (std.map) {
-              std.map.encoding = THREE.sRGBEncoding;
-              std.map.needsUpdate = true;
-            }
-            return std;
-          });
-          o.material = Array.isArray(o.material) ? next : next[0];
-        }
-      });
-
-      const pick = (...names) => {
-        for (const n of names) {
-          if (boneMap[n]) return boneMap[n];
-          const f = Object.keys(boneMap).find((k) => k.toLowerCase().includes(n.toLowerCase()));
-          if (f) return boneMap[f];
-        }
-        return null;
-      };
-
-      wBones.hips = pick('mixamorigHips', 'hips');
-      wBones.spine = pick('mixamorigSpine', 'spine');
-      wBones.neck = pick('mixamorigNeck', 'neck');
-      wBones.head = pick('mixamorigHead', 'head');
-      wBones.lArm = pick('mixamorigLeftArm', 'leftarm');
-      wBones.lFore = pick('mixamorigLeftForeArm', 'leftforearm');
-      wBones.lHand = pick('mixamorigLeftHand', 'lefthand');
-      wBones.rArm = pick('mixamorigRightArm', 'rightarm');
-      wBones.rFore = pick('mixamorigRightForeArm', 'rightforearm');
-      wBones.rHand = pick('mixamorigRightHand', 'righthand');
-
-      // Scale & plant boots onto y = 0
-      const box = new THREE.Box3();
-      const pt = new THREE.Vector3();
-      Object.keys(boneMap).forEach((k) => {
-        boneMap[k].getWorldPosition(pt);
-        box.expandByPoint(pt);
-      });
-      const rawHeight = Math.max(0.001, (box.max.y - box.min.y) * 1.42);
-      const scale = 1.98 / rawHeight;
-      raw.scale.setScalar(scale);
-      raw.position.set(0, -box.min.y * scale + 0.06, 0);
-      holder.add(raw);
-      holder.updateMatrixWorld(true);
-
-      // Save canonical world quaternions & bone vectors for clean arms-down standing pose
-      const recordChain = (key, parentBone, childBone) => {
-        if (!parentBone || !childBone) return;
-        const pwq = new THREE.Quaternion();
-        parentBone.getWorldQuaternion(pwq);
-        bindQ[key] = pwq;
-        const pPos = new THREE.Vector3();
-        const cPos = new THREE.Vector3();
-        parentBone.getWorldPosition(pPos);
-        childBone.getWorldPosition(cPos);
-        const dir = cPos.sub(pPos);
-        if (dir.lengthSq() > 1e-6) {
-          bindDir[key] = dir.normalize();
-        }
-      };
-      recordChain('lArm', wBones.lArm, wBones.lFore);
-      recordChain('lFore', wBones.lFore, wBones.lHand);
-      recordChain('rArm', wBones.rArm, wBones.rFore);
-      recordChain('rFore', wBones.rFore, wBones.rHand);
-      if (wBones.neck) bindQ.neckLocal = wBones.neck.quaternion.clone();
-      if (wBones.head) bindQ.headLocal = wBones.head.quaternion.clone();
-
+      const rig = prepareKurizuRig(gltf, 1.98, 0x2d1845, 0.14);
+      wBones = rig.bones;
+      bindQ = rig.bindQ;
+      bindDir = rig.bindDir;
       // Relax arms straight down beside her skirt/legs
       if (bindDir.lArm && bindDir.rArm) {
-        watcherArmReady = true;
-        holder.updateMatrixWorld(true);
+        rig.holder.updateMatrixWorld(true);
         pointBoneWorld(wBones.lArm, wBones.lFore, bindQ.lArm, bindDir.lArm, new THREE.Vector3(0.14, -1.0, 0.08), 1.0);
-        holder.updateMatrixWorld(true);
+        rig.holder.updateMatrixWorld(true);
         pointBoneWorld(wBones.lFore, wBones.lHand, bindQ.lFore, bindDir.lFore, new THREE.Vector3(0.08, -1.0, 0.14), 1.0);
-        holder.updateMatrixWorld(true);
+        rig.holder.updateMatrixWorld(true);
         pointBoneWorld(wBones.rArm, wBones.rFore, bindQ.rArm, bindDir.rArm, new THREE.Vector3(-0.14, -1.0, 0.08), 1.0);
-        holder.updateMatrixWorld(true);
+        rig.holder.updateMatrixWorld(true);
         pointBoneWorld(wBones.rFore, wBones.rHand, bindQ.rFore, bindDir.rFore, new THREE.Vector3(-0.08, -1.0, 0.14), 1.0);
-        holder.updateMatrixWorld(true);
+        rig.holder.updateMatrixWorld(true);
       }
-
-      watcherGroup.add(holder);
+      watcherGroup.add(rig.holder);
       watcherLoaded = true;
-      watcherGroup.visible = watcherVisible && active;
+      watcherGroup.visible = watcherVisible && active && currentRealm === 'plains';
     }
 
-    // Load Wisteria GLB cleanly once at startup
-    if (typeof THREE.GLTFLoader === 'function') {
+    function loadKurizuGlbInto(onOk) {
+      if (typeof THREE.GLTFLoader !== 'function') return;
       const loader = new THREE.GLTFLoader();
       const loadGlbFallback = () => {
         try {
-          loader.load('../game/rigged-modelkurizu.glb', setupWatcherModel, undefined, () => {});
+          loader.load('../game/rigged-modelkurizu.glb', onOk, undefined, () => {});
         } catch {}
       };
       if (global.PLAYER_MODEL_BASE64) {
         try {
           const ab = base64ToArrayBuffer(global.PLAYER_MODEL_BASE64);
-          loader.parse(ab, '', setupWatcherModel, loadGlbFallback);
+          loader.parse(ab, '', onOk, loadGlbFallback);
         } catch {
           loadGlbFallback();
         }
@@ -1008,6 +1092,7 @@
         loadGlbFallback();
       }
     }
+    loadKurizuGlbInto(setupWatcherModel);
 
     function placeWatcherOnHill(wx, wz, minDist, maxDist) {
       let bestX = wx - Math.sin(yaw) * 28;
@@ -1031,57 +1116,1140 @@
       watcherGroup.position.copy(watcherPos);
     }
 
-    // Subdued wind ambience + horror static vanish SFX
-    let windNodes = null;
-    function startAmbience() {
-      const ctx = getAudio();
-      if (!ctx || windNodes) return;
-      try {
-        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-        const len = Math.floor(ctx.sampleRate * 2);
-        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-        const ch = buf.getChannelData(0);
-        let last = 0;
-        for (let i = 0; i < len; i++) {
-          last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03;
-          ch[i] = last * 2.5;
+    /* ---------------- LEVEL 0 · THE LOBBY (Dark Halls, Rare Lights, Flashlight & Faster Stealth Chaser) ---------------- */
+    const L0_TILE = 48.0;
+    const L0_H = 4.5;
+    const L0_PLAYER_R = 0.45;
+    const l0FogColor = new THREE.Color(0x0c0a05);
+    const l0FogDensity = 0.025;
+
+    const l0Scene = new THREE.Scene();
+    l0Scene.background = l0FogColor.clone();
+    l0Scene.fog = new THREE.FogExp2(l0FogColor.getHex(), l0FogDensity);
+
+    const l0Ambient = new THREE.AmbientLight(0x262010, 0.24);
+    const l0Hemi = new THREE.HemisphereLight(0x3c341a, 0x0b0904, 0.24);
+    const l0CamLight = new THREE.PointLight(0xfff3c4, 0.18, 10, 1.4);
+    const l0FlashTarget = new THREE.Object3D();
+    const l0FlashSpot = new THREE.SpotLight(0xfff4d6, 2.8, 36, Math.PI / 5.2, 0.52, 1.35);
+    l0FlashSpot.target = l0FlashTarget;
+    l0Scene.add(l0Ambient, l0Hemi, l0CamLight, l0FlashSpot, l0FlashTarget);
+
+    const GLSL_L0_COMMON = `
+      float l0Hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float l0Noise(vec2 p) {
+        vec2 i = floor(p); vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(l0Hash(i), l0Hash(i + vec2(1.0, 0.0)), u.x),
+          mix(l0Hash(i + vec2(0.0, 1.0)), l0Hash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+      // Rare working fluorescent lights (~18% of panels shine)
+      float l0PanelLight(vec2 xz, float time, float danger) {
+        vec2 cell = floor(xz / 4.8);
+        vec2 local = fract(xz / 4.8) - 0.5;
+        float r = l0Hash(cell);
+        float lit = step(0.82, r);
+        if (lit < 0.5) return 0.0;
+        float flick = r > 0.94 ? (0.62 + 0.38 * sin(time * 24.0 + r * 60.0) * sin(time * 9.0 + r * 17.0)) : 1.0;
+        if (danger > 0.05) {
+          float panicFlick = 0.38 + 0.62 * sin(time * 38.0 + r * 95.0);
+          flick = mix(flick, panicFlick, danger * 0.85);
         }
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        src.loop = true;
+        float d = length(local * vec2(1.0, 1.25));
+        return exp(-d * d * 3.8) * flick;
+      }
+      float l0FlashCone(vec3 worldPos, vec3 camPos, vec3 camDir, float on) {
+        if (on < 0.01) return 0.0;
+        vec3 toFrag = worldPos - camPos;
+        float dist = length(toFrag);
+        vec3 dir = toFrag / max(0.001, dist);
+        float c = dot(dir, normalize(camDir));
+        float core = smoothstep(0.86, 0.965, c);
+        float spill = smoothstep(0.76, 0.92, c) * 0.38;
+        float beam = max(core, spill) * exp(-dist * 0.048);
+        return beam * on;
+      }
+    `;
 
-        const lp = ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 390;
+    // Far-distance 260x260 damp yellow carpet shader floor (centered on camera)
+    const l0FloorGeo = new THREE.PlaneGeometry(260, 260, 1, 1);
+    l0FloorGeo.rotateX(-Math.PI * 0.5);
+    const l0FloorMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uCenterX: { value: 0 },
+        uCenterZ: { value: 0 },
+        uDanger: { value: 0 },
+        uFlashOn: { value: 1 },
+        uFlashDir: { value: new THREE.Vector3(0, 0, -1) },
+        uFogColor: { value: l0FogColor.clone() },
+        uFogDensity: { value: l0FogDensity },
+        uCameraPos: { value: new THREE.Vector3() },
+      },
+      vertexShader: `
+        uniform float uCenterX;
+        uniform float uCenterZ;
+        varying vec3 vWorld;
+        void main() {
+          vec3 wp = vec3(position.x + uCenterX, 0.0, position.z + uCenterZ);
+          vWorld = wp;
+          gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorld;
+        uniform float uTime;
+        uniform float uDanger;
+        uniform float uFlashOn;
+        uniform vec3 uFlashDir;
+        uniform vec3 uFogColor;
+        uniform float uFogDensity;
+        uniform vec3 uCameraPos;
+        ${GLSL_L0_COMMON}
+        void main() {
+          float weave = l0Noise(vWorld.xz * 24.0) * 0.65 + l0Noise(vWorld.xz * 6.5) * 0.35;
+          float dampPatch = l0Noise(vWorld.xz * 0.22);
+          float seam = max(
+            1.0 - smoothstep(0.0, 0.03, abs(fract(vWorld.x / 2.4) - 0.5)),
+            1.0 - smoothstep(0.0, 0.03, abs(fract(vWorld.z / 2.4) - 0.5))
+          );
+          vec3 dryCarpet = mix(vec3(0.46, 0.40, 0.14), vec3(0.58, 0.51, 0.19), weave);
+          vec3 dampCarpet = vec3(0.32, 0.27, 0.09);
+          vec3 col = mix(dryCarpet, dampCarpet, smoothstep(0.55, 0.85, dampPatch) * 0.55);
+          col *= (1.0 - seam * 0.12);
 
-        const gain = ctx.createGain();
-        gain.gain.value = 0.001;
-        gain.gain.exponentialRampToValueAtTime(0.085, ctx.currentTime + 1.1);
+          float overhead = l0PanelLight(vWorld.xz, uTime, uDanger);
+          float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
+          vec3 lightMul = vec3(0.09 + 0.92 * overhead) + vec3(1.45, 1.38, 1.15) * flash;
+          col *= lightMul;
+          col = mix(col, col * vec3(1.22, 0.58, 0.58), uDanger * 0.42);
 
-        src.connect(lp);
-        lp.connect(gain);
-        gain.connect(ctx.destination);
-        src.start();
-        windNodes = { src, gain };
+          float dist = length(vWorld - uCameraPos);
+          float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
+          float edgeFog = smoothstep(34.0, 48.0, dist);
+          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - flash * 0.45), edgeFog), 0.0, 1.0));
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    const l0FloorMesh = new THREE.Mesh(l0FloorGeo, l0FloorMat);
+    l0FloorMesh.frustumCulled = false;
+    l0Scene.add(l0FloorMesh);
+
+    // Far-distance 260x260 taller 4.5m acoustic drop ceiling with rare shining fluorescent panels
+    const l0CeilGeo = new THREE.PlaneGeometry(260, 260, 1, 1);
+    l0CeilGeo.rotateX(Math.PI * 0.5);
+    const l0CeilMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uCenterX: { value: 0 },
+        uCenterZ: { value: 0 },
+        uDanger: { value: 0 },
+        uFlashOn: { value: 1 },
+        uFlashDir: { value: new THREE.Vector3(0, 0, -1) },
+        uFogColor: { value: l0FogColor.clone() },
+        uFogDensity: { value: l0FogDensity },
+        uCameraPos: { value: new THREE.Vector3() },
+      },
+      vertexShader: `
+        uniform float uCenterX;
+        uniform float uCenterZ;
+        varying vec3 vWorld;
+        void main() {
+          vec3 wp = vec3(position.x + uCenterX, ${L0_H.toFixed(2)}, position.z + uCenterZ);
+          vWorld = wp;
+          gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorld;
+        uniform float uTime;
+        uniform float uDanger;
+        uniform float uFlashOn;
+        uniform vec3 uFlashDir;
+        uniform vec3 uFogColor;
+        uniform float uFogDensity;
+        uniform vec3 uCameraPos;
+        ${GLSL_L0_COMMON}
+        void main() {
+          vec2 tileUv = fract(vWorld.xz / 1.2);
+          float gridLine = step(tileUv.x, 0.045) + step(0.955, tileUv.x) + step(tileUv.y, 0.045) + step(0.955, tileUv.y);
+          float grain = l0Noise(vWorld.xz * 18.0);
+          vec3 tileCol = mix(vec3(0.45, 0.41, 0.21), vec3(0.56, 0.51, 0.27), grain);
+          tileCol = mix(tileCol, vec3(0.24, 0.21, 0.11), clamp(gridLine, 0.0, 1.0) * 0.72);
+
+          vec2 cell = floor(vWorld.xz / 4.8);
+          vec2 cLocal = fract(vWorld.xz / 4.8) - 0.5;
+          float r = l0Hash(cell);
+          float lit = step(0.82, r);
+          float dead = 1.0 - lit;
+          float flick = (r > 0.94 || uDanger > 0.08)
+            ? mix(1.0, 0.44 + 0.56 * sin(uTime * 34.0 + r * 80.0), max(step(0.94, r) * 0.4, uDanger * 0.85))
+            : 1.0;
+
+          float inPanel = step(abs(cLocal.x), 0.145) * step(abs(cLocal.y), 0.095);
+          float frame = step(abs(cLocal.x), 0.165) * step(abs(cLocal.y), 0.115) * (1.0 - inPanel);
+          float louvre = 0.88 + 0.12 * sin(cLocal.x * 160.0);
+          float halo = exp(-length(cLocal * vec2(1.0, 1.35)) * 4.5);
+          float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
+
+          float tileLight = 0.08 + 0.88 * halo * lit * flick + flash * 1.15;
+          vec3 col = tileCol * tileLight;
+          col = mix(col, vec3(0.14, 0.12, 0.07) * (0.35 + flash), frame);
+          vec3 tubeActive = mix(vec3(1.0, 0.96, 0.82), vec3(1.0, 0.48, 0.52), uDanger * 0.45) * louvre;
+          vec3 deadTube = vec3(0.08, 0.075, 0.05) * (0.4 + flash * 1.3);
+          vec3 tubeCol = mix(tubeActive * flick, deadTube, dead);
+          col = mix(col, tubeCol, inPanel);
+
+          float dist = length(vWorld - uCameraPos);
+          float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
+          float edgeFog = smoothstep(34.0, 48.0, dist);
+          float keepLit = clamp(inPanel * lit * 0.72 + flash * 0.42, 0.0, 0.85) * (1.0 - edgeFog);
+          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - keepLit), edgeFog), 0.0, 1.0));
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+    const l0CeilMesh = new THREE.Mesh(l0CeilGeo, l0CeilMat);
+    l0CeilMesh.frustumCulled = false;
+    l0Scene.add(l0CeilMesh);
+
+    // Mono-yellow patterned wallpaper shader with dark base + rare lights + flashlight beam
+    const l0WallMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uDanger: { value: 0 },
+        uFlashOn: { value: 1 },
+        uFlashDir: { value: new THREE.Vector3(0, 0, -1) },
+        uFogColor: { value: l0FogColor.clone() },
+        uFogDensity: { value: l0FogDensity },
+        uCameraPos: { value: new THREE.Vector3() },
+      },
+      vertexShader: `
+        varying vec3 vWorld;
+        varying vec3 vNorm;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorld = wp.xyz;
+          vNorm = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vWorld;
+        varying vec3 vNorm;
+        uniform float uTime;
+        uniform float uDanger;
+        uniform float uFlashOn;
+        uniform vec3 uFlashDir;
+        uniform vec3 uFogColor;
+        uniform float uFogDensity;
+        uniform vec3 uCameraPos;
+        ${GLSL_L0_COMMON}
+        void main() {
+          float horiz = abs(vNorm.x) > abs(vNorm.z) ? vWorld.z : vWorld.x;
+          float y = vWorld.y;
+
+          float stripe = 0.5 + 0.5 * sin(horiz * 18.0);
+          float motifX = abs(fract(horiz * 1.9) - 0.5) * 2.0;
+          float motifY = abs(fract(y * 1.45) - 0.5) * 2.0;
+          float diamond = smoothstep(0.55, 0.25, abs(motifX + motifY - 0.95));
+          float dirt = l0Noise(vec2(horiz * 0.8, y * 0.8));
+
+          vec3 baseWall = mix(vec3(0.60, 0.54, 0.22), vec3(0.70, 0.64, 0.27), stripe * 0.45 + diamond * 0.38);
+          baseWall = mix(baseWall, vec3(0.46, 0.41, 0.16), smoothstep(0.55, 0.9, dirt) * 0.35);
+
+          float dampBottom = exp(-y * 2.1) * 0.22;
+          baseWall *= (1.0 - dampBottom);
+          float isBaseboard = 1.0 - smoothstep(0.15, 0.18, y);
+          float isTopTrim = smoothstep(4.32, 4.35, y);
+          vec3 col = mix(baseWall, vec3(0.78, 0.75, 0.58), max(isBaseboard, isTopTrim * 0.65));
+
+          float overhead = l0PanelLight(vWorld.xz, uTime, uDanger);
+          float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
+          float dirShade = 0.72 + 0.28 * abs(vNorm.z);
+          float heightGrad = 0.54 + 0.46 * smoothstep(0.0, 4.3, y);
+          col *= (vec3(0.09 + 0.86 * overhead) + vec3(1.48, 1.40, 1.16) * flash) * dirShade * heightGrad;
+          col = mix(col, col * vec3(1.18, 0.58, 0.60), uDanger * 0.42);
+
+          float dist = length(vWorld - uCameraPos);
+          float fogFactor = 1.0 - exp(-(uFogDensity * dist) * (uFogDensity * dist));
+          float edgeFog = smoothstep(34.0, 48.0, dist);
+          col = mix(col, uFogColor, clamp(max(fogFactor * (1.0 - flash * 0.45), edgeFog), 0.0, 1.0));
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+    });
+
+    // Connected semi-maze Level 0 architecture (thicker 0.96m walls + boxy pillars + 4.5m ceiling + wide doorways)
+    const l0RawBlocks = [
+      // Left front L-wall + transverse hall partition (creates back wall with doorways on left & right)
+      { ox: -6.2,  oz: -11.5, w: 0.96, d: 13.0, h: L0_H },
+      { ox: -10.8, oz: -5.0,  w: 9.2,  d: 0.96, h: L0_H },
+      { ox: -1.8,  oz: -18.0, w: 9.6,  d: 0.96, h: L0_H },
+
+      // Right boxy room corner mass & connected T-junction partition
+      { ox: 6.8,   oz: -8.5,  w: 3.4,  d: 4.8,  h: L0_H },
+      { ox: 13.5,  oz: -13.5, w: 0.96, d: 14.0, h: L0_H },
+      { ox: 18.2,  oz: -6.5,  w: 9.6,  d: 0.96, h: L0_H },
+
+      // Outer left wing & far connector
+      { ox: -15.5, oz: -13.5, w: 0.96, d: 12.0, h: L0_H },
+      { ox: -19.5, oz: -19.5, w: 8.8,  d: 0.96, h: L0_H },
+
+      // Rear-left & rear-right connected maze corners (with open loops around spawn)
+      { ox: -7.5,  oz: 7.5,   w: 0.96, d: 11.0, h: L0_H },
+      { ox: -12.5, oz: 13.0,  w: 10.8, d: 0.96, h: L0_H },
+      { ox: 8.2,   oz: 7.0,   w: 4.2,  d: 3.6,  h: L0_H },
+      { ox: 15.8,  oz: 11.5,  w: 0.96, d: 13.0, h: L0_H },
+      { ox: -2.0,  oz: 19.5,  w: 11.5, d: 0.96, h: L0_H },
+
+      // Thick structural square pillars framing corridors
+      { ox: -4.2,  oz: 1.8,   w: 1.5,  d: 1.5,  h: L0_H },
+      { ox: 4.6,   oz: 0.8,   w: 1.5,  d: 1.5,  h: L0_H },
+      { ox: 11.0,  oz: 18.0,  w: 1.6,  d: 1.6,  h: L0_H },
+    ];
+
+    // Collision boxes metadata for Level 0 tile
+    const l0Walls = l0RawBlocks.map((b) => ({
+      ox: b.ox,
+      oz: b.oz,
+      hw: b.w * 0.5 + L0_PLAYER_R,
+      hd: b.d * 0.5 + L0_PLAYER_R,
+      geo: new THREE.BoxGeometry(b.w, b.h, b.d),
+      h: b.h,
+    }));
+
+    // Procedural eerie wall writings + arrows + rare "kurizu was here" scrawl
+    function createWallWritingTexture(kind) {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 256;
+      const g = c.getContext('2d');
+      g.clearRect(0, 0, 512, 256);
+
+      if (kind === 'welcome') {
+        // Splatters + dripping dark red/charcoal WELCOME (inspired by reference image 2)
+        g.fillStyle = 'rgba(72, 10, 12, 0.72)';
+        for (let i = 0; i < 24; i++) {
+          g.beginPath();
+          g.arc(95 + (Math.random() - 0.5) * 90, 175 + (Math.random() - 0.5) * 65, 3 + Math.random() * 11, 0, Math.PI * 2);
+          g.fill();
+        }
+        g.save();
+        g.translate(256, 125);
+        g.rotate(-0.04);
+        g.fillStyle = 'rgba(64, 14, 14, 0.86)';
+        g.font = 'bold 74px "Comic Sans MS", "Trebuchet MS", sans-serif';
+        g.textAlign = 'center';
+        g.fillText('WELCOME', 0, 0);
+        // Drips
+        g.fillRect(-130, 4, 5, 42);
+        g.fillRect(-18, 6, 4, 34);
+        g.fillRect(102, 2, 6, 48);
+        g.fillStyle = 'rgba(28, 22, 12, 0.72)';
+        g.font = 'bold 20px monospace';
+        g.fillText('WELCOME', -125, -62);
+        g.fillText('welcome', 135, 34);
+        g.restore();
+      } else if (kind === 'dont_turn') {
+        g.save();
+        g.translate(256, 118);
+        g.rotate(0.03);
+        g.fillStyle = 'rgba(28, 22, 14, 0.82)';
+        g.font = 'bold 38px monospace';
+        g.textAlign = 'center';
+        g.fillText("DON'T LOOK BACK", 0, 0);
+        g.font = 'bold 22px monospace';
+        g.fillText('she hears footsteps', 0, 42);
+        g.restore();
+      } else if (kind === 'keep_running') {
+        g.save();
+        g.translate(256, 115);
+        g.rotate(-0.05);
+        g.fillStyle = 'rgba(54, 14, 16, 0.82)';
+        g.font = 'bold 42px monospace';
+        g.textAlign = 'center';
+        g.fillText('KEEP RUNNING', 0, 0);
+        g.strokeStyle = 'rgba(28, 22, 14, 0.72)';
+        g.lineWidth = 4;
+        for (let k = -90; k <= 90; k += 18) {
+          g.beginPath(); g.moveTo(k, 28); g.lineTo(k + 3, 62); g.stroke();
+        }
+        g.restore();
+      } else if (kind === 'kurizu_rare') {
+        g.save();
+        g.translate(256, 122);
+        g.rotate(-0.03);
+        g.fillStyle = 'rgba(86, 26, 116, 0.88)';
+        g.font = 'bold 40px "Courier New", monospace';
+        g.textAlign = 'center';
+        g.fillText('kurizu was here', 0, 0);
+        g.fillStyle = 'rgba(34, 18, 46, 0.8)';
+        g.font = 'bold 26px monospace';
+        g.fillText(':3  (=^･ω･^=)', 0, 44);
+        g.restore();
+      } else {
+        g.strokeStyle = 'rgba(28, 25, 14, 0.78)';
+        g.lineWidth = 14;
+        g.lineCap = 'round';
+        g.lineJoin = 'round';
+        g.beginPath();
+        g.moveTo(90, 130);
+        g.lineTo(400, 124);
+        g.moveTo(325, 65);
+        g.lineTo(410, 124);
+        g.lineTo(325, 185);
+        g.stroke();
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.encoding = THREE.sRGBEncoding;
+      return tex;
+    }
+
+    const decalMats = {
+      welcome: new THREE.MeshBasicMaterial({ map: createWallWritingTexture('welcome'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
+      dont_turn: new THREE.MeshBasicMaterial({ map: createWallWritingTexture('dont_turn'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
+      keep_running: new THREE.MeshBasicMaterial({ map: createWallWritingTexture('keep_running'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
+      arrow: new THREE.MeshBasicMaterial({ map: createWallWritingTexture('arrow'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
+      kurizu_rare: new THREE.MeshBasicMaterial({ map: createWallWritingTexture('kurizu_rare'), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }),
+    };
+
+    const l0DecalSpecs = [
+      // Prominent "WELCOME" writing right on the transverse wall facing spawn down the corridor
+      { ox: -1.6,  oy: 2.05, oz: -17.49, ry: 0,               w: 4.4, h: 2.1, kind: 'welcome',      rare: false },
+      { ox: 5.07,  oy: 1.95, oz: -8.3,   ry: -Math.PI * 0.5,  w: 2.0, h: 1.0, kind: 'arrow',        rare: false },
+      { ox: 12.99, oy: 2.05, oz: -11.5,  ry: -Math.PI * 0.5,  w: 3.6, h: 1.7, kind: 'keep_running', rare: false },
+      { ox: -6.99, oy: 2.05, oz: 6.5,    ry: Math.PI * 0.5,   w: 3.6, h: 1.7, kind: 'dont_turn',    rare: false },
+      // Rare "kurizu was here" scrawls (appear probabilistically ~22% per wrapped tile)
+      { ox: -5.69, oy: 2.0,  oz: -9.5,   ry: Math.PI * 0.5,   w: 3.4, h: 1.6, kind: 'kurizu_rare',  rare: true },
+      { ox: -1.8,  oy: 2.0,  oz: -18.51, ry: Math.PI,         w: 3.4, h: 1.6, kind: 'kurizu_rare',  rare: true },
+      { ox: -2.0,  oy: 2.0,  oz: 18.99,  ry: Math.PI,         w: 3.4, h: 1.6, kind: 'kurizu_rare',  rare: true },
+    ];
+
+    // Build 3x3 continuous tile grid (144m x 144m rendered around player — zero wall pop-in while walking/running!)
+    const l0DecalGeos = l0DecalSpecs.map((d) => new THREE.PlaneGeometry(d.w, d.h));
+    const l0TileGroups = [];
+    for (let gx = -1; gx <= 1; gx++) {
+      for (let gz = -1; gz <= 1; gz++) {
+        const group = new THREE.Group();
+        l0Walls.forEach((w) => {
+          const wallMesh = new THREE.Mesh(w.geo, l0WallMat);
+          wallMesh.position.set(w.ox, w.h * 0.5, w.oz);
+          group.add(wallMesh);
+        });
+        const tileDecals = l0DecalSpecs.map((d, idx) => {
+          const m = new THREE.Mesh(l0DecalGeos[idx], decalMats[d.kind]);
+          m.position.set(d.ox, d.oy, d.oz);
+          m.rotation.y = d.ry;
+          group.add(m);
+          return { mesh: m, rare: d.rare, idx };
+        });
+        l0Scene.add(group);
+        l0TileGroups.push({ group, gx, gz, decals: tileDecals });
+      }
+    }
+
+    function tileHash(tx, tz) {
+      const s = Math.sin(tx * 127.1 + tz * 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    }
+
+    function resolveLevel0Collisions(wx, wz) {
+      let rx = wx;
+      let rz = wz;
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < l0Walls.length; i++) {
+          const w = l0Walls[i];
+          const cx = Math.round((rx - w.ox) / L0_TILE) * L0_TILE + w.ox;
+          const cz = Math.round((rz - w.oz) / L0_TILE) * L0_TILE + w.oz;
+          const dx = rx - cx;
+          const dz = rz - cz;
+          const penX = w.hw - Math.abs(dx);
+          const penZ = w.hd - Math.abs(dz);
+          if (penX > 0 && penZ > 0) {
+            if (penX < penZ) {
+              rx = cx + (dx >= 0 ? w.hw : -w.hw);
+            } else {
+              rz = cz + (dz >= 0 ? w.hd : -w.hd);
+            }
+          }
+        }
+      }
+      return { x: rx, z: rz };
+    }
+
+    function isInsideAnyL0Wall(wx, wz, extraPad) {
+      const pad = extraPad || 0;
+      for (let i = 0; i < l0Walls.length; i++) {
+        const w = l0Walls[i];
+        const cx = Math.round((wx - w.ox) / L0_TILE) * L0_TILE + w.ox;
+        const cz = Math.round((wz - w.oz) / L0_TILE) * L0_TILE + w.oz;
+        if (Math.abs(wx - cx) < (w.hw - 0.12 + pad) && Math.abs(wz - cz) < (w.hd - 0.12 + pad)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function getNearestL0Wall(wx, wz) {
+      let best = null;
+      let bestDist = Infinity;
+      for (let i = 0; i < l0Walls.length; i++) {
+        const w = l0Walls[i];
+        const cx = Math.round((wx - w.ox) / L0_TILE) * L0_TILE + w.ox;
+        const cz = Math.round((wz - w.oz) / L0_TILE) * L0_TILE + w.oz;
+        const d = Math.hypot(cx - wx, cz - wz);
+        if (d < bestDist) {
+          bestDist = d;
+          best = { x: cx, z: cz, hw: w.hw, hd: w.hd, dist: d };
+        }
+      }
+      return best;
+    }
+
+    let l0RareVisibleCount = 0;
+    function wrapLevel0Entities() {
+      const baseTX = Math.round(pos.x / L0_TILE);
+      const baseTZ = Math.round(pos.z / L0_TILE);
+      let rareCount = 0;
+      for (let i = 0; i < l0TileGroups.length; i++) {
+        const tg = l0TileGroups[i];
+        const tx = baseTX + tg.gx;
+        const tz = baseTZ + tg.gz;
+        tg.group.position.set(tx * L0_TILE, 0, tz * L0_TILE);
+        for (let k = 0; k < tg.decals.length; k++) {
+          const d = tg.decals[k];
+          if (d.rare) {
+            const show = tileHash(tx + d.idx * 3, tz - d.idx * 5) > 0.78;
+            d.mesh.visible = show;
+            if (show) rareCount++;
+          }
+        }
+      }
+      l0RareVisibleCount = rareCount;
+    }
+
+    // 3D Rigged Scary Wisteria Chaser (Level 0) + Proximity Horror + Phase-4 Grab Jumpscare
+    let l0ChaserLoaded = false;
+    let l0PetVisible = true;
+    let l0PetDisappearCount = 0;
+    let l0Danger = 0;
+    let l0Caught = false;
+    let l0GrabTime = 0;
+    let l0GrabClosedFired = false;
+    let l0HeartbeatTimer = 0;
+    let l0RunPhase = 0;
+    const l0PetPos = new THREE.Vector3(3.2, 0, -30.5);
+
+    const l0ChaserGroup = new THREE.Group();
+    const l0ChaserShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.58, 20),
+      new THREE.MeshBasicMaterial({ color: 0x16030b, transparent: true, opacity: 0.55 })
+    );
+    l0ChaserShadow.rotation.x = -Math.PI * 0.5;
+    l0ChaserShadow.position.y = 0.015;
+    l0ChaserGroup.add(l0ChaserShadow);
+
+    const l0ChaserGlow = new THREE.PointLight(0xd8b4fe, 0.9, 10.5, 1.45);
+    l0ChaserGlow.position.set(0, 1.5, 0.45);
+    l0ChaserGroup.add(l0ChaserGlow);
+    l0Scene.add(l0ChaserGroup);
+
+    let cBones = {};
+    let cBindQ = {};
+    let cBindDir = {};
+    let cHolder = null;
+    let cMaterials = [];
+    let l0ChaserMixer = null;
+    let l0SprintAction = null;
+    let l0SprintClipName = null;
+
+    function setupL0ChaserModel(gltf) {
+      const rig = prepareKurizuRig(gltf, 2.14, 0x3b124d, 0.24);
+      cBones = rig.bones;
+      cBindQ = rig.bindQ;
+      cBindDir = rig.bindDir;
+      cHolder = rig.holder;
+      cMaterials = rig.materials;
+
+      if (typeof THREE.AnimationMixer === 'function') {
+        l0ChaserMixer = new THREE.AnimationMixer(rig.raw);
+        const sprintClip = THREE.AnimationClip.findByName(gltf.animations || [], 'Sprint')
+          || (gltf.animations && gltf.animations[0])
+          || null;
+        if (sprintClip) {
+          l0SprintClipName = sprintClip.name;
+          l0SprintAction = l0ChaserMixer.clipAction(sprintClip);
+          l0SprintAction.setLoop(THREE.LoopRepeat, Infinity);
+          l0SprintAction.play();
+        }
+      }
+
+      l0ChaserGroup.add(rig.holder);
+      l0ChaserLoaded = true;
+      l0ChaserGroup.visible = active && currentRealm === 'level0';
+    }
+    loadKurizuGlbInto(setupL0ChaserModel);
+
+    function placeL0PetFarAway(wx, wz, minDist, maxDist) {
+      const candidates = [
+        [2.8, -31.0],
+        [-11.5, -27.5],
+        [17.5, -24.0],
+        [-20.0, 26.0],
+        [20.5, 25.0],
+      ];
+      for (const [cx, cz] of candidates) {
+        const tx = wx + cx;
+        const tz = wz + cz;
+        if (!isInsideAnyL0Wall(tx, tz, 0.75)) {
+          l0PetPos.set(tx, 0, tz);
+          l0ChaserGroup.position.copy(l0PetPos);
+          return;
+        }
+      }
+      for (let i = 0; i < 24; i++) {
+        const ang = (i / 24) * Math.PI * 2;
+        const dist = minDist + Math.random() * (maxDist - minDist);
+        const tx = wx - Math.sin(ang) * dist;
+        const tz = wz - Math.cos(ang) * dist;
+        if (!isInsideAnyL0Wall(tx, tz, 0.75)) {
+          l0PetPos.set(tx, 0, tz);
+          l0ChaserGroup.position.copy(l0PetPos);
+          return;
+        }
+      }
+      l0PetPos.set(wx + 2.6, 0, wz - minDist);
+      l0ChaserGroup.position.copy(l0PetPos);
+    }
+
+    function playHeartbeatThump(danger) {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        [0, 0.16].forEach((offset, idx) => {
+          const osc = ctx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(idx === 0 ? 58 : 48, now + offset);
+          osc.frequency.exponentialRampToValueAtTime(28, now + offset + 0.14);
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.01, now + offset);
+          g.gain.linearRampToValueAtTime(0.11 * danger + 0.03, now + offset + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.15);
+          osc.connect(g);
+          g.connect(ctx.destination);
+          osc.start(now + offset);
+          osc.stop(now + offset + 0.16);
+        });
       } catch {}
     }
 
+    function playJumpscareSfx() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        const len = Math.floor(ctx.sampleRate * 0.55);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) {
+          ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.25));
+        }
+        const nSrc = ctx.createBufferSource();
+        nSrc.buffer = buf;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.28, now);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.52);
+        nSrc.connect(ng);
+        ng.connect(ctx.destination);
+        nSrc.start(now);
+
+        [220, 311, 587].forEach((f) => {
+          const osc = ctx.createOscillator();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(f, now);
+          osc.frequency.linearRampToValueAtTime(f * 0.6, now + 0.5);
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.09, now);
+          g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+          osc.connect(g);
+          g.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.52);
+        });
+      } catch {}
+    }
+
+    // Grid BFS pathfinder over 1.5m cells so Wisteria cleanly rounds thick maze walls & doorways
+    const BFS_N = 36;
+    const BFS_STEP = 1.5;
+    const bfsVisited = new Uint8Array(BFS_N * BFS_N);
+    const bfsNextX = new Float32Array(BFS_N * BFS_N);
+    const bfsNextZ = new Float32Array(BFS_N * BFS_N);
+    const bfsQueue = new Int16Array(BFS_N * BFS_N);
+    let bfsTargetX = 0;
+    let bfsTargetZ = 0;
+    let bfsTimer = 0;
+
+    // Level 0 stealth & flashlight state
+    let l0FlashlightOn = true;
+    let l0KnowsPlayer = true;
+    const l0LastKnownPos = new THREE.Vector3(0, 0, 0);
+    const l0PatrolTarget = new THREE.Vector3(0, 0, -14);
+    const _flashDirVec = new THREE.Vector3();
+
+    function playFlashlightClickSfx() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1600, now);
+        osc.frequency.exponentialRampToValueAtTime(420, now + 0.035);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.08, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.045);
+      } catch {}
+    }
+
+    function setL0Flashlight(nextOn, silent) {
+      l0FlashlightOn = !!nextOn;
+      if (flashBtn) {
+        flashBtn.classList.toggle('is-active', l0FlashlightOn);
+        flashBtn.setAttribute('aria-pressed', String(l0FlashlightOn));
+        flashBtn.textContent = l0FlashlightOn ? 'FLASHLIGHT: ON [F]' : 'FLASHLIGHT: OFF [F]';
+      }
+      if (!silent) playFlashlightClickSfx();
+    }
+
+    function pickL0PatrolPoint() {
+      for (let i = 0; i < 20; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 16 + Math.random() * 18;
+        const tx = l0PetPos.x + Math.cos(ang) * dist;
+        const tz = l0PetPos.z + Math.sin(ang) * dist;
+        if (!isInsideAnyL0Wall(tx, tz, 0.8)) {
+          l0PatrolTarget.set(tx, 0, tz);
+          return;
+        }
+      }
+      l0PatrolTarget.set(l0LastKnownPos.x, 0, l0LastKnownPos.z);
+    }
+
+    function computeChaseWaypoint(goalX, goalZ) {
+      const gx = typeof goalX === 'number' ? goalX : pos.x;
+      const gz = typeof goalZ === 'number' ? goalZ : pos.z;
+      const originX = Math.round(gx / BFS_STEP) * BFS_STEP - (BFS_N * 0.5) * BFS_STEP;
+      const originZ = Math.round(gz / BFS_STEP) * BFS_STEP - (BFS_N * 0.5) * BFS_STEP;
+      const pIdxX = Math.max(1, Math.min(BFS_N - 2, Math.round((gx - originX) / BFS_STEP)));
+      const pIdxZ = Math.max(1, Math.min(BFS_N - 2, Math.round((gz - originZ) / BFS_STEP)));
+      const wIdxX = Math.max(0, Math.min(BFS_N - 1, Math.round((l0PetPos.x - originX) / BFS_STEP)));
+      const wIdxZ = Math.max(0, Math.min(BFS_N - 1, Math.round((l0PetPos.z - originZ) / BFS_STEP)));
+
+      bfsVisited.fill(0);
+      let head = 0;
+      let tail = 0;
+      const startCell = pIdxZ * BFS_N + pIdxX;
+      bfsVisited[startCell] = 1;
+      bfsNextX[startCell] = gx;
+      bfsNextZ[startCell] = gz;
+      bfsQueue[tail++] = startCell;
+
+      const targetCell = wIdxZ * BFS_N + wIdxX;
+      const dirs = [1, 0, -1, 0, 0, 1, 0, -1, 1, 1, 1, -1, -1, 1, -1, -1];
+      while (head < tail) {
+        const cur = bfsQueue[head++];
+        if (cur === targetCell) {
+          bfsTargetX = bfsNextX[cur];
+          bfsTargetZ = bfsNextZ[cur];
+          return true;
+        }
+        const cx = cur % BFS_N;
+        const cz = (cur / BFS_N) | 0;
+        const cwx = originX + cx * BFS_STEP;
+        const cwz = originZ + cz * BFS_STEP;
+        for (let k = 0; k < 16; k += 2) {
+          const nx = cx + dirs[k];
+          const nz = cz + dirs[k + 1];
+          if (nx < 0 || nx >= BFS_N || nz < 0 || nz >= BFS_N) continue;
+          const nCell = nz * BFS_N + nx;
+          if (bfsVisited[nCell]) continue;
+          const nwx = originX + nx * BFS_STEP;
+          const nwz = originZ + nz * BFS_STEP;
+          if (isInsideAnyL0Wall(nwx, nwz, 0.12)) {
+            bfsVisited[nCell] = 2;
+            continue;
+          }
+          // Disallow diagonal corner-cutting across walls
+          if (dirs[k] !== 0 && dirs[k + 1] !== 0) {
+            if (
+              isInsideAnyL0Wall(originX + (cx + dirs[k]) * BFS_STEP, cwz, 0.05) ||
+              isInsideAnyL0Wall(cwx, originZ + (cz + dirs[k + 1]) * BFS_STEP, 0.05)
+            ) {
+              continue;
+            }
+          }
+          bfsVisited[nCell] = 1;
+          bfsNextX[nCell] = cwx;
+          bfsNextZ[nCell] = cwz;
+          bfsQueue[tail++] = nCell;
+        }
+      }
+      return false;
+    }
+
+    function animateL0ChaserRun(dt, speedScale) {
+      if (!l0ChaserLoaded) return;
+
+      if (l0ChaserMixer && l0SprintAction) {
+        l0SprintAction.enabled = true;
+        l0SprintAction.setEffectiveWeight(1);
+        l0SprintAction.setEffectiveTimeScale(l0KnowsPlayer ? (1.22 + speedScale * 0.55) : 0.88);
+        l0ChaserMixer.update(Math.min(dt, 0.25));
+        if (cBones.hips && cBindQ.hipsPos) {
+          cBones.hips.position.x = cBindQ.hipsPos.x;
+          cBones.hips.position.z = cBindQ.hipsPos.z;
+        }
+        // Subtle horror head/neck twitch layered lightly over Sprint clip when near
+        if (l0Danger > 0.25) {
+          if (cBones.neck) {
+            cBones.neck.quaternion.multiply(
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.sin(brTime * 34.0) * 0.22 * l0Danger))
+            );
+          }
+          if (cBones.head) {
+            cBones.head.quaternion.multiply(
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.cos(brTime * 41.0) * 0.18 * l0Danger, 0))
+            );
+          }
+        }
+      } else {
+        l0RunPhase += dt * (9.5 + speedScale * 4.5);
+        const s = Math.sin(l0RunPhase);
+        if (cBones.lUpLeg && cBindQ.lUpLegLocal) {
+          cBones.lUpLeg.quaternion.copy(cBindQ.lUpLegLocal).multiply(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(s * 0.72, 0, 0))
+          );
+        }
+        if (cBones.rUpLeg && cBindQ.rUpLegLocal) {
+          cBones.rUpLeg.quaternion.copy(cBindQ.rUpLegLocal).multiply(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(-s * 0.72, 0, 0))
+          );
+        }
+      }
+
+      // Crimson emissive tint ramp when closing in
+      for (let i = 0; i < cMaterials.length; i++) {
+        cMaterials[i].emissive.setRGB(0.24 + l0Danger * 0.45, 0.07, 0.28 * (1.0 - l0Danger * 0.5));
+      }
+      l0ChaserGlow.color.setHex(l0Danger > 0.35 ? 0xff2a6d : 0xd8b4fe);
+      l0ChaserGlow.intensity = 0.85 + l0Danger * 2.1;
+    }
+
+    function restoreChaserBindPose() {
+      ['hips', 'spine', 'spine1', 'neck', 'head', 'lUpLeg', 'lLeg', 'rUpLeg', 'rLeg'].forEach((k) => {
+        if (cBones[k] && cBindQ[`${k}Local`]) cBones[k].quaternion.copy(cBindQ[`${k}Local`]);
+      });
+      if (cBones.hips && cBindQ.hipsPos) cBones.hips.position.copy(cBindQ.hipsPos);
+    }
+
+    function animateL0ChaserGrab(dt) {
+      l0GrabTime += dt;
+      // Place 3D Wisteria ~1.25m in front of camera so her full face, cat ears & reaching hands frame the grab!
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const grabDist = Math.max(1.22, 1.48 - Math.min(1, l0GrabTime * 2.5) * 0.26);
+      l0PetPos.set(pos.x + fx * grabDist, 0, pos.z + fz * grabDist);
+      l0ChaserGroup.position.copy(l0PetPos);
+      l0ChaserGroup.rotation.y = yaw; // local +Z faces toward camera!
+      l0ChaserGroup.visible = l0ChaserLoaded;
+
+      // Violent camera lock + FOV lunge + Z roll pointing straight at her face (y ~ 1.85m)
+      brCamera.position.set(
+        pos.x + (Math.random() - 0.5) * 0.09,
+        1.72 + (Math.random() - 0.5) * 0.06,
+        pos.z + (Math.random() - 0.5) * 0.09
+      );
+      brCamera.rotation.order = 'YXZ';
+      brCamera.rotation.y = yaw + Math.sin(l0GrabTime * 46.0) * 0.05;
+      brCamera.rotation.x = 0.06 + Math.sin(l0GrabTime * 38.0) * 0.05;
+      brCamera.rotation.z = Math.sin(l0GrabTime * 31.0) * 0.14;
+      if (Math.abs(brCamera.fov - 52) > 0.2) {
+        brCamera.fov = 52;
+        brCamera.updateProjectionMatrix();
+      }
+
+      if (l0ChaserLoaded) {
+        restoreChaserBindPose();
+        if (cBones.spine && cBindQ.spineLocal) {
+          cBones.spine.quaternion.copy(cBindQ.spineLocal).multiply(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0.18, 0, 0))
+          );
+        }
+        if (cBones.neck && cBindQ.neckLocal) {
+          cBones.neck.quaternion.copy(cBindQ.neckLocal).multiply(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12, Math.sin(l0GrabTime * 52.0) * 0.22, Math.cos(l0GrabTime * 44.0) * 0.34))
+          );
+        }
+        if (cBones.head && cBindQ.headLocal) {
+          cBones.head.quaternion.copy(cBindQ.headLocal).multiply(
+            new THREE.Quaternion().setFromEuler(new THREE.Euler(0.05, Math.sin(l0GrabTime * 60.0) * 0.32, 0))
+          );
+        }
+        if (cBones.lUpLeg && cBindQ.lUpLegLocal) cBones.lUpLeg.quaternion.copy(cBindQ.lUpLegLocal);
+        if (cBones.rUpLeg && cBindQ.rUpLegLocal) cBones.rUpLeg.quaternion.copy(cBindQ.rUpLegLocal);
+        if (cBones.lLeg && cBindQ.lLegLocal) cBones.lLeg.quaternion.copy(cBindQ.lLegLocal);
+        if (cBones.rLeg && cBindQ.rLegLocal) cBones.rLeg.quaternion.copy(cBindQ.rLegLocal);
+
+        const q = l0ChaserGroup.quaternion;
+        const lunge = 0.22 + Math.sin(l0GrabTime * 32.0) * 0.14;
+        l0ChaserGroup.updateMatrixWorld(true);
+        pointBoneWorld(cBones.lArm, cBones.lFore, cBindQ.lArm, cBindDir.lArm,
+          new THREE.Vector3(-0.22, 0.26, 0.96).applyQuaternion(q), 1.0, q);
+        l0ChaserGroup.updateMatrixWorld(true);
+        pointBoneWorld(cBones.lFore, cBones.lHand, cBindQ.lFore, cBindDir.lFore,
+          new THREE.Vector3(0.18, lunge, 0.96).applyQuaternion(q), 1.0, q);
+        l0ChaserGroup.updateMatrixWorld(true);
+        pointBoneWorld(cBones.rArm, cBones.rFore, cBindQ.rArm, cBindDir.rArm,
+          new THREE.Vector3(0.22, 0.26, 0.96).applyQuaternion(q), 1.0, q);
+        l0ChaserGroup.updateMatrixWorld(true);
+        pointBoneWorld(cBones.rFore, cBones.rHand, cBindQ.rFore, cBindDir.rFore,
+          new THREE.Vector3(-0.18, lunge, 0.96).applyQuaternion(q), 1.0, q);
+      }
+
+      l0ChaserGlow.color.setHex(0xff2a6d);
+      l0ChaserGlow.position.set(0, 1.55, 0.5);
+      l0ChaserGlow.intensity = 3.2 + Math.sin(l0GrabTime * 48.0) * 1.4;
+      for (let i = 0; i < cMaterials.length; i++) {
+        cMaterials[i].emissive.setRGB(0.68, 0.10, 0.24);
+      }
+
+      if (l0GrabTime >= 1.15 && !l0GrabClosedFired) {
+        l0GrabClosedFired = true;
+        onCaughtCloseSite();
+      }
+    }
+
+    function stepLevel0WisteriaChase(dt) {
+      if (l0Caught) return;
+      const toPlayerX = pos.x - l0PetPos.x;
+      const toPlayerZ = pos.z - l0PetPos.z;
+      const dist = Math.hypot(toPlayerX, toPlayerZ);
+
+      l0Danger = Math.max(0, Math.min(1, 1.0 - (dist - 2.2) / 22.0));
+
+      if (dist < 2.15) {
+        l0Caught = true;
+        l0GrabTime = 0;
+        l0GrabClosedFired = false;
+        l0Danger = 1.0;
+        if (hudEl) hudEl.classList.remove('is-active');
+        if (dangerEl) dangerEl.style.setProperty('--danger', '1');
+        if (jumpscareEl) jumpscareEl.hidden = false;
+        playJumpscareSfx();
+        stopAmbience();
+        if (l0SprintAction) l0SprintAction.stop();
+        restoreChaserBindPose();
+        animateL0ChaserGrab(0);
+        return;
+      }
+
+      // Stealth & detection: flashlight ON (or < 7.5m close) reveals your exact location!
+      const wasKnowing = l0KnowsPlayer;
+      if (l0FlashlightOn || dist < 7.5) {
+        l0KnowsPlayer = true;
+        l0LastKnownPos.copy(pos);
+      } else {
+        if (wasKnowing) {
+          l0PatrolTarget.copy(l0LastKnownPos);
+          bfsTimer = 0;
+        }
+        l0KnowsPlayer = false;
+        if (Math.hypot(l0PatrolTarget.x - l0PetPos.x, l0PatrolTarget.z - l0PetPos.z) < 2.4) {
+          pickL0PatrolPoint();
+          bfsTimer = 0;
+        }
+      }
+
+      const activeGoalX = l0KnowsPlayer ? pos.x : l0PatrolTarget.x;
+      const activeGoalZ = l0KnowsPlayer ? pos.z : l0PatrolTarget.z;
+      const goalDistToTarget = Math.hypot(activeGoalX - l0PetPos.x, activeGoalZ - l0PetPos.z);
+
+      bfsTimer -= dt;
+      if (bfsTimer <= 0 || Math.hypot(bfsTargetX - l0PetPos.x, bfsTargetZ - l0PetPos.z) < 0.75) {
+        bfsTimer = 0.20;
+        if (!computeChaseWaypoint(activeGoalX, activeGoalZ)) {
+          bfsTargetX = activeGoalX;
+          bfsTargetZ = activeGoalZ;
+        }
+      }
+
+      const goalX = goalDistToTarget < 5.0 ? activeGoalX : bfsTargetX;
+      const goalZ = goalDistToTarget < 5.0 ? activeGoalZ : bfsTargetZ;
+      const gx = goalX - l0PetPos.x;
+      const gz = goalZ - l0PetPos.z;
+      const gDist = Math.hypot(gx, gz);
+      const dirX = gx / Math.max(0.001, gDist);
+      const dirZ = gz / Math.max(0.001, gDist);
+      // Faster chaser when she locks onto you, slower blind search when flashlight is OFF
+      const chaseSpeed = l0KnowsPlayer ? (5.65 + l0Danger * 1.55) : 3.9;
+      const stepDist = chaseSpeed * Math.min(dt, 0.25);
+
+      const oldX = l0PetPos.x;
+      const oldZ = l0PetPos.z;
+      let next = resolveLevel0Collisions(oldX + dirX * stepDist, oldZ + dirZ * stepDist);
+      const moved = Math.hypot(next.x - oldX, next.z - oldZ);
+      if (moved < stepDist * 0.25) {
+        computeChaseWaypoint(activeGoalX, activeGoalZ);
+        const fx = bfsTargetX - oldX;
+        const fz = bfsTargetZ - oldZ;
+        const fl = Math.hypot(fx, fz) || 1;
+        next = resolveLevel0Collisions(oldX + (fx / fl) * stepDist, oldZ + (fz / fl) * stepDist);
+      }
+
+      l0PetPos.x = next.x;
+      l0PetPos.z = next.z;
+      l0ChaserGroup.visible = l0ChaserLoaded;
+      l0ChaserGroup.position.copy(l0PetPos);
+      // Face chase travel direction smoothly
+      const faceDx = next.x - oldX;
+      const faceDz = next.z - oldZ;
+      if (Math.hypot(faceDx, faceDz) > 0.002) {
+        l0ChaserGroup.rotation.y = Math.atan2(faceDx, faceDz);
+      } else {
+        l0ChaserGroup.rotation.y = Math.atan2(toPlayerX, toPlayerZ);
+      }
+      animateL0ChaserRun(dt, l0Danger);
+
+      // Proximity horror feedback: camera FOV tension, screen shake, crimson vignette & heartbeat
+      if (dangerEl) {
+        dangerEl.style.setProperty('--danger', (l0Danger * 0.92).toFixed(3));
+      }
+      const nextFov = 62 + l0Danger * 9;
+      if (Math.abs(brCamera.fov - nextFov) > 0.05) {
+        brCamera.fov = nextFov;
+        brCamera.updateProjectionMatrix();
+      }
+      if (l0Danger > 0.12) {
+        brCamera.position.x += (Math.random() - 0.5) * 0.08 * l0Danger;
+        brCamera.position.y += (Math.random() - 0.5) * 0.05 * l0Danger;
+        l0HeartbeatTimer -= dt;
+        if (l0HeartbeatTimer <= 0) {
+          playHeartbeatThump(l0Danger);
+          l0HeartbeatTimer = Math.max(0.32, 0.98 - l0Danger * 0.62);
+        }
+      }
+    }
+
+    // Subdued wind ambience (Plains) / 60Hz fluorescent hum (Level 0) + vanish SFX
+    let ambienceCleanup = null;
+    function startAmbience(realm) {
+      stopAmbienceImmediate();
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const nodesToStop = [];
+        const master = ctx.createGain();
+        master.gain.value = 0.001;
+        master.connect(ctx.destination);
+
+        if (realm === 'level0') {
+          // 60Hz + 120Hz + 180Hz fluorescent ballast buzz + quiet vent hiss
+          [60, 120, 180].forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            osc.type = idx === 0 ? 'sawtooth' : 'triangle';
+            osc.frequency.value = freq;
+            const og = ctx.createGain();
+            og.gain.value = idx === 0 ? 0.36 : idx === 1 ? 0.22 : 0.08;
+            const lp = ctx.createBiquadFilter();
+            lp.type = 'lowpass';
+            lp.frequency.value = 340;
+            osc.connect(lp);
+            lp.connect(og);
+            og.connect(master);
+            osc.start();
+            nodesToStop.push(osc);
+          });
+          const len = Math.floor(ctx.sampleRate * 2);
+          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+          const ch = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * 0.25;
+          const nSrc = ctx.createBufferSource();
+          nSrc.buffer = buf;
+          nSrc.loop = true;
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = 520;
+          const ng = ctx.createGain();
+          ng.gain.value = 0.25;
+          nSrc.connect(bp);
+          bp.connect(ng);
+          ng.connect(master);
+          nSrc.start();
+          nodesToStop.push(nSrc);
+          master.gain.exponentialRampToValueAtTime(0.055, ctx.currentTime + 0.9);
+        } else {
+          const len = Math.floor(ctx.sampleRate * 2);
+          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+          const ch = buf.getChannelData(0);
+          let last = 0;
+          for (let i = 0; i < len; i++) {
+            last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03;
+            ch[i] = last * 2.5;
+          }
+          const src = ctx.createBufferSource();
+          src.buffer = buf;
+          src.loop = true;
+          const lp = ctx.createBiquadFilter();
+          lp.type = 'lowpass';
+          lp.frequency.value = 390;
+          src.connect(lp);
+          lp.connect(master);
+          src.start();
+          nodesToStop.push(src);
+          master.gain.exponentialRampToValueAtTime(0.085, ctx.currentTime + 1.1);
+        }
+        ambienceCleanup = { master, nodesToStop };
+      } catch {}
+    }
+
+    function stopAmbienceImmediate() {
+      if (!ambienceCleanup) return;
+      const cur = ambienceCleanup;
+      ambienceCleanup = null;
+      cur.nodesToStop.forEach((n) => { try { n.stop(); } catch {} });
+      try { cur.master.disconnect(); } catch {}
+    }
+
     function stopAmbience() {
-      if (!windNodes) return;
+      if (!ambienceCleanup) return;
+      const cur = ambienceCleanup;
+      ambienceCleanup = null;
       const ctx = getAudio();
       try {
         if (ctx) {
-          windNodes.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.12);
+          cur.master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.1);
           setTimeout(() => {
-            try { windNodes && windNodes.src.stop(); } catch {}
-            windNodes = null;
-          }, 260);
+            cur.nodesToStop.forEach((n) => { try { n.stop(); } catch {} });
+            try { cur.master.disconnect(); } catch {}
+          }, 240);
         } else {
-          windNodes.src.stop();
-          windNodes = null;
+          cur.nodesToStop.forEach((n) => { try { n.stop(); } catch {} });
         }
       } catch {
-        windNodes = null;
+        cur.nodesToStop.forEach((n) => { try { n.stop(); } catch {} });
       }
     }
 
@@ -1111,24 +2279,46 @@
     }
 
     function wrapWorldEntities() {
-      for (let i = 0; i < housePlacements.length; i++) {
-        const hp = housePlacements[i];
-        hp.mesh.position.x = Math.round((pos.x - hp.ox) / TILE) * TILE + hp.ox;
-        hp.mesh.position.z = Math.round((pos.z - hp.oz) / TILE) * TILE + hp.oz;
+      const baseTX = Math.round(pos.x / TILE);
+      const baseTZ = Math.round(pos.z / TILE);
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      let visCount = 0;
+
+      for (let i = 0; i < plainsHouseTiles.length; i++) {
+        const item = plainsHouseTiles[i];
+        const hx = (baseTX + item.gx) * TILE + item.ox;
+        const hz = (baseTZ + item.gz) * TILE + item.oz;
+        const dx = hx - pos.x;
+        const dz = hz - pos.z;
+        const dist = Math.hypot(dx, dz);
+        // Keep close houses always rendered; derender anything behind or outside the player's forward view
+        const inView = dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.18);
+        item.mesh.position.set(hx, item.oy, hz);
+        item.mesh.visible = inView;
+        if (inView) visCount++;
       }
-      waterTower.position.x = Math.round((pos.x - waterTowerPos.x) / TILE) * TILE + waterTowerPos.x;
-      waterTower.position.z = Math.round((pos.z - waterTowerPos.z) / TILE) * TILE + waterTowerPos.z;
+      plainsVisibleHouses = visCount;
+
+      for (let i = 0; i < plainsTowerTiles.length; i++) {
+        const item = plainsTowerTiles[i];
+        const tx = (baseTX + item.gx) * TILE + item.ox;
+        const tz = (baseTZ + item.gz) * TILE + item.oz;
+        const dx = tx - pos.x;
+        const dz = tz - pos.z;
+        const dist = Math.hypot(dx, dz);
+        const inView = dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.18);
+        item.mesh.position.set(tx, item.oy, tz);
+        item.mesh.visible = inView;
+      }
     }
 
     function syncAtmosphereLighting() {
       const d1 = Math.min(1, darkness * 2.0);
       const d2 = Math.max(0, darkness * 2.0 - 1.0);
       liveFogColor.copy(dayFogColor).lerp(duskFogColor, d1).lerp(nightFogColor, d2);
-      const fogDens = 0.0132 + darkness * 0.0118;
 
       brScene.background.copy(liveFogColor);
-      brScene.fog.color.copy(liveFogColor);
-      brScene.fog.density = fogDens;
 
       ambientLight.intensity = 0.62 - darkness * 0.51;
       hemiLight.intensity = 0.72 - darkness * 0.58;
@@ -1137,13 +2327,12 @@
       flashlight.position.set(pos.x, pos.y + 0.2, pos.z);
 
       skyPlainsMat.uniforms.uDarkness.value = darkness;
+      skyPlainsMat.uniforms.uFogColor.value.copy(liveFogColor);
       starMat.uniforms.uAlpha.value = Math.max(0, Math.min(1, (darkness - 0.32) / 0.58));
       groundMat.uniforms.uDarkness.value = darkness;
       groundMat.uniforms.uFogColor.value.copy(liveFogColor);
-      groundMat.uniforms.uFogDensity.value = fogDens;
       grassMat.uniforms.uDarkness.value = darkness;
       grassMat.uniforms.uFogColor.value.copy(liveFogColor);
-      grassMat.uniforms.uFogDensity.value = fogDens;
     }
 
     function stepSimulation(dt, directStepX, directStepZ) {
@@ -1160,16 +2349,22 @@
         stepZ = directStepZ || 0;
         moving = Math.hypot(stepX, stepZ) > 0.001;
       } else {
-        const fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
-        const str = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+        let fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+        let str = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+        if (Math.hypot(joyX, joyY) > 0.08) {
+          fwd += joyY;
+          str += joyX;
+        }
         if (keys.KeyQ) yaw += clampedDt * 1.85;
         if (keys.KeyE) yaw -= clampedDt * 1.85;
-        if (fwd !== 0 || str !== 0) {
+        const mag = Math.hypot(fwd, str);
+        if (mag > 0.05) {
           moving = true;
-          const speed = (keys.ShiftLeft || keys.ShiftRight) ? 10.6 : 6.4;
-          const len = Math.hypot(fwd, str) || 1;
-          const fNorm = fwd / len;
-          const sNorm = str / len;
+          const joyAutoSprint = Math.hypot(joyX, joyY) > 0.88;
+          const sprinting = keys.ShiftLeft || keys.ShiftRight || mobileSprint || joyAutoSprint;
+          const speed = (sprinting ? 10.6 : 6.4) * Math.min(1, mag);
+          const fNorm = fwd / mag;
+          const sNorm = str / mag;
           const fx = -Math.sin(yaw);
           const fz = -Math.cos(yaw);
           const rx = Math.cos(yaw);
@@ -1181,6 +2376,82 @@
 
       const prevX = pos.x;
       const prevZ = pos.z;
+
+      if (currentRealm === 'level0') {
+        brCamera.getWorldDirection(_flashDirVec);
+        l0FlashSpot.position.set(pos.x, pos.y - 0.12, pos.z);
+        l0FlashTarget.position.copy(pos).addScaledVector(_flashDirVec, 12.0);
+        l0FlashSpot.intensity = l0FlashlightOn ? 3.1 : 0.0;
+
+        if (l0Caught) {
+          animateL0ChaserGrab(dt);
+          l0FloorMat.uniforms.uTime.value = brTime;
+          l0FloorMat.uniforms.uDanger.value = 1.0;
+          l0FloorMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+          l0FloorMat.uniforms.uFlashDir.value.copy(_flashDirVec);
+          l0CeilMat.uniforms.uTime.value = brTime;
+          l0CeilMat.uniforms.uDanger.value = 1.0;
+          l0CeilMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+          l0CeilMat.uniforms.uFlashDir.value.copy(_flashDirVec);
+          l0WallMat.uniforms.uTime.value = brTime;
+          l0WallMat.uniforms.uDanger.value = 1.0;
+          l0WallMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+          l0WallMat.uniforms.uFlashDir.value.copy(_flashDirVec);
+          return;
+        }
+        const resolved = resolveLevel0Collisions(pos.x + stepX, pos.z + stepZ);
+        pos.x = resolved.x;
+        pos.z = resolved.z;
+
+        const movedDist = Math.hypot(pos.x - prevX, pos.z - prevZ);
+        if (moving && movedDist > 0.001) {
+          bobPhase += movedDist * 1.5;
+        }
+        loopDistance += movedDist;
+        const curWrap = Math.floor((Math.abs(pos.x) + Math.abs(pos.z)) / L0_TILE);
+        if (curWrap > wrapCount) wrapCount = curWrap;
+
+        const bob = moving ? Math.sin(bobPhase) * 0.048 : Math.sin(brTime * 1.5) * 0.009;
+        pos.y = 1.65 + bob;
+
+        brCamera.position.copy(pos);
+        brCamera.rotation.order = 'YXZ';
+        brCamera.rotation.y = yaw;
+        brCamera.rotation.x = pitch;
+        brCamera.getWorldDirection(_flashDirVec);
+
+        l0CamLight.position.set(pos.x, pos.y + 0.2, pos.z);
+        l0FlashSpot.position.set(pos.x, pos.y - 0.12, pos.z);
+        l0FlashTarget.position.copy(pos).addScaledVector(_flashDirVec, 12.0);
+        l0FlashSpot.intensity = l0FlashlightOn ? 3.1 : 0.0;
+
+        wrapLevel0Entities();
+        stepLevel0WisteriaChase(dt);
+
+        l0FloorMat.uniforms.uTime.value = brTime;
+        l0FloorMat.uniforms.uCenterX.value = pos.x;
+        l0FloorMat.uniforms.uCenterZ.value = pos.z;
+        l0FloorMat.uniforms.uDanger.value = l0Danger;
+        l0FloorMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+        l0FloorMat.uniforms.uFlashDir.value.copy(_flashDirVec);
+        l0FloorMat.uniforms.uCameraPos.value.copy(pos);
+
+        l0CeilMat.uniforms.uTime.value = brTime;
+        l0CeilMat.uniforms.uCenterX.value = pos.x;
+        l0CeilMat.uniforms.uCenterZ.value = pos.z;
+        l0CeilMat.uniforms.uDanger.value = l0Danger;
+        l0CeilMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+        l0CeilMat.uniforms.uFlashDir.value.copy(_flashDirVec);
+        l0CeilMat.uniforms.uCameraPos.value.copy(pos);
+
+        l0WallMat.uniforms.uTime.value = brTime;
+        l0WallMat.uniforms.uDanger.value = l0Danger;
+        l0WallMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+        l0WallMat.uniforms.uFlashDir.value.copy(_flashDirVec);
+        l0WallMat.uniforms.uCameraPos.value.copy(pos);
+        return;
+      }
+
       const resolved = resolveWorldCollisions(pos.x + stepX, pos.z + stepZ);
       pos.x = resolved.x;
       pos.z = resolved.z;
@@ -1212,7 +2483,7 @@
       wrapWorldEntities();
       syncAtmosphereLighting();
 
-      // Animate 3D Wisteria Watcher (standing eerily still, staring at player, horror head twitches, vanish on < 11.5m)
+      // Animate 3D Wisteria Watcher (follows you onto nearby misty hills if you walk > 34m away, vanishes on < 11.5m)
       if (watcherVisible) {
         const wDist = Math.hypot(watcherPos.x - pos.x, watcherPos.z - pos.z);
         if (wDist < 11.5) {
@@ -1220,9 +2491,13 @@
           watcherGroup.visible = false;
           watcherGlow.intensity = 0;
           watcherDisappearCount++;
-          watcherRespawnTimer = 2.8;
+          watcherRespawnTimer = 2.6;
           playStaticVanishSfx();
         } else {
+          if (wDist > 34.0) {
+            placeWatcherOnHill(pos.x, pos.z, 19, 29);
+            watcherFollowCount++;
+          }
           watcherPos.y = terrainY(watcherPos.x, watcherPos.z);
           watcherGroup.position.copy(watcherPos);
           // Model faces +Z in local holder, so atan2(dx, dz) points her straight at player
@@ -1261,7 +2536,7 @@
       } else {
         watcherRespawnTimer -= dt;
         if (watcherRespawnTimer <= 0) {
-          placeWatcherOnHill(pos.x, pos.z, 26, 42);
+          placeWatcherOnHill(pos.x, pos.z, 20, 30);
           watcherVisible = true;
           watcherGroup.visible = watcherLoaded;
         }
@@ -1271,9 +2546,12 @@
       groundMat.uniforms.uCenterX.value = pos.x;
       groundMat.uniforms.uCenterZ.value = pos.z;
       groundMat.uniforms.uCameraPos.value.copy(pos);
+      const grassFwdX = -Math.sin(yaw);
+      const grassFwdZ = -Math.cos(yaw);
       grassMat.uniforms.uTime.value = brTime;
-      grassMat.uniforms.uCenterX.value = pos.x;
-      grassMat.uniforms.uCenterZ.value = pos.z;
+      grassMat.uniforms.uCenterX.value = pos.x + grassFwdX * 15.0;
+      grassMat.uniforms.uCenterZ.value = pos.z + grassFwdZ * 15.0;
+      grassMat.uniforms.uCamFwdXZ.value.set(grassFwdX, grassFwdZ);
       grassMat.uniforms.uCameraPos.value.copy(pos);
     }
 
@@ -1288,7 +2566,19 @@
         exit();
         return;
       }
+      if (e.code === 'KeyF' && !e.repeat && currentRealm === 'level0' && !l0Caught) {
+        e.preventDefault();
+        setL0Flashlight(!l0FlashlightOn);
+        return;
+      }
       keys[e.code] = true;
+    }
+
+    function onFlashBtnClick(e) {
+      if (!active || currentRealm !== 'level0' || l0Caught) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setL0Flashlight(!l0FlashlightOn);
     }
 
     function onKeyUp(e) {
@@ -1304,7 +2594,7 @@
     }
 
     function onPointerMove(e) {
-      if (!active) return;
+      if (!active || e.pointerType === 'touch') return;
       if (pointerLocked || document.pointerLockElement === canvas) {
         yaw -= e.movementX * 0.0026;
         pitch = Math.max(-1.25, Math.min(1.2, pitch - e.movementY * 0.0024));
@@ -1332,6 +2622,7 @@
 
     function onCanvasClick() {
       if (!active) return;
+      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return;
       if (document.pointerLockElement !== canvas && canvas.requestPointerLock) {
         try {
           const p = canvas.requestPointerLock();
@@ -1340,20 +2631,109 @@
       }
     }
 
+    // Mobile virtual joystick (left thumb)
+    function updateJoystickFromPoint(clientX, clientY) {
+      if (!joyBase) return;
+      const rect = joyBase.getBoundingClientRect();
+      const cx = rect.left + rect.width * 0.5;
+      const cy = rect.top + rect.height * 0.5;
+      const maxR = Math.max(24, rect.width * 0.36);
+      let dx = clientX - cx;
+      let dy = clientY - cy;
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxR) {
+        dx = (dx / dist) * maxR;
+        dy = (dy / dist) * maxR;
+      }
+      joyX = dx / maxR;
+      joyY = -dy / maxR;
+      if (joyKnob) {
+        joyKnob.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0)`;
+      }
+    }
+
+    function resetJoystick() {
+      joyPointerId = null;
+      joyX = 0;
+      joyY = 0;
+      if (joyBase) joyBase.classList.remove('is-dragging');
+      if (joyKnob) joyKnob.style.transform = 'translate3d(0, 0, 0)';
+    }
+
+    function onJoyPointerDown(e) {
+      if (!active) return;
+      e.preventDefault();
+      e.stopPropagation();
+      joyPointerId = e.pointerId;
+      if (joyBase) {
+        joyBase.classList.add('is-dragging');
+        try { joyBase.setPointerCapture(e.pointerId); } catch {}
+      }
+      updateJoystickFromPoint(e.clientX, e.clientY);
+    }
+
+    function onJoyPointerMove(e) {
+      if (!active || e.pointerId !== joyPointerId) return;
+      e.preventDefault();
+      updateJoystickFromPoint(e.clientX, e.clientY);
+    }
+
+    function onJoyPointerUp(e) {
+      if (e.pointerId !== joyPointerId) return;
+      resetJoystick();
+    }
+
+    function onSprintClick(e) {
+      if (!active) return;
+      e.preventDefault();
+      e.stopPropagation();
+      mobileSprint = !mobileSprint;
+      if (sprintBtn) {
+        sprintBtn.classList.toggle('is-active', mobileSprint);
+        sprintBtn.setAttribute('aria-pressed', String(mobileSprint));
+      }
+    }
+
+    // Multi-touch look drag on canvas (ignores touches on HUD/joystick)
+    let lookTouchId = null;
     let touchPrev = null;
     function onTouchStart(e) {
-      if (!active || !e.touches[0]) return;
-      touchPrev = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      if (!active) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.target && t.target.closest && t.target.closest('#backroomsHud')) continue;
+        if (lookTouchId === null) {
+          lookTouchId = t.identifier;
+          touchPrev = { x: t.clientX, y: t.clientY };
+          break;
+        }
+      }
     }
     function onTouchMove(e) {
-      if (!active || !touchPrev || !e.touches[0]) return;
-      const dx = e.touches[0].clientX - touchPrev.x;
-      const dy = e.touches[0].clientY - touchPrev.y;
-      touchPrev = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-      yaw -= dx * 0.004;
-      pitch = Math.max(-1.25, Math.min(1.2, pitch - dy * 0.0035));
+      if (!active || lookTouchId === null || !touchPrev) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const t = e.changedTouches[i];
+        if (t.identifier === lookTouchId) {
+          e.preventDefault();
+          const dx = t.clientX - touchPrev.x;
+          const dy = t.clientY - touchPrev.y;
+          touchPrev = { x: t.clientX, y: t.clientY };
+          yaw -= dx * 0.0048;
+          pitch = Math.max(-1.25, Math.min(1.2, pitch - dy * 0.0042));
+          break;
+        }
+      }
     }
-    function onTouchEnd() { touchPrev = null; }
+    function onTouchEnd(e) {
+      if (lookTouchId === null) return;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === lookTouchId) {
+          lookTouchId = null;
+          touchPrev = null;
+          break;
+        }
+      }
+    }
 
     function attachListeners() {
       window.addEventListener('keydown', onKeyDown);
@@ -1362,8 +2742,21 @@
       canvas.addEventListener('click', onCanvasClick);
       canvas.addEventListener('pointermove', onPointerMove);
       canvas.addEventListener('touchstart', onTouchStart, { passive: true });
-      canvas.addEventListener('touchmove', onTouchMove, { passive: true });
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false });
       canvas.addEventListener('touchend', onTouchEnd, { passive: true });
+      canvas.addEventListener('touchcancel', onTouchEnd, { passive: true });
+      if (joyBase) {
+        joyBase.addEventListener('pointerdown', onJoyPointerDown);
+        joyBase.addEventListener('pointermove', onJoyPointerMove);
+        joyBase.addEventListener('pointerup', onJoyPointerUp);
+        joyBase.addEventListener('pointercancel', onJoyPointerUp);
+      }
+      if (sprintBtn) {
+        sprintBtn.addEventListener('click', onSprintClick);
+      }
+      if (flashBtn) {
+        flashBtn.addEventListener('click', onFlashBtnClick);
+      }
     }
 
     function detachListeners() {
@@ -1375,49 +2768,171 @@
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchmove', onTouchMove);
       canvas.removeEventListener('touchend', onTouchEnd);
+      canvas.removeEventListener('touchcancel', onTouchEnd);
+      if (joyBase) {
+        joyBase.removeEventListener('pointerdown', onJoyPointerDown);
+        joyBase.removeEventListener('pointermove', onJoyPointerMove);
+        joyBase.removeEventListener('pointerup', onJoyPointerUp);
+        joyBase.removeEventListener('pointercancel', onJoyPointerUp);
+      }
+      if (sprintBtn) {
+        sprintBtn.removeEventListener('click', onSprintClick);
+      }
+      if (flashBtn) {
+        flashBtn.removeEventListener('click', onFlashBtnClick);
+      }
+      resetJoystick();
+      lookTouchId = null;
+      touchPrev = null;
       if (document.pointerLockElement === canvas) {
         document.exitPointerLock?.();
       }
     }
 
-    function enter() {
+    function enter(realm) {
+      currentRealm = realm === 'level0' ? 'level0' : 'plains';
       active = true;
       keys = Object.create(null);
+      resetJoystick();
+      mobileSprint = false;
+      if (sprintBtn) {
+        sprintBtn.classList.remove('is-active');
+        sprintBtn.setAttribute('aria-pressed', 'false');
+      }
+      canvas.style.touchAction = 'none';
+      const isTouchLike =
+        (window.matchMedia && window.matchMedia('(hover: none), (pointer: coarse), (max-width: 900px)').matches) ||
+        ('ontouchstart' in window) ||
+        (navigator.maxTouchPoints > 0);
+      if (hudEl) {
+        hudEl.classList.toggle('has-touch', !!isTouchLike);
+      }
+      if (levelLabel) {
+        levelLabel.textContent = currentRealm === 'level0'
+          ? 'LEVEL 0 · THE LOBBY'
+          : 'LEVEL 94 · MOTION (PLAINS)';
+      }
+      if (flashBtn) {
+        flashBtn.hidden = currentRealm !== 'level0';
+      }
+      setL0Flashlight(true, true);
+      l0KnowsPlayer = true;
+      l0LastKnownPos.set(0, 0, 0);
+      l0PatrolTarget.set(0, 0, -14);
+
+      if (hintLabel) {
+        if (currentRealm === 'level0') {
+          hintLabel.textContent = isTouchLike
+            ? 'Left stick · Drag look · Tap FLASHLIGHT (she tracks light!) / RUN'
+            : 'WASD move · Shift sprint · F flashlight (attracts her!) · ESC wake up';
+        } else {
+          hintLabel.textContent = isTouchLike
+            ? 'Left stick to move · Drag screen to look · Tap RUN'
+            : 'WASD move · Move mouse or click for 360° look · ESC wake up';
+        }
+      }
       wrapCount = 0;
       loopDistance = 0;
       darkness = 0;
       watcherVisible = true;
       watcherDisappearCount = 0;
+      watcherFollowCount = 0;
       watcherRespawnTimer = 0;
+      l0PetVisible = true;
+      l0PetDisappearCount = 0;
+      l0Danger = 0;
+      l0Caught = false;
+      l0GrabTime = 0;
+      l0GrabClosedFired = false;
+      l0HeartbeatTimer = 0;
+      l0RunPhase = 0;
+      bfsTimer = 0;
+      if (dangerEl) dangerEl.style.setProperty('--danger', '0');
+      if (jumpscareEl) jumpscareEl.hidden = true;
+      brCamera.rotation.z = 0;
+      if (brCamera.fov !== 62) {
+        brCamera.fov = 62;
+        brCamera.updateProjectionMatrix();
+      }
 
-      pos.set(0, terrainY(0, 0) + 1.68, 0);
-      yaw = 0.06;
-      pitch = -0.02;
       lastMouseX = null;
       lastMouseY = null;
 
-      placeWatcherOnHill(0, 0, 26, 36);
-      watcherGroup.visible = watcherLoaded;
-      syncAtmosphereLighting();
-      if (hudEl) hudEl.classList.add('is-active');
+      if (currentRealm === 'level0') {
+        pos.set(0, 1.65, 0);
+        yaw = 0.0;
+        pitch = -0.02;
+        watcherGroup.visible = false;
+        placeL0PetFarAway(0, 0, 29, 35);
+        l0ChaserGroup.visible = l0ChaserLoaded;
+        restoreChaserBindPose();
+        if (l0SprintAction) {
+          l0SprintAction.reset();
+          l0SprintAction.enabled = true;
+          l0SprintAction.setEffectiveWeight(1);
+          l0SprintAction.play();
+        }
+        l0MatReset();
+        wrapLevel0Entities();
+      } else {
+        pos.set(0, terrainY(0, 0) + 1.68, 0);
+        yaw = 0.06;
+        pitch = -0.02;
+        placeWatcherOnHill(0, 0, 20, 29);
+        watcherGroup.visible = watcherLoaded;
+        syncAtmosphereLighting();
+      }
+
+      if (hudEl) {
+        hudEl.hidden = false;
+        hudEl.classList.add('is-active');
+      }
       attachListeners();
-      startAmbience();
+      startAmbience(currentRealm);
+    }
+
+    function l0MatReset() {
+      for (let i = 0; i < cMaterials.length; i++) {
+        cMaterials[i].emissive.setRGB(0.24, 0.07, 0.28);
+      }
+      l0ChaserGlow.color.setHex(0xd8b4fe);
+      l0ChaserGlow.intensity = 0.9;
+      l0FloorMat.uniforms.uDanger.value = 0;
+      l0CeilMat.uniforms.uDanger.value = 0;
+      l0WallMat.uniforms.uDanger.value = 0;
     }
 
     function exit() {
       if (!active) return;
       active = false;
+      if (dangerEl) dangerEl.style.setProperty('--danger', '0');
+      if (jumpscareEl) jumpscareEl.hidden = true;
+      brCamera.rotation.z = 0;
+      if (brCamera.fov !== 62) {
+        brCamera.fov = 62;
+        brCamera.updateProjectionMatrix();
+      }
+      canvas.style.touchAction = '';
       watcherGroup.visible = false;
+      l0ChaserGroup.visible = false;
       detachListeners();
       stopAmbience();
-      if (hudEl) hudEl.classList.remove('is-active');
+      if (hudEl) {
+        hudEl.classList.remove('is-active');
+        hudEl.hidden = true;
+      }
+      if (flashBtn) flashBtn.hidden = true;
       onExit();
+    }
+
+    function renderActiveScene() {
+      renderer.render(currentRealm === 'level0' ? l0Scene : brScene, brCamera);
     }
 
     function update(dt) {
       if (!active) return false;
       stepSimulation(dt);
-      renderer.render(brScene, brCamera);
+      renderActiveScene();
       return true;
     }
 
@@ -1433,12 +2948,15 @@
       } else {
         stepSimulation(dtSim || 0.04, 0, 0);
       }
-      renderer.render(brScene, brCamera);
+      renderActiveScene();
     }
 
     function getDebugState() {
       const nh = getNearestHouseWorld(pos.x, pos.z);
+      const nw = getNearestL0Wall(pos.x, pos.z);
+      const l0PetDist = Math.hypot(l0PetPos.x - pos.x, l0PetPos.z - pos.z);
       return {
+        realm: currentRealm,
         pos: { x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), z: +pos.z.toFixed(2) },
         yaw: +yaw.toFixed(3),
         pitch: +pitch.toFixed(3),
@@ -1449,6 +2967,10 @@
         watcherLoaded,
         watcherVisible,
         watcherDisappearCount,
+        watcherFollowCount,
+        plainsFogEnabled: Boolean(brScene.fog),
+        plainsVisibleHouses,
+        plainsTotalHouses: plainsHouseTiles.length,
         watcherPos: {
           x: +watcherPos.x.toFixed(2),
           y: +watcherPos.y.toFixed(2),
@@ -1457,6 +2979,27 @@
         nearestHouse: nh ? { x: +nh.x.toFixed(2), z: +nh.z.toFixed(2), rot: +nh.rot.toFixed(3), dist: +nh.dist.toFixed(2) } : null,
         insideAnyHouse: isInsideAnyHouse(pos.x, pos.z),
         houseCount: housePlacements.length,
+        l0CeilingHeight: L0_H,
+        l0FogDensity,
+        l0TileGridCount: l0TileGroups.length,
+        l0ChaserLoaded,
+        l0FlashlightOn,
+        l0KnowsPlayer,
+        l0SprintClip: l0SprintClipName,
+        l0SprintPlaying: Boolean(l0SprintAction && l0SprintAction.isRunning()),
+        l0PetLoaded: l0ChaserLoaded,
+        l0PetVisible,
+        l0PetDisappearCount,
+        l0PetDist: +l0PetDist.toFixed(2),
+        l0Danger: +l0Danger.toFixed(3),
+        l0Caught,
+        l0GrabTime: +l0GrabTime.toFixed(2),
+        l0PetPos: { x: +l0PetPos.x.toFixed(2), y: +l0PetPos.y.toFixed(2), z: +l0PetPos.z.toFixed(2) },
+        nearestL0Wall: nw ? { x: +nw.x.toFixed(2), z: +nw.z.toFixed(2), hw: +nw.hw.toFixed(2), hd: +nw.hd.toFixed(2), dist: +nw.dist.toFixed(2) } : null,
+        insideAnyL0Wall: isInsideAnyL0Wall(pos.x, pos.z),
+        l0WallCount: l0Walls.length,
+        l0DecalCount: l0DecalSpecs.length,
+        l0RareVisibleCount,
       };
     }
 
@@ -1467,12 +3010,15 @@
 
     return {
       enter,
-      setRealm: () => {},
+      setRealm: (r) => {
+        if (active) enter(r);
+        else currentRealm = r === 'level0' ? 'level0' : 'plains';
+      },
       stepForTest,
       getDebugState,
       exit,
       isActive: () => active,
-      getRealm: () => 'plains',
+      getRealm: () => currentRealm,
       update,
       resize,
     };

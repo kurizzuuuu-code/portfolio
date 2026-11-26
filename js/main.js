@@ -1923,10 +1923,199 @@
     }
     const urlInput = $("#chessUrlInput");
     if (urlInput) {
-      if (data.stage === "snap-backrooms") urlInput.value = "kurizu://games/wisteria-chess-plains";
-      else if (data.stage === "reset") urlInput.value = "kurizu://games/wisteria-chess";
+      if (data.stage === "snap-backrooms") {
+        urlInput.value = data.realm === "level0"
+          ? "kurizu://games/wisteria-chess-level0"
+          : "kurizu://games/wisteria-chess-plains";
+      } else if (data.stage === "caught-close-site") {
+        triggerWebsiteShutdownByWisteria();
+      } else if (data.stage === "reset") {
+        urlInput.value = "kurizu://games/wisteria-chess";
+      }
     }
   });
+
+  function playMetaverseBytebeat(durationSec) {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      const ctx = new AC();
+      const rate = 8000;
+      const len = Math.floor(rate * durationSec);
+      const buf = ctx.createBuffer(1, len, rate);
+      const ch = buf.getChannelData(0);
+      for (let t = 0; t < len; t++) {
+        // Classic Metaverse/MEMZ bytebeat glitch melody
+        const v = t < len * 0.45
+          ? ((t * ((t >> 5) | (t >> 8))) >> (t >> 16)) & 255
+          : ((t * 5 & (t >> 7)) | (t * 3 & (t >> 10))) & 255;
+        ch[t] = (v / 127.5 - 1.0) * 0.65;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = 0.11;
+      src.connect(g);
+      g.connect(ctx.destination);
+      src.start();
+      return {
+        stop: () => {
+          try { src.stop(); } catch (_) {}
+          try { ctx.close(); } catch (_) {}
+        },
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function triggerWebsiteShutdownByWisteria() {
+    try { bgAudio?.pause(); } catch (_) {}
+    if ($("#metaverseGlitchCanvas") || $("#siteShutdownOverlay")) return;
+
+    const cvs = document.createElement("canvas");
+    cvs.id = "metaverseGlitchCanvas";
+    const w = Math.max(320, Math.min(960, window.innerWidth));
+    const h = Math.max(240, Math.min(600, window.innerHeight));
+    cvs.width = w;
+    cvs.height = h;
+    cvs.style.cssText =
+      "position:fixed;inset:0;z-index:999998;width:100vw;height:100vh;pointer-events:auto;image-rendering:pixelated;";
+    document.body.appendChild(cvs);
+
+    const g = cvs.getContext("2d");
+    // Seed canvas with stylized snapshot of the desktop + live chess canvas so GDI feedback looks real
+    g.fillStyle = "#160726";
+    g.fillRect(0, 0, w, h);
+    g.strokeStyle = "rgba(192,132,252,0.16)";
+    for (let x = 0; x < w; x += 28) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); }
+    for (let y = 0; y < h; y += 28) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); }
+    try {
+      const iframeCvs = $("#chessIframe")?.contentDocument?.getElementById("chessCanvas");
+      if (iframeCvs) {
+        g.drawImage(iframeCvs, Math.floor(w * 0.18), Math.floor(h * 0.1), Math.floor(w * 0.74), Math.floor(h * 0.76));
+      }
+    } catch (_) {}
+    g.fillStyle = "#c084fc";
+    g.font = "bold 22px monospace";
+    g.fillText("KURIZU.EXE // FATAL_ERR_0x000", 24, 38);
+
+    const bytebeat = playMetaverseBytebeat(3.1);
+    const startMs = performance.now();
+    const totalMs = 2850;
+    let rafId = 0;
+
+    function drawCursor(cx, cy) {
+      g.save();
+      g.translate(cx, cy);
+      g.fillStyle = "#ffffff";
+      g.strokeStyle = "#000000";
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(0, 0); g.lineTo(0, 18); g.lineTo(5, 14); g.lineTo(9, 22); g.lineTo(12, 20); g.lineTo(8, 13); g.lineTo(14, 13);
+      g.closePath();
+      g.fill();
+      g.stroke();
+      g.restore();
+    }
+
+    function tickGlitch(now) {
+      const elapsed = now - startMs;
+      if (elapsed >= totalMs) {
+        cancelAnimationFrame(rafId);
+        try { bytebeat?.stop(); } catch (_) {}
+        cvs.remove();
+        showFinalShutdownOverlay();
+        return;
+      }
+
+      if (elapsed < 950) {
+        // Phase 1: MEMZ zoom tunnel + PATINVERT flashes + cursor spam
+        const inset = 12 + Math.floor(Math.random() * 14);
+        const jx = Math.floor((Math.random() - 0.5) * 18);
+        const jy = Math.floor((Math.random() - 0.5) * 18);
+        g.drawImage(cvs, 0, 0, w, h, inset + jx, inset + jy, w - inset * 2, h - inset * 2);
+        if (Math.random() < 0.35) {
+          g.save();
+          g.globalCompositeOperation = "difference";
+          g.fillStyle = Math.random() < 0.5 ? "#ff2a6d" : "#c084fc";
+          g.fillRect(0, 0, w, h);
+          g.restore();
+        }
+        for (let i = 0; i < 6; i++) drawCursor(Math.random() * w, Math.random() * h);
+      } else if (elapsed < 1900) {
+        // Phase 2: Screen melt dripping strips + rotated skew feedback + rainbow floods
+        for (let i = 0; i < 16; i++) {
+          const sx = Math.floor(Math.random() * w);
+          const sw = 10 + Math.floor(Math.random() * 34);
+          const drop = 8 + Math.floor(Math.random() * 28);
+          g.drawImage(cvs, sx, 0, sw, h - drop, sx, drop, sw, h - drop);
+        }
+        g.save();
+        g.translate(w * 0.5, h * 0.5);
+        g.rotate((Math.random() - 0.5) * 0.08);
+        g.drawImage(cvs, -w * 0.48, -h * 0.48, w * 0.96, h * 0.96);
+        g.restore();
+        if (Math.random() < 0.4) {
+          g.save();
+          g.globalCompositeOperation = "exclusion";
+          g.fillStyle = `hsl(${Math.floor(Math.random() * 360)}, 95%, 55%)`;
+          g.fillRect(0, Math.random() * h, w, 18 + Math.random() * 90);
+          g.restore();
+        }
+      } else {
+        // Phase 3: Bitwise Sierpinski / XOR RGB corruption (FenXingSanJiao style)
+        const img = g.getImageData(0, 0, w, h);
+        const d = img.data;
+        const shift = (Math.floor(elapsed / 40) * 19) & 255;
+        for (let y = 0; y < h; y += 2) {
+          for (let x = 0; x < w; x += 2) {
+            const idx = (y * w + x) * 4;
+            const pat = ((x + shift) ^ (y + shift)) & 255;
+            d[idx] = (d[idx] + pat) & 255;
+            d[idx + 1] = (d[idx + 1] ^ (x | y)) & 255;
+            d[idx + 2] = (d[idx + 2] + ((x & y) + shift)) & 255;
+            d[idx + 3] = 255;
+          }
+        }
+        g.putImageData(img, 0, 0);
+        // Horizontal tear bands
+        for (let k = 0; k < 5; k++) {
+          const sy = Math.floor(Math.random() * h);
+          const sh = 6 + Math.floor(Math.random() * 24);
+          g.drawImage(cvs, 0, sy, w, sh, (Math.random() - 0.5) * 60, sy, w, sh);
+        }
+      }
+
+      rafId = requestAnimationFrame(tickGlitch);
+    }
+    rafId = requestAnimationFrame(tickGlitch);
+  }
+
+  function showFinalShutdownOverlay() {
+    if ($("#siteShutdownOverlay")) return;
+    const ov = document.createElement("div");
+    ov.id = "siteShutdownOverlay";
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:999999;background:#030106;display:grid;place-items:center;color:#e9d5ff;font-family:monospace;text-align:center;opacity:0;transition:opacity 0.22s ease;";
+    ov.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px;">
+        <div style="width:min(90vw,420px);height:2px;background:linear-gradient(90deg,transparent,#ff2a6d,#fff,#ff2a6d,transparent);box-shadow:0 0 24px #ff2a6d;"></div>
+        <div style="font-size:16px;letter-spacing:0.2em;color:#ff2a6d;font-weight:700;">CONNECTION TERMINATED</div>
+        <div style="font-size:12px;letter-spacing:0.1em;color:#c084fc;opacity:0.8;">wisteria caught you in level 0.</div>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => {
+      ov.style.opacity = "1";
+    });
+    setTimeout(() => {
+      try {
+        window.open("", "_self");
+        window.close();
+      } catch (_) {}
+    }, 550);
+  }
 
   function submitChessUrlCommand() {
     const input = $("#chessUrlInput");
@@ -1935,7 +2124,17 @@
     const raw = input.value.trim().toLowerCase();
     input.blur();
 
-    if (/plains|level[-_\s]?94|backrooms|snap/.test(raw)) {
+    if (/level[-_\s]?0|lvl[-_\s]?0|lobby/.test(raw)) {
+      input.value = "kurizu://games/wisteria-chess-level0";
+      if (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank") {
+        frame.src = "chess/index.html?windowed=1&egg=level0";
+      } else {
+        try {
+          frame.contentWindow?.postMessage({ type: "kurizu-chess-cmd", action: "trigger-snap-level0" }, "*");
+        } catch (_) {}
+      }
+      frame.focus();
+    } else if (/plains|level[-_\s]?94|backrooms|snap/.test(raw)) {
       input.value = "kurizu://games/wisteria-chess-plains";
       if (!frame.getAttribute("src") || frame.getAttribute("src") === "about:blank") {
         frame.src = "chess/index.html?windowed=1&egg=plains";
@@ -3095,8 +3294,8 @@
   function restoreAllDesktopWindows() {
     managedWindows.forEach((info, id) => {
       info.el.classList.remove("is-minimized", "is-maximized");
-      // Return to clean initial desktop: kurizu.exe in the middle + profile.card on the right
-      if (id === "browser" || id === "profile") info.el.classList.remove("is-closed");
+      // Return to clean initial desktop: profile.card open, kurizu.exe closed
+      if (id === "profile") info.el.classList.remove("is-closed");
       else info.el.classList.add("is-closed");
       info.el.style.transform = "";
     });
@@ -3107,7 +3306,7 @@
     });
     desktopIconOffsets.clear();
     clearChessEggEffects();
-    focusDesktopWindow("browser");
+    focusDesktopWindow("profile");
     playSfx("pop");
     toast("desktop reset to clean workspace ✨");
   }
@@ -3207,7 +3406,7 @@
   function initDesktopWindowManager() {
     const osLayer = $("#osDesktop");
     const windowSpecs = [
-      { id: "browser", sel: "#heroBrowser", title: "kurizu.exe", barSel: "#browserTabs", startOpen: true },
+      { id: "browser", sel: "#heroBrowser", title: "kurizu.exe", barSel: "#browserTabs", startOpen: false },
       { id: "work", sel: ".explorer", title: "projects.exe", startOpen: false },
       { id: "gallery", sel: ".gallery-window", title: "art_gallery.exe", startOpen: false },
       { id: "kurizu3d", sel: "#kurizu3d", title: "kurizu_3d.exe", startOpen: false },
@@ -3334,13 +3533,8 @@
       });
     }
 
-    // Keep kurizu.exe focused as the primary active window on initial load
-    // On mobile phones, minimize profile.card to the taskbar so it doesn't overlap kurizu.exe
-    if (window.innerWidth <= 860) {
-      const prof = managedWindows.get("profile");
-      if (prof) prof.el.classList.add("is-minimized");
-    }
-    focusDesktopWindow("browser");
+    // Start with kurizu.exe closed so only profile.card is open on initial load
+    focusDesktopWindow("profile");
 
     $("#dropshipInfoBtn")?.addEventListener("click", () => {
       openProject("lanshare");

@@ -486,6 +486,148 @@
       background: rgba(255, 42, 109, 0.28);
       border-color: rgba(255, 94, 168, 0.75);
     }
+    .br-btn--flash {
+      background: rgba(20, 18, 24, 0.82);
+      border-color: rgba(160, 150, 175, 0.45);
+      color: #cbd5e1;
+    }
+    .br-btn--flash.is-active {
+      background: linear-gradient(135deg, #fde68a, #f59e0b);
+      border-color: #451a03;
+      color: #1c1003;
+      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+    }
+    .br-mobile-controls {
+      display: none;
+      width: 100%;
+      align-items: flex-end;
+      justify-content: space-between;
+      pointer-events: none !important;
+      padding: 0 4px 6px;
+      gap: 12px;
+    }
+    .backrooms-hud.has-touch .br-mobile-controls {
+      display: flex;
+    }
+    .br-joy-base {
+      pointer-events: auto;
+      position: relative;
+      width: 118px;
+      height: 118px;
+      border-radius: 50%;
+      background: rgba(14, 7, 26, 0.48);
+      border: 2px solid rgba(216, 180, 254, 0.45);
+      box-shadow: inset 0 0 18px rgba(192, 132, 252, 0.16), 0 6px 20px rgba(0, 0, 0, 0.35);
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .br-joy-base::after {
+      content: "MOVE";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      font-family: var(--font-pixel);
+      font-size: 7px;
+      letter-spacing: 0.08em;
+      color: rgba(243, 232, 255, 0.38);
+      pointer-events: none;
+    }
+    .br-joy-knob {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 48px;
+      height: 48px;
+      margin-left: -24px;
+      margin-top: -24px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, rgba(243, 232, 255, 0.92), rgba(192, 132, 252, 0.72));
+      border: 2px solid rgba(255, 255, 255, 0.75);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+      transform: translate3d(0, 0, 0);
+      pointer-events: none;
+      transition: transform 0.05s linear;
+    }
+    .br-joy-base.is-dragging .br-joy-knob {
+      transition: none;
+    }
+    .br-mobile-actions {
+      pointer-events: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+    .br-sprint-btn {
+      appearance: none;
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      border: 2px solid rgba(216, 180, 254, 0.55);
+      background: rgba(14, 7, 26, 0.56);
+      color: #f3e8ff;
+      font-family: var(--font-pixel);
+      font-size: 8px;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.38);
+    }
+    .br-sprint-btn.is-active {
+      background: linear-gradient(135deg, rgba(192, 132, 252, 0.92), rgba(255, 94, 168, 0.9));
+      color: #19052c;
+      border-color: #fff;
+    }
+    @media (hover: none), (pointer: coarse), (max-width: 900px) {
+      .br-mobile-controls { display: flex; }
+      .br-hint { font-size: 10px; padding: 5px 9px; }
+      .br-rec { font-size: 8px; padding: 6px 9px; }
+    }
+
+    .l0-danger-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 33;
+      pointer-events: none;
+      --danger: 0;
+      opacity: var(--danger);
+      background:
+        radial-gradient(circle at 50% 50%, transparent 32%, rgba(90, 0, 14, 0.55) 75%, rgba(6, 0, 10, 0.94) 100%),
+        repeating-linear-gradient(0deg, rgba(255, 42, 109, 0.08) 0px, rgba(0, 0, 0, 0.16) 2px, transparent 4px);
+      mix-blend-mode: normal;
+      transition: opacity 0.08s linear;
+    }
+    .l0-jumpscare {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 50% 45%, transparent 22%, rgba(120, 0, 24, 0.56) 72%, rgba(5, 0, 10, 0.92) 100%),
+        repeating-linear-gradient(0deg, rgba(255, 42, 109, 0.12) 0px, rgba(0, 0, 0, 0.22) 2px, transparent 4px);
+      pointer-events: none;
+    }
+    .l0-jumpscare[hidden] { display: none !important; }
+    .l0-jumpscare span {
+      position: absolute;
+      bottom: 9%;
+      font-family: var(--font-pixel);
+      font-size: clamp(18px, 4.2vw, 32px);
+      color: #ff2a6d;
+      text-shadow: 3px 0 #c084fc, -3px 0 #000, 0 0 18px rgba(255, 42, 109, 0.9);
+      letter-spacing: 0.16em;
+      animation: l0ScareShake 0.06s infinite alternate-reverse;
+    }
+    @keyframes l0ScareShake {
+      0% { transform: translate(-6px, 4px) scale(1.04) rotate(-2deg); }
+      50% { transform: translate(7px, -5px) scale(1.12) rotate(2deg); }
+      100% { transform: translate(-4px, -3px) scale(1.08) rotate(-1deg); }
+    }
 
     @media (max-width: 720px) {
       .hud-title { display: none; }
@@ -571,15 +713,29 @@
   </div>
 
   <div class="reality-flash" id="realityFlash" aria-hidden="true"></div>
+  <div class="l0-danger-overlay" id="l0DangerOverlay" aria-hidden="true"></div>
+  <div class="l0-jumpscare" id="l0Jumpscare" hidden aria-hidden="true">
+    <span>SHE GOT YOU</span>
+  </div>
 
   <aside class="backrooms-hud" id="backroomsHud" hidden aria-label="Wisteria Backrooms explorer controls">
     <div class="backrooms-hud__top">
       <div class="br-rec"><i></i><span id="brLevelLabel">LEVEL 94 · MOTION (PLAINS)</span></div>
       <div class="br-hint" id="brHintLabel">WASD move · Move mouse or click for 360° look · ESC wake up</div>
     </div>
-    <div class="backrooms-hud__bottom">
-      <span></span>
-      <button type="button" class="br-btn br-btn--exit" id="brExitBtn">Wake Up (Back to Chess)</button>
+    <div class="backrooms-hud__bottom" style="flex-direction: column; align-items: stretch; gap: 10px;">
+      <div class="br-mobile-controls" id="brMobileControls">
+        <div class="br-joy-base" id="brJoyBase" aria-label="Move joystick">
+          <div class="br-joy-knob" id="brJoyKnob"></div>
+        </div>
+        <div class="br-mobile-actions">
+          <button type="button" class="br-sprint-btn" id="brSprintBtn" aria-pressed="false">RUN</button>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; pointer-events:none;">
+        <button type="button" class="br-btn br-btn--flash is-active" id="brFlashBtn" hidden style="pointer-events:auto;" aria-pressed="true">FLASHLIGHT: ON [F]</button>
+        <button type="button" class="br-btn br-btn--exit" id="brExitBtn" style="pointer-events:auto;">Wake Up (Back to Chess)</button>
+      </div>
     </div>
   </aside>
 
@@ -1572,7 +1728,18 @@
           renderer,
           canvas,
           hudEl: backroomsHudEl,
+          dangerEl: document.getElementById('l0DangerOverlay'),
+          jumpscareEl: document.getElementById('l0Jumpscare'),
           getAudio,
+          onCaughtCloseSite: () => {
+            notifyParentEgg('caught-close-site', { rate: 0.4, glitchIcons: true });
+            if (window.top === window.self) {
+              setTimeout(() => {
+                try { window.open('', '_self'); window.close(); } catch {}
+              }, 350);
+              document.body.innerHTML = '<div style="position:fixed;inset:0;background:#000;color:#c084fc;display:grid;place-items:center;font-family:monospace;letter-spacing:0.15em;">CONNECTION TERMINATED</div>';
+            }
+          },
           onExit: () => {
             if (topBarEl) topBarEl.hidden = false;
             if (bottomBarEl) bottomBarEl.hidden = false;
@@ -1870,13 +2037,14 @@
     function finishLoading() {
       loadingEl.classList.add('is-hidden');
       setTimeout(() => { loadingEl.style.display = 'none'; }, 360);
-      if (!bootEggTriggered && new URLSearchParams(location.search).get('egg') === 'plains') {
+      const bootEgg = new URLSearchParams(location.search).get('egg');
+      if (!bootEggTriggered && (bootEgg === 'plains' || bootEgg === 'level0')) {
         bootEggTriggered = true;
         setTimeout(() => {
           if (!egg.snapAnim && !backrooms.isActive()) {
             difficulty = 'easy';
             document.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('is-active', b.dataset.diff === 'easy'));
-            triggerSnapToBackrooms();
+            triggerSnapToBackrooms(bootEgg);
           }
         }, 350);
       }
@@ -1885,11 +2053,14 @@
     window.addEventListener('message', (event) => {
       const data = event.data;
       if (!data || data.type !== 'kurizu-chess-cmd') return;
-      if (data.action === 'trigger-snap-plains') {
-        if (!backrooms.isActive() && !egg.snapAnim) {
+      if (data.action === 'trigger-snap-plains' || data.action === 'trigger-snap-level0') {
+        const targetRealm = data.action === 'trigger-snap-level0' ? 'level0' : 'plains';
+        if (backrooms.isActive()) {
+          backrooms.enter(targetRealm);
+        } else if (!egg.snapAnim) {
           difficulty = 'easy';
           document.querySelectorAll('[data-diff]').forEach((b) => b.classList.toggle('is-active', b.dataset.diff === 'easy'));
-          triggerSnapToBackrooms();
+          triggerSnapToBackrooms(targetRealm);
         }
       } else if (data.action === 'reset-chess') {
         resetBoard();
@@ -2407,12 +2578,15 @@
       }
     }
 
-    function triggerSnapToBackrooms() {
+    function triggerSnapToBackrooms(forcedRealm) {
+      const targetRealm = (forcedRealm === 'level0' || forcedRealm === 'plains')
+        ? forcedRealm
+        : (Math.random() < 0.5 ? 'plains' : 'level0');
       busy = true;
       egg.stage = 4;
       egg.twitchIntensity = 0;
       setVoidEnvironment(true);
-      notifyParentEgg('snap-backrooms', { rate: 0.62, glitchIcons: true });
+      notifyParentEgg('snap-backrooms', { rate: 0.62, glitchIcons: true, realm: targetRealm });
 
       // Erase board & table so only Wisteria sitting in her chair remains in the void
       boardGroup.visible = false;
@@ -2428,7 +2602,7 @@
       targetPhi = 1.44;
       targetRadius = 1.62;
 
-      egg.snapAnim = { t: 0, dur: 1.55, phase: 'raise', p: 0, snapped: false };
+      egg.snapAnim = { t: 0, dur: 1.55, phase: 'raise', p: 0, snapped: false, realm: targetRealm };
     }
 
     async function triggerWisteriaTurn() {
@@ -2919,9 +3093,10 @@
           sa.phase = 'hold';
           sa.p = 1;
           if (sa.t >= 0.92) {
+            const targetRealm = sa.realm || 'plains';
             egg.snapAnim = null;
             if (wisteriaSpeech) wisteriaSpeech.hidden = true;
-            backrooms.enter('plains');
+            backrooms.enter(targetRealm);
             setTimeout(() => { if (realityFlashEl) realityFlashEl.classList.remove('is-active'); }, 220);
             return;
           }
