@@ -393,6 +393,12 @@
     let camLagInit = false;
     let camTurnRollCur = 0;
     let camFovCur = BODYCAM_BASE_FOV;
+    let fallActive = false;
+    let fallVy = 0;
+    let fallPassedCeiling = false;
+    let landRecoverTimer = 0;
+    const LAND_RECOVER_DUR = 0.75;
+    let fallRollPhase = 0;
     let keys = Object.create(null);
 
     // Mobile virtual joystick & sprint state
@@ -2784,6 +2790,61 @@
       } catch {}
     }
 
+    function playCeilingBreachSfx() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        const len = Math.floor(ctx.sampleRate * 0.16);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.045));
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 620;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.18, now);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        src.connect(bp).connect(g).connect(ctx.destination);
+        src.start(now);
+      } catch {}
+    }
+
+    function playFallImpactSfx(realm) {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const og = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(98, now);
+        osc.frequency.exponentialRampToValueAtTime(26, now + 0.28);
+        og.gain.setValueAtTime(0.32, now);
+        og.gain.exponentialRampToValueAtTime(0.001, now + 0.30);
+        osc.connect(og).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.32);
+
+        const len = Math.floor(ctx.sampleRate * 0.22);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.06));
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = realm === 'level0' ? 520 : 780;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.22, now);
+        ng.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+        src.connect(lp).connect(ng).connect(ctx.destination);
+        src.start(now);
+      } catch {}
+    }
+
     function wrapWorldEntities() {
       const baseTX = Math.round(pos.x / TILE);
       const baseTZ = Math.round(pos.z / TILE);
@@ -2915,6 +2976,11 @@
       camMoveBlend += ((moving ? 1 : 0) - camMoveBlend) * Math.min(1, clampDt * 7.5);
       camSprintBlend += (((moving && sprinting) ? 1 : 0) - camSprintBlend) * Math.min(1, clampDt * 6.5);
 
+      const rec = landRecoverTimer > 0 ? (landRecoverTimer / LAND_RECOVER_DUR) : 0;
+      const landCrouch = rec > 0 ? -Math.pow(rec, 1.45) * 0.92 : 0;
+      const landRoll = rec > 0 ? Math.pow(rec, 1.35) * 0.34 : 0;
+      const landPitch = rec > 0 ? -Math.pow(rec, 1.3) * 0.28 : 0;
+
       const breatheY = Math.sin(brTime * 1.55) * 0.013;
       const stepBob = Math.abs(Math.sin(bobPhase)) * (0.072 + camSprintBlend * 0.052) * camMoveBlend + breatheY;
       const targetLat = Math.cos(bobPhase) * (0.048 + camSprintBlend * 0.036) * camMoveBlend + Math.sin(brTime * 0.85) * 0.009;
@@ -2925,7 +2991,7 @@
       camRollCur += (targetRoll - camRollCur) * Math.min(1, clampDt * 12.0);
       camPitchBobCur += (targetPitchBob - camPitchBobCur) * Math.min(1, clampDt * 12.0);
 
-      pos.y = chestBaseY + stepBob;
+      pos.y = chestBaseY + stepBob + landCrouch;
       const targetCamX = pos.x + fwdX * 0.13 + rightX * (0.045 + camLatCur);
       const targetCamY = pos.y;
       const targetCamZ = pos.z + fwdZ * 0.13 + rightZ * (0.045 + camLatCur);
@@ -2953,8 +3019,46 @@
       brCamera.position.copy(camLagPos);
       brCamera.rotation.order = 'YXZ';
       brCamera.rotation.y = camLagYaw;
-      brCamera.rotation.x = Math.max(-1.28, Math.min(1.25, camLagPitch + camPitchBobCur));
-      brCamera.rotation.z = camRollCur + camTurnRollCur;
+      brCamera.rotation.x = Math.max(-1.28, Math.min(1.25, camLagPitch + camPitchBobCur + landPitch));
+      brCamera.rotation.z = camRollCur + camTurnRollCur + landRoll;
+    }
+
+    function stepSkyFallFrame(dt, baseGroundY) {
+      const clampDt = Math.min(Math.max(dt, 0.001), 0.06);
+      const landY = baseGroundY + 1.44;
+      fallVy -= 24.0 * clampDt;
+      pos.y += fallVy * clampDt;
+      fallRollPhase += clampDt * 11.0;
+      pitch += (-0.12 - pitch) * Math.min(1, clampDt * 2.1);
+      vhsGlitchSpike = Math.max(vhsGlitchSpike, 0.48);
+
+      if (currentRealm === 'level0' && !fallPassedCeiling && pos.y <= L0_H) {
+        fallPassedCeiling = true;
+        vhsGlitchSpike = 1.45;
+        playCeilingBreachSfx();
+      }
+
+      if (pos.y <= landY) {
+        pos.y = landY;
+        fallActive = false;
+        fallVy = 0;
+        landRecoverTimer = LAND_RECOVER_DUR;
+        vhsGlitchSpike = 1.85;
+        playFallImpactSfx(currentRealm);
+      }
+
+      camFovCur += (96 - camFovCur) * Math.min(1, clampDt * 2.5);
+      if (Math.abs(brCamera.fov - camFovCur) > 0.05) {
+        brCamera.fov = camFovCur;
+        brCamera.updateProjectionMatrix();
+      }
+      const windSway = Math.sin(fallRollPhase) * 0.14;
+      syncBodyCamLagImmediate(pos.y);
+      brCamera.position.set(pos.x + windSway * 0.18, pos.y, pos.z);
+      brCamera.rotation.order = 'YXZ';
+      brCamera.rotation.y = yaw;
+      brCamera.rotation.x = Math.max(-1.28, Math.min(1.25, pitch));
+      brCamera.rotation.z = fallActive ? windSway : 0.34;
     }
 
     function stepSimulation(dt, directStepX, directStepZ, testOpts) {
@@ -3015,6 +3119,15 @@
         }
       }
 
+      if (fallActive) {
+        stepX = 0;
+        stepZ = 0;
+        moving = false;
+        sprinting = false;
+      } else if (landRecoverTimer > 0) {
+        landRecoverTimer = Math.max(0, landRecoverTimer - clampedDt);
+      }
+
       const prevX = pos.x;
       const prevZ = pos.z;
 
@@ -3068,10 +3181,14 @@
         const curWrap = Math.floor((Math.abs(pos.x) + Math.abs(pos.z)) / L0_TILE);
         if (curWrap > wrapCount) wrapCount = curWrap;
 
-        const stareRatioCur = Math.min(1, l0StareTimer / L0_STARE_LIMIT);
-        const effTension = Math.max(l0Danger, stareRatioCur * 0.9);
-        const aimFov = (l0CameraOn ? BODYCAM_IR_FOV : BODYCAM_BASE_FOV) + effTension * 5.0;
-        applyChestBodyCam(dt, 0, moving, sprinting, aimFov);
+        if (fallActive) {
+          stepSkyFallFrame(dt, 0);
+        } else {
+          const stareRatioCur = Math.min(1, l0StareTimer / L0_STARE_LIMIT);
+          const effTension = Math.max(l0Danger, stareRatioCur * 0.9);
+          const aimFov = (l0CameraOn ? BODYCAM_IR_FOV : BODYCAM_BASE_FOV) + effTension * 5.0;
+          applyChestBodyCam(dt, 0, moving, sprinting, aimFov);
+        }
         brCamera.getWorldDirection(_flashDirVec);
 
         l0CamLight.position.set(pos.x, pos.y + 0.2, pos.z);
@@ -3080,8 +3197,12 @@
         l0FlashSpot.intensity = l0CameraOn ? 3.4 : 0.0;
 
         wrapLevel0Entities();
-        if (pcBtn) pcBtn.hidden = !(l0PcDist < 3.2 && !l0Caught && !l0PcRestarting);
-        stepLevel0WisteriaChase(dt, moving, sprinting);
+        if (pcBtn) pcBtn.hidden = !(l0PcDist < 3.2 && !l0Caught && !l0PcRestarting && !fallActive);
+        if (!fallActive) {
+          stepLevel0WisteriaChase(dt, moving, sprinting);
+        } else {
+          l0ChaserGroup.visible = false;
+        }
 
         l0FloorMat.uniforms.uTime.value = brTime;
         l0FloorMat.uniforms.uCenterX.value = pos.x;
@@ -3123,8 +3244,12 @@
       darkness = Math.min(1.0, loopDistance / 200.0 + wrapCount * 0.035);
 
       const groundH = terrainY(pos.x, pos.z);
-      // Update chest body-cam rig (lag + wide FOV + bounce) + wrapped entities + atmosphere
-      applyChestBodyCam(dt, groundH, moving, sprinting, BODYCAM_BASE_FOV);
+      if (fallActive) {
+        stepSkyFallFrame(dt, groundH);
+      } else {
+        // Update chest body-cam rig (lag + wide FOV + bounce) + wrapped entities + atmosphere
+        applyChestBodyCam(dt, groundH, moving, sprinting, BODYCAM_BASE_FOV);
+      }
       skySphere.position.copy(pos);
       starPoints.position.copy(pos);
       starMat.uniforms.uTime.value = brTime;
@@ -3465,8 +3590,9 @@
       }
     }
 
-    function enter(realm) {
+    function enter(realm, enterOpts) {
       currentRealm = realm === 'level0' ? 'level0' : 'plains';
+      const fromSkyFall = Boolean(enterOpts && enterOpts.fromSkyFall);
       active = true;
       renderer.shadowMap.enabled = false;
       keys = Object.create(null);
@@ -3517,7 +3643,12 @@
       camPitchBobCur = 0;
       camTurnRollCur = 0;
       camLagInit = false;
-      camFovCur = BODYCAM_BASE_FOV;
+      fallActive = fromSkyFall;
+      fallVy = fromSkyFall ? -4.5 : 0;
+      fallPassedCeiling = false;
+      landRecoverTimer = 0;
+      fallRollPhase = 0;
+      camFovCur = fromSkyFall ? 106 : BODYCAM_BASE_FOV;
       setL0Camera(false, true);
       l0KnowsPlayer = true;
       l0LastKnownPos.set(0, 0, 0);
@@ -3557,8 +3688,8 @@
         jumpscareEl.hidden = true;
       }
       brCamera.rotation.z = 0;
-      if (brCamera.fov !== BODYCAM_BASE_FOV) {
-        brCamera.fov = BODYCAM_BASE_FOV;
+      if (brCamera.fov !== camFovCur) {
+        brCamera.fov = camFovCur;
         brCamera.updateProjectionMatrix();
       }
 
@@ -3566,10 +3697,11 @@
       lastMouseY = null;
 
       if (currentRealm === 'level0') {
-        pos.set(0, 1.44, 0);
+        const startY = fromSkyFall ? 13.5 : 1.44;
+        pos.set(0, startY, 0);
         yaw = 0.0;
-        pitch = -0.02;
-        syncBodyCamLagImmediate(1.44);
+        pitch = fromSkyFall ? -0.78 : -0.02;
+        syncBodyCamLagImmediate(startY);
         watcherGroup.visible = false;
         placeL0PetFarAway(0, 0, 29, 35);
         l0ChaserGroup.visible = false;
@@ -3583,10 +3715,11 @@
         l0MatReset();
         wrapLevel0Entities();
       } else {
-        pos.set(0, terrainY(0, 0) + 1.44, 0);
+        const startY = terrainY(0, 0) + (fromSkyFall ? 24.0 : 1.44);
+        pos.set(0, startY, 0);
         yaw = 0.06;
-        pitch = -0.02;
-        syncBodyCamLagImmediate(pos.y);
+        pitch = fromSkyFall ? -0.68 : -0.02;
+        syncBodyCamLagImmediate(startY);
         placeWatcherOnHill(0, 0, 20, 29);
         watcherGroup.visible = watcherLoaded;
         syncAtmosphereLighting();
@@ -3645,6 +3778,9 @@
       camPitchBobCur = 0;
       camTurnRollCur = 0;
       camLagInit = false;
+      fallActive = false;
+      fallVy = 0;
+      landRecoverTimer = 0;
       camFovCur = BODYCAM_BASE_FOV;
       l0CamViewUniform = 0;
       onExit();
@@ -3687,6 +3823,9 @@
 
     function teleportForTest(nx, nz, nYaw, petX, petZ) {
       if (!active) return;
+      fallActive = false;
+      fallVy = 0;
+      landRecoverTimer = 0;
       pos.x = nx;
       pos.z = nz;
       if (typeof nYaw === 'number') yaw = nYaw;
@@ -3748,6 +3887,9 @@
         bodyCamYawLag: +(yaw - camLagYaw).toFixed(4),
         bodyCamPosLag: +Math.hypot(brCamera.position.x - pos.x, brCamera.position.z - pos.z).toFixed(4),
         fisheyeEnabled: true,
+        fallActive,
+        fallHeight: +Math.max(0, pos.y - ((currentRealm === 'level0' ? 0 : terrainY(pos.x, pos.z)) + 1.44)).toFixed(2),
+        landRecovering: landRecoverTimer > 0,
         l0PcPos: { x: +l0PcPos.x.toFixed(2), z: +l0PcPos.z.toFixed(2) },
         l0PcDist: +l0PcDist.toFixed(2),
         l0PcRestarting,
