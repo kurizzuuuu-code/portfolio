@@ -218,6 +218,77 @@ window.KURIZU = {
 
   projects: [
     {
+      id: "wisp",
+      title: "Wisp",
+      subtitle: "Purple pixel download manager + browser extension",
+      category: "desktop",
+      categoryLabel: "Desktop app",
+      year: "2026",
+      status: "shipped",
+      isNew: true,
+      featured: true,
+      mini: true,
+      art: "wisp",
+      image: "assets/images/project-wisp.png",
+      imageAlt: "Wisp purple pixel download manager interface with Wisteria keeping the hoard",
+      blurb:
+        "One wisp, many hands — a purple pixel Windows download manager built with Tauri 2 + Rust that splits downloads across up to 16 connections, resumes crashes, and pairs with a direct-download browser extension.",
+      description:
+        "Wisp is a purple pixel download manager for Windows powered by Tauri 2 + Rust and themed around Wisteria keeping your hoard. It splits HTTP Range downloads across up to 16 parallel workers, handles YouTube and 1,000+ video sites via yt-dlp, persists block cursors to survive crashes and pauses cleanly, and ships with a companion Chrome/Edge/Brave Manifest V3 extension that intercepts downloads, media, links, and .torrent files straight into Wisp.",
+      highlights: [
+        "Segmented HTTP Range downloads with up to 16 parallel workers + honest single-connection fallback",
+        "YouTube + 1,000+ sites supported through yt-dlp with optional ffmpeg merging",
+        "Crash-safe pause/resume persisting block cursors & settings locally (no cloud or telemetry)",
+        "Companion Chrome/Edge/Brave extension (v0.2.0) — download directly below to intercept links, media & torrents",
+        "Built with Tauri v2 + Rust + vanilla HTML/CSS/JS — tiny footprint, zero Chromium bloat",
+      ],
+      tags: ["Tauri", "Rust", "Chrome Extension", "JavaScript"],
+      gallery: [
+        "assets/images/project-wisp.png",
+      ],
+      extensionInstallNote:
+        "To use the browser extension with Wisp: click “download extension (.zip)” above, unzip the folder, open chrome://extensions (or edge://extensions), enable Developer mode, click Load unpacked, and select the unzipped folder while Wisp is running.",
+      links: [
+        {
+          label: "download Wisp (Windows)",
+          icon: "download",
+          url: "https://mega.nz/file/7TQz3Iia#8-ta0GHqY5z4S3Y5j70ij03NQdgLrMh2y4WD3DeGBY8",
+          primary: true,
+        },
+        {
+          label: "download extension (.zip)",
+          icon: "puzzle",
+          url: "assets/downloads/wisp-extension.zip",
+          download: "wisp-extension.zip",
+          primary: true,
+        },
+      ],
+      devlogs: [
+        {
+          version: "v0.2.0",
+          tag: "latest · extension + local bridge",
+          title: "Browser Extension v0.2.0 Auto-Intercept, Media & Torrent Capture",
+          added: [
+            "Manifest V3 Chrome/Edge/Brave companion extension intercepting browser downloads, context-menu links, media, and .torrent files",
+            "Localhost HTTP bridge (127.0.0.1:17890–17899) with popup status & port scanner so the extension pairs instantly with Wisp",
+          ],
+          changed: [
+            "Added direct cookie & referrer forwarding for gated downloads queued from the extension",
+          ],
+        },
+        {
+          version: "v0.1.0",
+          tag: "initial release",
+          title: "Tauri 2 + Rust 16-Worker Engine & Wisteria Hoard UI",
+          added: [
+            "Parallel range scheduler splitting files into 512 KiB–16 MiB blocks with live per-segment rails and 30s speed sparkline",
+            "Crash-safe JSON persistence, yt-dlp video support, and interactive Wisteria mascot reacting to hoard progress",
+          ],
+          changed: [],
+        },
+      ],
+    },
+    {
       id: "aipet",
       title: "AIPet",
       subtitle: "Desktop virtual pet",

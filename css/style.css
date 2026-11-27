@@ -2188,6 +2188,11 @@ html.tilt-js .project-card__body {
   border-radius: 4px;
   box-shadow: 0 2px 0 rgba(47, 10, 68, 0.4);
 }
+.project-card__badge--new {
+  background: linear-gradient(135deg, #ff5ea8, #fde047);
+  color: #19052c;
+  box-shadow: 0 2px 0 rgba(47, 10, 68, 0.55), 0 0 10px rgba(255, 94, 168, 0.55);
+}
 .project-card__open {
   position: absolute;
   right: 6px;
@@ -2862,6 +2867,25 @@ button.video-card { width: 100%; font: inherit; text-align: left; color: inherit
   color: var(--plum);
 }
 .case__playbar-text span { font-size: 11px; font-weight: 600; color: var(--ink-soft); }
+.case__downloadbar {
+  background: linear-gradient(120deg, #ede9fe, #fce7f3);
+}
+.case__downloadbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.case__ext-note {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 2px dashed rgba(126, 34, 206, 0.35);
+  background: rgba(243, 232, 255, 0.55);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
 
 /* ============ 3D Model Showcase ============ */
 .model3d-window {
@@ -5759,6 +5783,28 @@ body.is-party .window {
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1.2;
+}
+.desktop-icon__new {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: 4;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #ff5ea8, #fde047);
+  color: #19052c;
+  border: 1.5px solid #19052c;
+  font-family: var(--font-pixel);
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  box-shadow: 0 2px 0 #19052c, 0 0 10px rgba(255, 94, 168, 0.65);
+  animation: newBadgePulse 1.5s ease-in-out infinite;
+}
+@keyframes newBadgePulse {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-1.5px) scale(1.06); }
 }
 .desktop-icon__shortcut {
   position: absolute;

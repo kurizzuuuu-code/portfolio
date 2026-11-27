@@ -320,7 +320,7 @@
       return `<article class="project-card" data-id="${esc(project.id)}" data-category="${esc(project.category)}" tabindex="0" role="button" aria-label="Open ${esc(project.title)} case study">
         <div class="project-card__media">
           <img src="${esc(project.image)}" alt="${esc(project.imageAlt || project.title)}" width="640" height="420" loading="lazy">
-          <span class="project-card__badge">${project.featured ? "★ featured" : esc(project.year)}</span>
+          <span class="project-card__badge${project.isNew ? " project-card__badge--new" : ""}">${project.isNew ? "✦ NEW" : project.featured ? "★ featured" : esc(project.year)}</span>
           <span class="project-card__open">open case study ${icon("arrow-ur")}</span>
         </div>
         <div class="project-card__body">
@@ -488,9 +488,13 @@
     const gallery = (project.gallery || []).map((src, index) =>
       `<img src="${esc(src)}" alt="${esc(project.title)} preview ${index + 1}" data-case-image="${index}" loading="lazy">`
     ).join("");
-    const links = (project.links || []).map((link) =>
-      `<a class="btn btn--small" href="${esc(link.url)}" target="_blank" rel="noopener">${icon(link.icon || "external")}${esc(link.label)}</a>`
-    ).join("");
+    const links = (project.links || []).map((link) => {
+      const cls = `btn btn--small${link.primary ? " btn--primary" : ""}`;
+      if (link.download) {
+        return `<a class="${cls}" href="${esc(link.url)}" download="${esc(link.download)}">${icon(link.icon || "download")}${esc(link.label)}</a>`;
+      }
+      return `<a class="${cls}" href="${esc(link.url)}" target="_blank" rel="noopener">${icon(link.icon || "external")}${esc(link.label)}</a>`;
+    }).join("");
     const videos = project.videos && project.videos.length
       ? project.videos
       : project.video
@@ -580,6 +584,13 @@
           </div>
           <button type="button" class="btn btn--small btn--primary" data-play-game>${icon("gamepad")} play the game</button>
         </div>` : ""}
+        ${project.extensionInstallNote && links ? `<div class="case__playbar case__downloadbar">
+          <div class="case__playbar-text">
+            <strong>grab ${esc(project.title)} + browser extension</strong>
+            <span>Windows desktop app + direct Chrome/Edge extension .zip</span>
+          </div>
+          <div class="case__downloadbar-actions">${links}</div>
+        </div>` : ""}
         ${compareMarkup}
         ${videos.length ? `<div class="case__section">
           <h3>${icon("play")} ${videos.length > 1 ? "watch the videos" : "watch the showcase"}</h3>
@@ -599,8 +610,9 @@
           <ul class="case__tags">${tags}</ul>
         </div>
         <div class="case__section">
-          <h3>${icon("external")} find it</h3>
+          <h3>${icon("external")} find &amp; download it</h3>
           ${links ? `<div class="case__links">${links}</div>` : `<p class="case__note">${progress ? "still baking — ask me for a build ♡" : "source lives on my laptop (or in a folder named final_final_v3). ask me about it ♡"}</p>`}
+          ${project.extensionInstallNote ? `<p class="case__ext-note">${esc(project.extensionInstallNote)}</p>` : ""}
         </div>
         <div class="case__section case__reviews" id="caseReviews" data-review-project="${esc(project.id)}">
           <div class="case-reviews__head">
@@ -2805,6 +2817,7 @@
      WINDOWS-STYLE DESKTOP OS: ICONS, FLOATING WINDOWS, TASKBAR & START SEARCH
      ============================================================ */
   const APP_EXTENSIONS = {
+    wisp: { file: "wisp.exe", ext: ".EXE", color: "#c084fc" },
     aipet: { file: "AIPet.exe", ext: ".EXE", color: "#a855f7" },
     pixify: { file: "pixify.app", ext: ".WEB", color: "#ec4899" },
     wobble: { file: "wobble.app", ext: ".WEB", color: "#f59e0b" },
@@ -2915,6 +2928,10 @@
         <path d="m32.8 32.5 1.2 1.3 2.4-2.4" stroke="#1e0936" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>`,
     },
+    wisp: {
+      bg: "linear-gradient(145deg, #7a3bc4, #2f0a44)",
+      img: "assets/images/wisp-icon.svg",
+    },
     aipet: {
       bg: "linear-gradient(145deg, #7e22ce, #3b0764)",
       svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
@@ -3013,17 +3030,21 @@
   }
 
   function getDesktopShortcutItems() {
+    const projectList = config.projects || [];
+    const projectCount = projectList.length;
+    const hasNewApp = projectList.some((p) => p.isNew);
     const systemItems = [
       {
         id: "win-launchpad",
         kind: "os-win",
         targetWin: "launchpad",
         title: "My Apps Folder",
-        subtitle: "9 Apps Made by Kurizu",
+        subtitle: `${projectCount} Apps Made by Kurizu`,
         file: "my_apps.dir",
         ext: "DIR",
         color: "#a855f7",
         image: "assets/sprites/idle-still.webp",
+        isNew: hasNewApp,
       },
       {
         id: "win-work",
@@ -3138,6 +3159,7 @@
         color: meta.color,
         image: p.image,
         tags: (p.tags || []).join(" "),
+        isNew: Boolean(p.isNew),
       };
     });
 
@@ -3185,8 +3207,9 @@
         ? `<span class="desktop-icon__art desktop-icon__art--img"><img src="${esc(iconMeta.img)}" alt="" loading="lazy"></span>`
         : `<span class="desktop-icon__art">${iconMeta.svg}</span>`;
       return `
-      <button type="button" class="desktop-icon" role="listitem" data-app-id="${esc(item.id)}" title="${esc(item.title)} — ${esc(item.subtitle)} (Click to open)">
+      <button type="button" class="desktop-icon${item.isNew ? " is-new" : ""}" role="listitem" data-app-id="${esc(item.id)}" title="${esc(item.title)} — ${esc(item.subtitle)} (Click to open)">
         <span class="desktop-icon__frame" style="--icon-bg:${esc(iconMeta.bg)}">
+          ${item.isNew ? '<span class="desktop-icon__new">NEW</span>' : ""}
           ${artMarkup}
           <span class="desktop-icon__ext" style="--ext-bg:${esc(item.color)}">${esc(item.ext)}</span>
           <span class="desktop-icon__shortcut" aria-hidden="true">↗</span>
@@ -4293,7 +4316,7 @@
       act: () => openDesktopWindow("gallery"),
     },
     {
-      question: "📁 *warp!* wanna check out all 9 apps & projects in projects.exe?",
+      question: "📁 *warp!* wanna check out all 10 apps & projects in projects.exe?",
       yesReply: "here's projects.exe! click any app to rate or leave a comment ✨",
       act: () => openDesktopWindow("work"),
     },
@@ -4660,6 +4683,12 @@
   }
 
   const petProjectProfiles = {
+    wisp: {
+      id: "wisp",
+      title: "Wisp",
+      subtitle: "Purple pixel download manager + extension",
+      desc: "Wisp is Kurizu's purple pixel Windows download manager built with Tauri 2 + Rust! It splits downloads across up to 16 parallel workers, survives crashes cleanly, supports YouTube via yt-dlp, and pairs with a Chrome/Edge browser extension.\n\n✨ Download both Wisp and the extension .zip right from wisp.exe!",
+    },
     aipet: {
       id: "aipet",
       title: "AIPet",
