@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>KURIZU 3D CHESS — vs. Wisteria</title>
   <link rel="stylesheet" href="../css/fonts.css">
   <style>
@@ -29,6 +29,8 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
       background: radial-gradient(circle at 50% 24%, #351159 0%, #170629 65%, #0c0318 100%);
       color: #f8f0ff;
       font-family: var(--font-ui);
@@ -42,6 +44,7 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      touch-action: none;
     }
 
     #chessCanvas {
@@ -50,6 +53,7 @@
       height: 100%;
       outline: none;
       cursor: grab;
+      touch-action: none;
     }
     #chessCanvas.is-hovering { cursor: pointer; }
     #chessCanvas:active { cursor: grabbing; }
@@ -257,6 +261,7 @@
     .moves-drawer__list {
       flex: 1;
       overflow-y: auto;
+      touch-action: pan-y;
       padding: 6px 8px;
       font-size: 12px;
       font-weight: 700;
@@ -539,16 +544,142 @@
       border-color: rgba(255, 94, 168, 0.75);
     }
     .br-btn--flash {
-      background: rgba(20, 18, 24, 0.82);
-      border-color: rgba(160, 150, 175, 0.45);
+      background: rgba(16, 20, 24, 0.85);
+      border-color: rgba(148, 163, 184, 0.45);
       color: #cbd5e1;
     }
     .br-btn--flash.is-active {
-      background: linear-gradient(135deg, #fde68a, #f59e0b);
-      border-color: #451a03;
-      color: #1c1003;
-      box-shadow: 0 0 14px rgba(251, 191, 36, 0.45);
+      background: linear-gradient(135deg, #6ee7b7, #22d3ee);
+      border-color: #042f2e;
+      color: #022c22;
+      box-shadow: 0 0 14px rgba(52, 211, 153, 0.48);
     }
+    .br-cam-viewfinder {
+      position: fixed;
+      inset: 0;
+      z-index: 31;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.14s ease;
+    }
+    .br-cam-viewfinder.is-active {
+      opacity: 1;
+    }
+    .br-cam-viewfinder[hidden] { display: none !important; }
+    .br-cam-corner {
+      position: absolute;
+      width: 34px;
+      height: 34px;
+      border: 2.5px solid rgba(110, 231, 183, 0.82);
+      filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.55));
+    }
+    .br-cam-corner--tl { top: 68px; left: 26px; border-right: 0; border-bottom: 0; }
+    .br-cam-corner--tr { top: 68px; right: 26px; border-left: 0; border-bottom: 0; }
+    .br-cam-corner--bl { bottom: 72px; left: 26px; border-right: 0; border-top: 0; }
+    .br-cam-corner--br { bottom: 72px; right: 26px; border-left: 0; border-top: 0; }
+    .br-cam-reticle {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 38px;
+      height: 38px;
+      transform: translate(-50%, -50%);
+      border: 1.5px solid rgba(110, 231, 183, 0.55);
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(52, 211, 153, 0.25);
+    }
+    .br-cam-reticle::before, .br-cam-reticle::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: rgba(110, 231, 183, 0.8);
+      transform: translate(-50%, -50%);
+    }
+    .br-cam-reticle::before { width: 12px; height: 1.5px; }
+    .br-cam-reticle::after { width: 1.5px; height: 12px; }
+    .br-cam-tag {
+      position: absolute;
+      top: 72px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: var(--font-pixel);
+      font-size: 8px;
+      letter-spacing: 0.14em;
+      color: #a7f3d0;
+      background: rgba(2, 24, 20, 0.65);
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(52, 211, 153, 0.45);
+      white-space: nowrap;
+    }
+    .br-stare-wrap {
+      position: absolute;
+      left: 50%;
+      bottom: 84px;
+      transform: translateX(-50%);
+      width: min(260px, 68vw);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.12s linear;
+    }
+    .br-cam-viewfinder.is-warn .br-stare-wrap { opacity: 1; }
+    .br-cam-viewfinder.is-warn .br-cam-corner {
+      border-color: #ff2a6d;
+      filter: drop-shadow(0 0 10px rgba(255, 42, 109, 0.85));
+    }
+    .br-cam-viewfinder.is-warn .br-cam-reticle {
+      border-color: #ff2a6d;
+      box-shadow: 0 0 16px rgba(255, 42, 109, 0.7);
+    }
+    .br-stare-label {
+      font-family: var(--font-pixel);
+      font-size: 8px;
+      letter-spacing: 0.12em;
+      color: #ff5ea8;
+      text-shadow: 0 0 8px rgba(255, 42, 109, 0.85);
+      animation: pulseDot 0.35s infinite alternate;
+    }
+    .br-stare-meter {
+      width: 100%;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(18, 4, 14, 0.8);
+      border: 1.5px solid rgba(255, 42, 109, 0.65);
+      overflow: hidden;
+    }
+    .br-stare-meter > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #fbbf24, #ff2a6d);
+      box-shadow: 0 0 12px #ff2a6d;
+      transition: width 0.06s linear;
+    }
+    .br-pc-prompt {
+      position: fixed;
+      left: 50%;
+      bottom: 66px;
+      transform: translateX(-50%);
+      z-index: 38;
+      pointer-events: auto;
+      appearance: none;
+      padding: 9px 16px;
+      border-radius: 10px;
+      border: 2px solid #34d399;
+      background: rgba(4, 24, 24, 0.92);
+      color: #a7f3d0;
+      font-family: var(--font-pixel);
+      font-size: 9px;
+      letter-spacing: 0.09em;
+      box-shadow: 0 0 22px rgba(52, 211, 153, 0.55);
+      cursor: pointer;
+      animation: pulseDot 0.7s infinite alternate;
+    }
+    .br-pc-prompt[hidden] { display: none !important; }
     .br-mobile-controls {
       display: none;
       width: 100%;
@@ -675,6 +806,15 @@
       letter-spacing: 0.16em;
       animation: l0ScareShake 0.06s infinite alternate-reverse;
     }
+    .l0-jumpscare.is-reboot {
+      background:
+        radial-gradient(circle at 50% 45%, rgba(16, 185, 129, 0.14) 18%, rgba(6, 78, 59, 0.58) 72%, rgba(2, 8, 12, 0.94) 100%),
+        repeating-linear-gradient(0deg, rgba(52, 211, 153, 0.14) 0px, rgba(0, 0, 0, 0.22) 2px, transparent 4px);
+    }
+    .l0-jumpscare.is-reboot span {
+      color: #6ee7b7;
+      text-shadow: 3px 0 #22d3ee, -3px 0 #022c22, 0 0 22px rgba(52, 211, 153, 0.9);
+    }
     @keyframes l0ScareShake {
       0% { transform: translate(-6px, 4px) scale(1.04) rotate(-2deg); }
       50% { transform: translate(7px, -5px) scale(1.12) rotate(2deg); }
@@ -682,12 +822,86 @@
     }
 
     @media (max-width: 720px) {
+      .chess-topbar {
+        top: 6px;
+        left: 6px;
+        right: 6px;
+        gap: 4px;
+      }
+      .hud-group {
+        padding: 3px 5px;
+        gap: 3px;
+        border-radius: 8px;
+        border-width: 1.5px;
+        flex-wrap: nowrap;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .hud-group::-webkit-scrollbar { display: none; }
+      .diff-pills { gap: 3px; flex-wrap: nowrap; }
       .hud-title { display: none; }
-      .pill-btn, .act-btn { font-size: 7px; padding: 5px 7px; }
-      .wisteria-speech { top: 96px; padding: 6px 10px; }
-      .wisteria-speech p { font-size: 11.5px; }
-      .captured-bar { font-size: 11px; padding: 6px 9px; }
-      .status-pill { font-size: 7.5px; padding: 6px 9px; }
+      .pill-btn, .act-btn {
+        font-size: 6.5px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
+      .wisteria-speech {
+        top: auto;
+        bottom: 38px;
+        left: 6px;
+        right: 6px;
+        max-width: none;
+        padding: 5px 9px;
+        border-radius: 9px;
+        border: 1.5px solid rgba(216, 180, 254, 0.42);
+        background: rgba(24, 9, 42, 0.88);
+        color: #f8f0ff;
+        box-shadow: 0 6px 18px rgba(8, 2, 16, 0.45);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      .wisteria-speech__who {
+        color: var(--lilac);
+        flex: 0 0 auto;
+        margin-bottom: 0;
+        font-size: 6.5px;
+      }
+      .wisteria-speech p {
+        font-size: 10.5px;
+        line-height: 1.25;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .chess-bottom {
+        bottom: 6px;
+        left: 6px;
+        right: 6px;
+        gap: 4px;
+      }
+      .captured-bar {
+        font-size: 10px;
+        padding: 4px 7px;
+        border-radius: 8px;
+        border-width: 1.5px;
+      }
+      .status-pill {
+        font-size: 7px;
+        padding: 5px 8px;
+        border-radius: 8px;
+        border-width: 1.5px;
+      }
+      .moves-drawer {
+        top: 72px;
+        bottom: 84px;
+        width: min(210px, calc(100vw - 16px));
+      }
     }
   </style>
 </head>
@@ -772,6 +986,19 @@
 
   <aside class="backrooms-hud" id="backroomsHud" hidden aria-label="Wisteria Backrooms explorer controls">
     <div class="br-vhs-frame" aria-hidden="true"></div>
+    <div class="br-cam-viewfinder" id="brCamViewfinder" hidden aria-hidden="true">
+      <i class="br-cam-corner br-cam-corner--tl"></i>
+      <i class="br-cam-corner br-cam-corner--tr"></i>
+      <i class="br-cam-corner br-cam-corner--bl"></i>
+      <i class="br-cam-corner br-cam-corner--br"></i>
+      <i class="br-cam-reticle"></i>
+      <span class="br-cam-tag">IR CAM // ENTITY LENS</span>
+      <div class="br-stare-wrap">
+        <span class="br-stare-label" id="brStareLabel">DON'T STARE! LOOK AWAY</span>
+        <div class="br-stare-meter"><i id="brStareFill"></i></div>
+      </div>
+    </div>
+    <button type="button" class="br-pc-prompt" id="brPcBtn" hidden>[E] RESTART PC</button>
     <div class="backrooms-hud__top" style="align-items: flex-start;">
       <div>
         <div class="br-rec"><i></i><span id="brLevelLabel">LEVEL 94 · MOTION (PLAINS)</span></div>
@@ -796,7 +1023,7 @@
         </div>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; width:100%; pointer-events:none;">
-        <button type="button" class="br-btn br-btn--flash is-active" id="brFlashBtn" hidden style="pointer-events:auto;" aria-pressed="true">FLASHLIGHT: ON [F]</button>
+        <button type="button" class="br-btn br-btn--flash" id="brFlashBtn" hidden style="pointer-events:auto;" aria-pressed="false">CAMERA: OFF [F]</button>
         <button type="button" class="br-btn br-btn--exit" id="brExitBtn" style="pointer-events:auto;">Wake Up (Back to Chess)</button>
       </div>
     </div>
@@ -1434,20 +1661,27 @@
     let phi = CAM_PRESETS[0].phi, targetPhi = phi;
     let radius = CAM_PRESETS[0].radius, targetRadius = radius;
 
+    let eggRef = null;
     function updateCamera(dt) {
       targetPhi = Math.max(0.18, Math.min(Math.PI / 2 - 0.04, targetPhi));
-      targetRadius = Math.max(1.35, Math.min(4.6, targetRadius));
+      targetRadius = Math.max(1.15, Math.min(5.2, targetRadius));
       const k = Math.min(1, dt * 10);
       theta += (targetTheta - theta) * k;
       phi += (targetPhi - phi) * k;
       radius += (targetRadius - radius) * k;
       camTarget.lerp(desiredTarget, k);
 
+      const snapActive = Boolean(eggRef && eggRef.snapAnim);
+      const portraitPull = (!snapActive && camera.aspect < 0.85)
+        ? Math.min(1.1, (0.85 - camera.aspect) * 2.1) * Math.min(1, Math.max(0, (radius - 1.25) / 1.4))
+        : 0;
+      const effRadius = radius + portraitPull;
+
       const sinP = Math.sin(phi);
       camera.position.set(
-        camTarget.x + radius * sinP * Math.sin(theta),
-        camTarget.y + radius * Math.cos(phi),
-        camTarget.z + radius * sinP * Math.cos(theta)
+        camTarget.x + effRadius * sinP * Math.sin(theta),
+        camTarget.y + effRadius * Math.cos(phi),
+        camTarget.z + effRadius * sinP * Math.cos(theta)
       );
       camera.lookAt(camTarget);
     }
@@ -1700,6 +1934,7 @@
       twitchUntil: 0,
       twitchOffset: { x: 0, y: 0, z: 0 },
     };
+    eggRef = egg;
 
     function notifyParentEgg(stage, payload = {}) {
       try {
@@ -1837,6 +2072,15 @@
                 try { window.open('', '_self'); window.close(); } catch {}
               }, 350);
               document.body.innerHTML = '<div style="position:fixed;inset:0;background:#000;color:#c084fc;display:grid;place-items:center;font-family:monospace;letter-spacing:0.15em;">CONNECTION TERMINATED</div>';
+            }
+          },
+          onPcRestartReset: () => {
+            notifyParentEgg('pc-restart-reset', { rate: 1, glitchIcons: true });
+            if (window.top === window.self) {
+              if (realityFlashEl) realityFlashEl.classList.add('is-active');
+              setTimeout(() => {
+                window.location.reload();
+              }, 950);
             }
           },
           onExit: () => {
@@ -3177,7 +3421,12 @@
     const raycaster = new THREE.Raycaster();
     const pointerNdc = new THREE.Vector2();
     let pointerDownPos = null;
+    let lastPointerPos = null;
+    let activeOrbitPointerId = null;
     let draggingOrbit = false;
+    let pinchActive = false;
+    let pinchPrevDist = 0;
+    let suppressTapUntil = 0;
 
     function getHitSquare(clientX, clientY) {
       const rect = canvas.getBoundingClientRect();
@@ -3223,35 +3472,111 @@
 
     canvas.addEventListener('pointerdown', (e) => {
       if (backrooms.isActive() || egg.snapAnim) return;
+      if (pinchActive || (activeOrbitPointerId !== null && activeOrbitPointerId !== e.pointerId)) {
+        draggingOrbit = false;
+        pointerDownPos = null;
+        lastPointerPos = null;
+        activeOrbitPointerId = null;
+        suppressTapUntil = performance.now() + 350;
+        return;
+      }
+      activeOrbitPointerId = e.pointerId;
       pointerDownPos = { x: e.clientX, y: e.clientY, btn: e.button };
+      lastPointerPos = { x: e.clientX, y: e.clientY };
       draggingOrbit = true;
     });
     window.addEventListener('pointermove', (e) => {
       if (backrooms.isActive() || egg.snapAnim) return;
-      if (draggingOrbit && pointerDownPos) {
-        const dx = e.clientX - pointerDownPos.x;
-        const dy = e.clientY - pointerDownPos.y;
-        if (Math.hypot(dx, dy) > 5 || pointerDownPos.btn === 2) {
-          targetTheta -= (e.movementX || 0) * 0.0065;
-          targetPhi -= (e.movementY || 0) * 0.0055;
+      if (pinchActive) return;
+      if (draggingOrbit && pointerDownPos && e.pointerId === activeOrbitPointerId) {
+        const dxTotal = e.clientX - pointerDownPos.x;
+        const dyTotal = e.clientY - pointerDownPos.y;
+        const stepX = lastPointerPos ? (e.clientX - lastPointerPos.x) : (e.movementX || 0);
+        const stepY = lastPointerPos ? (e.clientY - lastPointerPos.y) : (e.movementY || 0);
+        lastPointerPos = { x: e.clientX, y: e.clientY };
+        if (Math.hypot(dxTotal, dyTotal) > 6 || pointerDownPos.btn === 2) {
+          targetTheta -= stepX * 0.0065;
+          targetPhi -= stepY * 0.0055;
         }
-      } else if (!busy && game.turn === 'w') {
+      } else if (e.pointerType === 'mouse' && !busy && game.turn === 'w') {
         const hit = getHitSquare(e.clientX, e.clientY);
         canvas.classList.toggle('is-hovering', Boolean(hit));
       }
     });
-    window.addEventListener('pointerup', (e) => {
-      if (backrooms.isActive() || egg.snapAnim) { draggingOrbit = false; pointerDownPos = null; return; }
-      if (!draggingOrbit || !pointerDownPos) { draggingOrbit = false; return; }
+    const endOrbitPointer = (e, allowClick) => {
+      if (backrooms.isActive() || egg.snapAnim) {
+        draggingOrbit = false;
+        pointerDownPos = null;
+        lastPointerPos = null;
+        activeOrbitPointerId = null;
+        return;
+      }
+      if (!draggingOrbit || !pointerDownPos || e.pointerId !== activeOrbitPointerId) return;
       const moved = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
       const wasLeft = pointerDownPos.btn === 0;
       draggingOrbit = false;
       pointerDownPos = null;
-      if (wasLeft && moved <= 6) {
+      lastPointerPos = null;
+      activeOrbitPointerId = null;
+      if (allowClick && !pinchActive && performance.now() > suppressTapUntil && wasLeft && moved <= 8) {
         const hit = getHitSquare(e.clientX, e.clientY);
         if (hit) handleSquareClick(hit.r, hit.c);
       }
+    };
+    window.addEventListener('pointerup', (e) => endOrbitPointer(e, true));
+    window.addEventListener('pointercancel', (e) => endOrbitPointer(e, false));
+
+    function getTouchPinchDist(t0, t1) {
+      return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+    }
+    canvas.addEventListener('touchstart', (e) => {
+      if (backrooms.isActive() || egg.snapAnim) return;
+      if (e.touches.length >= 2) {
+        e.preventDefault();
+        pinchActive = true;
+        draggingOrbit = false;
+        pointerDownPos = null;
+        lastPointerPos = null;
+        activeOrbitPointerId = null;
+        pinchPrevDist = getTouchPinchDist(e.touches[0], e.touches[1]);
+        suppressTapUntil = performance.now() + 350;
+      }
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      if (backrooms.isActive() || egg.snapAnim) return;
+      if (e.touches.length >= 2) {
+        e.preventDefault();
+        const dist = getTouchPinchDist(e.touches[0], e.touches[1]);
+        if (pinchActive && pinchPrevDist > 0) {
+          targetRadius = Math.max(1.15, Math.min(5.2, targetRadius - (dist - pinchPrevDist) * 0.009));
+        }
+        pinchActive = true;
+        pinchPrevDist = dist;
+      } else if (draggingOrbit) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+    const endPinchTouch = (e) => {
+      if (e.touches.length < 2) {
+        if (pinchActive) suppressTapUntil = performance.now() + 300;
+        pinchActive = false;
+        pinchPrevDist = 0;
+      }
+    };
+    canvas.addEventListener('touchend', endPinchTouch, { passive: true });
+    canvas.addEventListener('touchcancel', endPinchTouch, { passive: true });
+
+    document.addEventListener('touchmove', (e) => {
+      if (!backrooms.isActive() && e.touches.length >= 2) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+    ['gesturestart', 'gesturechange', 'gestureend'].forEach((evtName) => {
+      document.addEventListener(evtName, (e) => {
+        if (!backrooms.isActive()) e.preventDefault();
+      }, { passive: false });
     });
+
     canvas.addEventListener('wheel', (e) => {
       if (backrooms.isActive() || egg.snapAnim) return;
       e.preventDefault();
@@ -3591,6 +3916,7 @@
       }),
       isModelLoaded: () => rig.loaded,
       getIkDebug: () => rig.lastIkDebug,
+      getCameraDebug: () => ({ theta, phi, radius, targetRadius, aspect: camera.aspect }),
       setCameraForTest: (th, ph, rad, tx, ty, tz) => {
         theta = targetTheta = th;
         phi = targetPhi = ph;
@@ -3658,6 +3984,9 @@
       setBackroomsRealm: (id) => backrooms.setRealm(id),
       walkBackroomsForTest: (dz, dyaw, dtSim) => backrooms.stepForTest?.(dz, dyaw, dtSim),
       getPlainsDebug: () => backrooms.getDebugState?.(),
+      setL0CameraForTest: (on) => backrooms.setL0Camera?.(on),
+      teleportL0ForTest: (x, z, yawVal, petX, petZ) => backrooms.teleportForTest?.(x, z, yawVal, petX, petZ),
+      triggerL0PcRestartForTest: () => backrooms.triggerL0PcRestart?.(),
       exitBackrooms: () => backrooms.exit(),
       resetBoard,
     };

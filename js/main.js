@@ -1929,6 +1929,8 @@
           : "kurizu://games/wisteria-chess-plains";
       } else if (data.stage === "caught-close-site") {
         triggerWebsiteShutdownByWisteria();
+      } else if (data.stage === "pc-restart-reset") {
+        triggerWebsiteResetByPcRestart();
       } else if (data.stage === "reset") {
         urlInput.value = "kurizu://games/wisteria-chess";
       }
@@ -1969,9 +1971,9 @@
     }
   }
 
-  function triggerWebsiteShutdownByWisteria() {
+  function runMemzGlitchOverlay({ headerText, accentColor, durationMs, onComplete }) {
     try { bgAudio?.pause(); } catch (_) {}
-    if ($("#metaverseGlitchCanvas") || $("#siteShutdownOverlay")) return;
+    if ($("#metaverseGlitchCanvas") || $("#siteShutdownOverlay") || $("#siteRebootOverlay")) return;
 
     const cvs = document.createElement("canvas");
     cvs.id = "metaverseGlitchCanvas";
@@ -1996,13 +1998,13 @@
         g.drawImage(iframeCvs, Math.floor(w * 0.18), Math.floor(h * 0.1), Math.floor(w * 0.74), Math.floor(h * 0.76));
       }
     } catch (_) {}
-    g.fillStyle = "#c084fc";
+    g.fillStyle = accentColor || "#c084fc";
     g.font = "bold 22px monospace";
-    g.fillText("KURIZU.EXE // FATAL_ERR_0x000", 24, 38);
+    g.fillText(headerText || "KURIZU.EXE // FATAL_ERR_0x000", 24, 38);
 
-    const bytebeat = playMetaverseBytebeat(3.1);
+    const totalMs = durationMs || 2850;
+    const bytebeat = playMetaverseBytebeat((totalMs + 250) / 1000);
     const startMs = performance.now();
-    const totalMs = 2850;
     let rafId = 0;
 
     function drawCursor(cx, cy) {
@@ -2025,11 +2027,13 @@
         cancelAnimationFrame(rafId);
         try { bytebeat?.stop(); } catch (_) {}
         cvs.remove();
-        showFinalShutdownOverlay();
+        onComplete?.();
         return;
       }
 
-      if (elapsed < 950) {
+      const p1 = totalMs * 0.33;
+      const p2 = totalMs * 0.67;
+      if (elapsed < p1) {
         // Phase 1: MEMZ zoom tunnel + PATINVERT flashes + cursor spam
         const inset = 12 + Math.floor(Math.random() * 14);
         const jx = Math.floor((Math.random() - 0.5) * 18);
@@ -2038,12 +2042,12 @@
         if (Math.random() < 0.35) {
           g.save();
           g.globalCompositeOperation = "difference";
-          g.fillStyle = Math.random() < 0.5 ? "#ff2a6d" : "#c084fc";
+          g.fillStyle = Math.random() < 0.5 ? "#ff2a6d" : (accentColor || "#c084fc");
           g.fillRect(0, 0, w, h);
           g.restore();
         }
         for (let i = 0; i < 6; i++) drawCursor(Math.random() * w, Math.random() * h);
-      } else if (elapsed < 1900) {
+      } else if (elapsed < p2) {
         // Phase 2: Screen melt dripping strips + rotated skew feedback + rainbow floods
         for (let i = 0; i < 16; i++) {
           const sx = Math.floor(Math.random() * w);
@@ -2090,6 +2094,60 @@
       rafId = requestAnimationFrame(tickGlitch);
     }
     rafId = requestAnimationFrame(tickGlitch);
+  }
+
+  function triggerWebsiteShutdownByWisteria() {
+    runMemzGlitchOverlay({
+      headerText: "KURIZU.EXE // FATAL_ERR_0x000",
+      accentColor: "#c084fc",
+      durationMs: 2850,
+      onComplete: showFinalShutdownOverlay,
+    });
+  }
+
+  function triggerWebsiteResetByPcRestart() {
+    try { window.localStorage.removeItem(PET_MAD_KEY); } catch (_) {}
+    setDesktopChessGlitch(false);
+    window.__pcRestartGlitchActive = true;
+    runMemzGlitchOverlay({
+      headerText: "KURIZU.EXE // SYSTEM_REBOOT_0x001",
+      accentColor: "#34d399",
+      durationMs: 2350,
+      onComplete: showPcRebootAndReloadOverlay,
+    });
+  }
+
+  function showPcRebootAndReloadOverlay() {
+    if ($("#siteRebootOverlay")) return;
+    const ov = document.createElement("div");
+    ov.id = "siteRebootOverlay";
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:999999;background:#020a09;display:grid;place-items:center;color:#a7f3d0;font-family:monospace;text-align:center;opacity:0;transition:opacity 0.18s ease;";
+    ov.innerHTML = `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px;">
+        <div style="width:min(90vw,420px);height:2px;background:linear-gradient(90deg,transparent,#34d399,#fff,#34d399,transparent);box-shadow:0 0 24px #34d399;"></div>
+        <div style="font-size:16px;letter-spacing:0.2em;color:#6ee7b7;font-weight:700;">SYSTEM RESTORED</div>
+        <div style="font-size:12px;letter-spacing:0.1em;color:#a7f3d0;opacity:0.85;">rebooting kurizu.exe...</div>
+      </div>
+    `;
+    document.body.appendChild(ov);
+    requestAnimationFrame(() => {
+      ov.style.opacity = "1";
+    });
+    window.__pcRestartReloadScheduled = true;
+    setTimeout(() => {
+      window.__pcRestartReloadCalled = true;
+      if (!window.__preventReloadForTest) {
+        window.location.reload();
+      } else {
+        window.__pcRestartGlitchActive = false;
+        ov.remove();
+        $("#chessWindow")?.classList.add("is-closed");
+        const frame = $("#chessIframe");
+        if (frame) frame.src = "about:blank";
+        if ($("#chessUrlInput")) $("#chessUrlInput").value = "kurizu://games/wisteria-chess";
+      }
+    }, 350);
   }
 
   function showFinalShutdownOverlay() {
@@ -2891,13 +2949,8 @@
       </svg>`,
     },
     malfoy: {
-      bg: "linear-gradient(145deg, #7f1d1d, #311042)",
-      svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <path d="M29.5 10.5a13.5 13.5 0 1 0 9 22.8 11 11 0 0 1-9-22.8Z" fill="#fde047" stroke="#1e0936" stroke-width="2.5" stroke-linejoin="round"/>
-        <path d="m23 19-4 7h5l-2 7 7-8h-5l3-6h-4Z" fill="#ff5ea8" stroke="#1e0936" stroke-width="1.8" stroke-linejoin="round"/>
-        <circle cx="34" cy="15" r="2" fill="#bef264"/>
-        <circle cx="14" cy="14" r="1.6" fill="#f5d0fe"/>
-      </svg>`,
+      bg: "linear-gradient(145deg, #2b4c3f, #181028)",
+      img: "assets/images/malfoid-icon.png",
     },
     "forest-run": {
       bg: "linear-gradient(145deg, #065f46, #1e1b4b)",
@@ -2930,12 +2983,10 @@
       </svg>`,
     },
     lanshare: {
-      bg: "linear-gradient(145deg, #5b21b6, #1e1b4b)",
+      bg: "linear-gradient(160deg, #ffb0d6, #ff99c8)",
       svg: `<svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
-        <rect x="6" y="10" width="16" height="12" rx="2" fill="#c084fc" stroke="#1e0936" stroke-width="2.3"/>
-        <rect x="26" y="25" width="16" height="12" rx="2" fill="#38bdf8" stroke="#1e0936" stroke-width="2.3"/>
-        <path d="M26 15h10l-3-3M36 15l-3 3" stroke="#bef264" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M22 32H12l3-3M12 32l3 3" stroke="#fde047" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M15 5H33V22H42L24 44L6 22H15V5Z" fill="#340542" stroke="#0d0214" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M18 8H30V25H36.5L24 40L11.5 25H18V8Z" fill="#9d3fa8" stroke="#0d0214" stroke-width="1.4" stroke-linejoin="round"/>
       </svg>`,
     },
     firesword: {
@@ -3130,10 +3181,13 @@
 
     const renderIconButtons = (list) => list.map((item) => {
       const iconMeta = getCustomAppIcon(item.id);
+      const artMarkup = iconMeta.img
+        ? `<span class="desktop-icon__art desktop-icon__art--img"><img src="${esc(iconMeta.img)}" alt="" loading="lazy"></span>`
+        : `<span class="desktop-icon__art">${iconMeta.svg}</span>`;
       return `
       <button type="button" class="desktop-icon" role="listitem" data-app-id="${esc(item.id)}" title="${esc(item.title)} — ${esc(item.subtitle)} (Click to open)">
         <span class="desktop-icon__frame" style="--icon-bg:${esc(iconMeta.bg)}">
-          <span class="desktop-icon__art">${iconMeta.svg}</span>
+          ${artMarkup}
           <span class="desktop-icon__ext" style="--ext-bg:${esc(item.color)}">${esc(item.ext)}</span>
           <span class="desktop-icon__shortcut" aria-hidden="true">↗</span>
         </span>
@@ -4994,6 +5048,7 @@
   if (petStage) {
     let petDragging = false;
     let petMoved = false;
+    let activePetPointerId = null;
     let dragStartX = 0;
     let dragStartY = 0;
     let basePetX = 0;
@@ -5053,6 +5108,7 @@
 
     petStage.addEventListener("pointerdown", (event) => {
       if (event.target.closest("#petFeedBtn, #petBubble")) return;
+      if (petDragging) return;
       event.preventDefault();
       if (petIsMad) {
         poke();
@@ -5061,6 +5117,7 @@
       cancelAnimationFrame(gravityRAF);
       petDragging = true;
       petMoved = false;
+      activePetPointerId = event.pointerId;
       dragStartX = event.clientX;
       dragStartY = event.clientY;
       basePetX = petX;
@@ -5069,8 +5126,12 @@
       try { petStage.setPointerCapture(event.pointerId); } catch (_) {}
     });
 
-    petStage.addEventListener("pointermove", (event) => {
-      if (!petDragging) return;
+    petStage.addEventListener("touchmove", (event) => {
+      if (petDragging) event.preventDefault();
+    }, { passive: false });
+
+    window.addEventListener("pointermove", (event) => {
+      if (!petDragging || (activePetPointerId !== null && event.pointerId !== activePetPointerId)) return;
       const dx = event.clientX - dragStartX;
       const dy = event.clientY - dragStartY;
       if (!petMoved && Math.hypot(dx, dy) > 7) {
@@ -5081,17 +5142,23 @@
         petSay("woah!! where are we flying?!");
       }
       if (petMoved) {
-        const minX = -(window.innerWidth - 180);
-        petX = Math.max(minX, Math.min(20, basePetX + dx));
-        petY = Math.min(0, Math.max(-(window.innerHeight - 240), basePetY + dy));
+        const stageRect = petStage.getBoundingClientRect();
+        const stageW = Math.max(72, stageRect.width || 110);
+        const stageH = Math.max(96, stageRect.height || 140);
+        const minX = -(window.innerWidth - stageW - 12);
+        const minY = -Math.max(80, window.innerHeight - stageH - 70);
+        petX = Math.max(minX, Math.min(12, basePetX + dx));
+        petY = Math.min(0, Math.max(minY, basePetY + dy));
         applyPetTransform();
       }
     });
 
     const endPetPointer = (event) => {
-      if (!petDragging) return;
+      if (!petDragging || (activePetPointerId !== null && event.pointerId !== activePetPointerId)) return;
+      const pointerId = activePetPointerId;
+      activePetPointerId = null;
       petDragging = false;
-      try { petStage.releasePointerCapture(event.pointerId); } catch (_) {}
+      try { if (pointerId !== null) petStage.releasePointerCapture(pointerId); } catch (_) {}
       if (petMoved) {
         petBusy = false;
         dropPetWithGravity();
@@ -5101,8 +5168,8 @@
       }
     };
 
-    petStage.addEventListener("pointerup", endPetPointer);
-    petStage.addEventListener("pointercancel", endPetPointer);
+    window.addEventListener("pointerup", endPetPointer);
+    window.addEventListener("pointercancel", endPetPointer);
     petStage.addEventListener("click", (event) => {
       if (!event.target.closest("#petFeedBtn, #petBubble")) event.preventDefault();
     });

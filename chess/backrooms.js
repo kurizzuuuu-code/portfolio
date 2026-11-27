@@ -364,6 +364,7 @@
     const dangerEl = opts.dangerEl || null;
     const jumpscareEl = opts.jumpscareEl || null;
     const onCaughtCloseSite = opts.onCaughtCloseSite || (() => {});
+    const onPcRestartReset = opts.onPcRestartReset || (() => {});
     const onExit = opts.onExit || (() => {});
     const getAudio = opts.getAudio || (() => null);
 
@@ -374,11 +375,24 @@
     let lastMouseY = null;
     let brTime = 0;
 
-    // Player state
+    // Player & chest-mounted body-cam state (rig lag + spring inertia + wide FOV)
+    const BODYCAM_BASE_FOV = 94;
+    const BODYCAM_IR_FOV = 80;
     const pos = new THREE.Vector3(0, terrainY(0, 0) + 1.68, 0);
     let yaw = 0.06;
     let pitch = -0.02;
     let bobPhase = 0;
+    let camMoveBlend = 0;
+    let camSprintBlend = 0;
+    let camRollCur = 0;
+    let camLatCur = 0;
+    let camPitchBobCur = 0;
+    const camLagPos = new THREE.Vector3();
+    let camLagYaw = 0.06;
+    let camLagPitch = -0.02;
+    let camLagInit = false;
+    let camTurnRollCur = 0;
+    let camFovCur = BODYCAM_BASE_FOV;
     let keys = Object.create(null);
 
     // Mobile virtual joystick & sprint state
@@ -388,9 +402,14 @@
     const hintLabel = hudEl ? hudEl.querySelector('#brHintLabel') : null;
     const levelLabel = hudEl ? hudEl.querySelector('#brLevelLabel') : null;
     const flashBtn = hudEl ? hudEl.querySelector('#brFlashBtn') : null;
+    const camViewEl = hudEl ? hudEl.querySelector('#brCamViewfinder') : null;
+    const stareFillEl = hudEl ? hudEl.querySelector('#brStareFill') : null;
+    const pcBtn = hudEl ? hudEl.querySelector('#brPcBtn') : null;
+    const jumpscareSpanEl = jumpscareEl ? jumpscareEl.querySelector('span') : null;
     const vhsStampEl = hudEl ? hudEl.querySelector('#brVhsStamp') : null;
     let lastVhsStampKey = '';
     let vhsGlitchSpike = 0;
+    let l0CamViewUniform = 0;
     let lastSceneRenderCalls = 0;
     let joyPointerId = null;
     let joyX = 0; // -1..1 strafe
@@ -425,9 +444,9 @@
     brScene.fog = null;
 
     const brCamera = new THREE.PerspectiveCamera(
-      62,
+      BODYCAM_BASE_FOV,
       Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight),
-      0.1,
+      0.08,
       380
     );
 
@@ -453,6 +472,7 @@
         uTime: { value: 0 },
         uIntensity: { value: 1.0 },
         uRealm: { value: 0.0 },
+        uCamView: { value: 0.0 },
         uResolution: { value: new THREE.Vector2(initVhsSz.w, initVhsSz.h) },
       },
       vertexShader: `
@@ -467,6 +487,7 @@
         uniform float uTime;
         uniform float uIntensity;
         uniform float uRealm;
+        uniform float uCamView;
         uniform vec2 uResolution;
         varying vec2 vUv;
 
@@ -475,12 +496,20 @@
         }
 
         void main() {
-          // Subtle camcorder lens curvature
+          // Wide-angle fisheye barrel lens distortion (aspect-balanced for desktop & mobile)
           vec2 cUv = vUv - 0.5;
-          float r2 = dot(cUv, cUv);
-          vec2 uv = cUv * (1.0 + 0.068 * r2) + 0.5;
-          if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
-            gl_FragColor = vec4(0.01, 0.008, 0.014, 1.0);
+          float aspect = uResolution.x / max(1.0, uResolution.y);
+          vec2 radial = cUv * vec2(mix(1.0, aspect, 0.34), 1.0);
+          float r2 = dot(radial, radial);
+          float r4 = r2 * r2;
+          float fishK1 = mix(0.42, 0.28, uCamView);
+          float fishK2 = mix(0.32, 0.20, uCamView);
+          float fishScale = mix(0.78, 0.84, uCamView);
+          vec2 uv = cUv * (1.0 + fishK1 * r2 + fishK2 * r4) * fishScale + 0.5;
+          float lensEdge = length(radial);
+          float lensMask = 1.0 - smoothstep(0.64, 0.78, lensEdge);
+          if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || lensMask <= 0.002) {
+            gl_FragColor = vec4(0.006, 0.005, 0.008, 1.0);
             return;
           }
 
@@ -491,7 +520,7 @@
           float trackingBand = smoothstep(0.032, 0.0, barDist) * barGate * uIntensity;
           float lineNoise = (vhsHash(vec2(floor(uv.y * 260.0), floor(uTime * 24.0))) - 0.5);
           float microJitter = sin(uv.y * 195.0 + uTime * 11.5) * 0.0005 * uIntensity;
-          float headSwitch = smoothstep(0.030, 0.0, uv.y);
+          float headSwitch = smoothstep(0.028, 0.0, uv.y);
 
           vec2 sampleUv = uv;
           sampleUv.x += microJitter;
@@ -499,14 +528,14 @@
           sampleUv.x += lineNoise * headSwitch * (0.018 * uIntensity);
           sampleUv = clamp(sampleUv, 0.001, 0.999);
 
-          // Chromatic aberration & analog tape horizontal chroma smear
-          float ca = (0.0016 + 0.0038 * r2) * uIntensity + trackingBand * 0.0042;
-          float r = texture2D(tDiffuse, clamp(sampleUv + vec2(ca, 0.0), 0.001, 0.999)).r;
+          // Radial fisheye chromatic dispersion + analog chroma smear
+          vec2 caRadial = cUv * (0.0042 + 0.022 * r2) * uIntensity + vec2(trackingBand * 0.0042, 0.0);
+          float r = texture2D(tDiffuse, clamp(sampleUv + caRadial, 0.001, 0.999)).r;
           vec3 centerTap = texture2D(tDiffuse, sampleUv).rgb;
-          float b = texture2D(tDiffuse, clamp(sampleUv - vec2(ca, 0.0005), 0.001, 0.999)).b;
-          vec3 smearTap = texture2D(tDiffuse, clamp(sampleUv - vec2(0.0030, 0.0), 0.001, 0.999)).rgb;
+          float b = texture2D(tDiffuse, clamp(sampleUv - caRadial * vec2(1.0, 0.85), 0.001, 0.999)).b;
+          vec3 smearTap = texture2D(tDiffuse, clamp(sampleUv - vec2(0.0028, 0.0), 0.001, 0.999)).rgb;
 
-          vec3 col = mix(vec3(r, centerTap.g, b), smearTap, 0.16);
+          vec3 col = mix(vec3(r, centerTap.g, b), smearTap, 0.14);
           col = pow(max(col, vec3(0.0)), vec3(0.92));
 
           // Tracking snow & bottom head-switching static streaks
@@ -514,17 +543,28 @@
           col += vec3(snow) * trackingBand * 0.16;
           col = mix(col, vec3(snow * 0.65 + 0.18), headSwitch * step(0.62, snow) * 0.55);
 
-          // CRT scanlines + animated camcorder film grain
-          float scan = 1.0 - (0.06 + 0.03 * uRealm) * (0.5 + 0.5 * sin(uv.y * uResolution.y * 1.15));
-          float grain = (vhsHash(floor(uv.xy * uResolution * 0.68) + vec2(fract(uTime * 19.3) * 100.0, 0.0)) - 0.5) * (0.052 + 0.048 * uIntensity);
+          // CRT scanlines + animated CMOS sensor grain
+          float scan = 1.0 - (0.055 + 0.03 * uRealm) * (0.5 + 0.5 * sin(uv.y * uResolution.y * 1.15));
+          float grain = (vhsHash(floor(uv.xy * uResolution * 0.68) + vec2(fract(uTime * 19.3) * 100.0, 0.0)) - 0.5) * (0.048 + 0.046 * uIntensity);
           col = col * scan + grain;
 
-          // Subtle 90s magnetic tape grade + camcorder vignette
+          // Body-cam CMOS color grading: filmic contrast blend (keeps dark halls readable), cool shadows + IR mode
           float luma = dot(col, vec3(0.299, 0.587, 0.114));
-          col = mix(vec3(luma), col, mix(0.88, 0.84, uRealm));
-          col = col * 0.97 + mix(vec3(0.012, 0.011, 0.015), vec3(0.008, 0.010, 0.007), uRealm);
-          float vig = smoothstep(0.98, 0.28, length(cUv * vec2(1.16, 1.04)));
-          col *= mix(0.46, 1.0, vig);
+          col = mix(vec3(luma), col, mix(0.76, 0.72, uRealm));
+          col = mix(col, smoothstep(vec3(0.0), vec3(0.96), col), 0.36);
+          vec3 shadowCool = mix(vec3(-0.005, 0.004, 0.014), vec3(0.002, 0.008, 0.004), uRealm);
+          vec3 highWarm = mix(vec3(0.99, 0.98, 0.95), vec3(1.02, 0.99, 0.88), uRealm);
+          col = col * highWarm + shadowCool * (1.0 - smoothstep(0.0, 0.45, luma));
+          if (uCamView > 0.001) {
+            float irLuma = pow(clamp(luma * 1.48 + 0.025, 0.0, 1.0), 0.86);
+            vec3 irTint = mix(col * vec3(0.76, 1.12, 0.90), vec3(irLuma * 0.62, irLuma * 1.06, irLuma * 0.78), 0.45);
+            col = mix(col, irTint + grain * 0.75, uCamView);
+          }
+
+          // Deep optical body-cam lens vignette & rounded bezel fade
+          float optVig = smoothstep(0.94, mix(0.22, 0.16, uCamView), length(radial * vec2(1.14, 1.10)));
+          float cornerDark = 1.0 - smoothstep(0.30, 0.76, r2) * 0.34;
+          col *= mix(0.26, 1.0, optVig) * cornerDark * lensMask;
 
           gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
         }
@@ -905,10 +945,10 @@
           float wx = mod(aOffset.x - uCenterX + span * 0.5, span) - span * 0.5 + uCenterX;
           float wz = mod(aOffset.z - uCenterZ + span * 0.5, span) - span * 0.5 + uCenterZ;
 
-          // Derender grass blades outside/behind the player's forward view cone
+          // Derender grass blades outside/behind the wide fisheye view cone
           vec2 fromPlayer = vec2(wx, wz) - uCameraPos.xz;
           float pDist = length(fromPlayer) + 0.001;
-          if (pDist > 2.4 && dot(fromPlayer / pDist, uCamFwdXZ) < 0.28) {
+          if (pDist > 2.6 && dot(fromPlayer / pDist, uCamFwdXZ) < 0.14) {
             gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
             return;
           }
@@ -1285,11 +1325,11 @@
     l0Scene.background = l0FogColor.clone();
     l0Scene.fog = new THREE.FogExp2(l0FogColor.getHex(), l0FogDensity);
 
-    const l0Ambient = new THREE.AmbientLight(0x120f08, 0.08);
-    const l0Hemi = new THREE.HemisphereLight(0x1a160c, 0x040302, 0.08);
-    const l0CamLight = new THREE.PointLight(0xffeec2, 0.05, 5.5, 1.8);
+    const l0Ambient = new THREE.AmbientLight(0x1e1a0e, 0.20);
+    const l0Hemi = new THREE.HemisphereLight(0x282210, 0x090704, 0.16);
+    const l0CamLight = new THREE.PointLight(0xffeec2, 0.18, 8.5, 1.65);
     const l0FlashTarget = new THREE.Object3D();
-    const l0FlashSpot = new THREE.SpotLight(0xfff4d6, 3.8, 40, Math.PI / 5.0, 0.55, 1.25);
+    const l0FlashSpot = new THREE.SpotLight(0xd8ffea, 0, 42, Math.PI / 5.0, 0.55, 1.25);
     l0FlashSpot.target = l0FlashTarget;
     l0Scene.add(l0Ambient, l0Hemi, l0CamLight, l0FlashSpot, l0FlashTarget);
 
@@ -1390,7 +1430,7 @@
 
           float overhead = l0PanelLight(vWorld.xz, uTime, uDanger);
           float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
-          vec3 lightMul = vec3(0.022 + 0.92 * overhead) + vec3(1.85, 1.74, 1.42) * flash;
+          vec3 lightMul = vec3(0.075 + 0.90 * overhead) + vec3(1.52, 2.02, 1.62) * flash;
           col *= lightMul;
           col = mix(col, col * vec3(1.22, 0.58, 0.58), uDanger * 0.42);
 
@@ -1463,7 +1503,7 @@
           float smoothGlow = l0PanelLight(vWorld.xz, uTime, uDanger);
           float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
 
-          float tileLight = 0.02 + 0.82 * smoothGlow + flash * 1.45;
+          float tileLight = 0.070 + 0.80 * smoothGlow + flash * 1.45;
           vec3 col = tileCol * tileLight;
           col = mix(col, vec3(0.10, 0.09, 0.05) * (0.18 + smoothGlow * 0.8 + flash * 1.2), frame);
           vec3 tubeActive = mix(vec3(1.0, 0.96, 0.82), vec3(1.0, 0.48, 0.52), uDanger * 0.45) * louvre;
@@ -1539,7 +1579,7 @@
           float flash = l0FlashCone(vWorld, uCameraPos, uFlashDir, uFlashOn);
           float dirShade = 0.76 + 0.24 * abs(vNorm.z);
           float heightGrad = 0.52 + 0.48 * smoothstep(0.0, 4.3, y);
-          col *= (vec3(0.022 + 0.88 * overhead) + vec3(1.88, 1.76, 1.42) * flash) * dirShade * heightGrad;
+          col *= (vec3(0.075 + 0.86 * overhead) + vec3(1.54, 2.04, 1.62) * flash) * dirShade * heightGrad;
           col = mix(col, col * vec3(1.18, 0.58, 0.60), uDanger * 0.42);
 
           float dist = length(vWorld - uCameraPos);
@@ -1780,6 +1820,85 @@
     }
 
     let l0RareVisibleCount = 0;
+    const L0_PC_ALCOVES = [
+      [-11.2, -16.5],
+      [18.5, -16.5],
+      [10.5, 13.5],
+    ];
+    let l0PcBaseX = L0_PC_ALCOVES[0][0];
+    let l0PcBaseZ = L0_PC_ALCOVES[0][1];
+    const l0PcPos = new THREE.Vector3(l0PcBaseX, 0, l0PcBaseZ);
+    let l0PcDist = 99;
+    let l0PcRestarting = false;
+    let l0PcRestartTime = 0;
+    let l0PcRestarted = false;
+    let l0PcResetFired = false;
+
+    const l0PcGroup = new THREE.Group();
+    const l0PcDeskMat = new THREE.MeshLambertMaterial({ color: 0x3b3022 });
+    const l0PcCaseMat = new THREE.MeshLambertMaterial({ color: 0xc2b89f });
+    const l0PcDarkMat = new THREE.MeshLambertMaterial({ color: 0x1e2226 });
+    const l0PcScreenCanvas = document.createElement('canvas');
+    l0PcScreenCanvas.width = 256;
+    l0PcScreenCanvas.height = 192;
+    const l0PcScreenCtx = l0PcScreenCanvas.getContext('2d');
+    l0PcScreenCtx.fillStyle = '#041f1c';
+    l0PcScreenCtx.fillRect(0, 0, 256, 192);
+    l0PcScreenCtx.fillStyle = '#34d399';
+    l0PcScreenCtx.font = 'bold 18px monospace';
+    l0PcScreenCtx.fillText('KURIZU_OS v0.94', 18, 42);
+    l0PcScreenCtx.fillStyle = '#a7f3d0';
+    l0PcScreenCtx.font = '14px monospace';
+    l0PcScreenCtx.fillText('ERR: BACKROOMS_LOCK', 18, 76);
+    l0PcScreenCtx.fillText('> RESET SITE SYSTEM', 18, 112);
+    l0PcScreenCtx.fillStyle = '#22d3ee';
+    l0PcScreenCtx.font = 'bold 16px monospace';
+    l0PcScreenCtx.fillText('[E] RESTART PC_', 18, 152);
+    l0PcScreenCtx.fillStyle = 'rgba(0,0,0,0.22)';
+    for (let sy = 0; sy < 192; sy += 4) l0PcScreenCtx.fillRect(0, sy, 256, 2);
+    const l0PcScreenTex = new THREE.CanvasTexture(l0PcScreenCanvas);
+    l0PcScreenTex.encoding = THREE.sRGBEncoding;
+    const l0PcScreenMat = new THREE.MeshBasicMaterial({ map: l0PcScreenTex });
+
+    const pcDeskTop = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.08, 0.78), l0PcDeskMat);
+    pcDeskTop.position.set(0, 0.78, 0);
+    l0PcGroup.add(pcDeskTop);
+    [[-0.63, -0.32], [0.63, -0.32], [-0.63, 0.32], [0.63, 0.32]].forEach(([lx, lz]) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.78, 0.08), l0PcDeskMat);
+      leg.position.set(lx, 0.39, lz);
+      l0PcGroup.add(leg);
+    });
+    const pcMonitorBody = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.46, 0.42), l0PcCaseMat);
+    pcMonitorBody.position.set(-0.08, 1.07, -0.06);
+    l0PcGroup.add(pcMonitorBody);
+    const pcMonitorBezel = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.37, 0.03), l0PcDarkMat);
+    pcMonitorBezel.position.set(-0.08, 1.08, 0.148);
+    l0PcGroup.add(pcMonitorBezel);
+    const pcScreenPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.31), l0PcScreenMat);
+    pcScreenPlane.position.set(-0.08, 1.08, 0.166);
+    l0PcGroup.add(pcScreenPlane);
+    const pcTower = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.50, 0.44), l0PcCaseMat);
+    pcTower.position.set(0.42, 1.07, -0.02);
+    l0PcGroup.add(pcTower);
+    const pcPowerLed = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.04, 0.02),
+      new THREE.MeshBasicMaterial({ color: 0x34d399 })
+    );
+    pcPowerLed.position.set(0.42, 1.18, 0.205);
+    l0PcGroup.add(pcPowerLed);
+    const pcKeyboard = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.03, 0.16), l0PcCaseMat);
+    pcKeyboard.position.set(-0.08, 0.835, 0.24);
+    l0PcGroup.add(pcKeyboard);
+    const pcMouse = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.03, 0.11), l0PcCaseMat);
+    pcMouse.position.set(0.24, 0.835, 0.25);
+    l0PcGroup.add(pcMouse);
+
+    const l0PcGlow = new THREE.PointLight(0x38f8c4, 1.85, 13.0, 1.45);
+    l0PcGlow.position.set(-0.05, 1.42, 0.45);
+    l0PcGroup.add(l0PcGlow);
+    l0PcGroup.position.copy(l0PcPos);
+    l0Scene.add(l0PcGroup);
+
     function wrapLevel0Entities() {
       const baseTX = Math.round(pos.x / L0_TILE);
       const baseTZ = Math.round(pos.z / L0_TILE);
@@ -1799,6 +1918,12 @@
         }
       }
       l0RareVisibleCount = rareCount;
+
+      const pcWX = Math.round((pos.x - l0PcBaseX) / L0_TILE) * L0_TILE + l0PcBaseX;
+      const pcWZ = Math.round((pos.z - l0PcBaseZ) / L0_TILE) * L0_TILE + l0PcBaseZ;
+      l0PcPos.set(pcWX, 0, pcWZ);
+      l0PcGroup.position.copy(l0PcPos);
+      l0PcDist = Math.hypot(pcWX - pos.x, pcWZ - pos.z);
     }
 
     // 3D Rigged Scary Wisteria Chaser (Level 0) + Proximity Horror + Phase-4 Grab Jumpscare
@@ -1964,8 +2089,15 @@
     let bfsTargetZ = 0;
     let bfsTimer = 0;
 
-    // Level 0 stealth & flashlight state
-    let l0FlashlightOn = true;
+    // Level 0 Camera Viewfinder, Blind-Wander Ambush, Stare Jumpscare & PC Objective State
+    let l0CameraOn = false;
+    let l0CamOffWanderTimer = 0;
+    let l0NextAmbushAt = 3.6;
+    let l0AmbushBoost = 0;
+    let l0StareTimer = 0;
+    const L0_STARE_LIMIT = 2.2;
+    let l0TeleportCount = 0;
+    let l0CaughtReason = null;
     let l0KnowsPlayer = true;
     const l0LastKnownPos = new THREE.Vector3(0, 0, 0);
     const l0PatrolTarget = new THREE.Vector3(0, 0, -14);
@@ -1990,14 +2122,133 @@
       } catch {}
     }
 
-    function setL0Flashlight(nextOn, silent) {
-      l0FlashlightOn = !!nextOn;
-      if (flashBtn) {
-        flashBtn.classList.toggle('is-active', l0FlashlightOn);
-        flashBtn.setAttribute('aria-pressed', String(l0FlashlightOn));
-        flashBtn.textContent = l0FlashlightOn ? 'FLASHLIGHT: ON [F]' : 'FLASHLIGHT: OFF [F]';
+    function playPcRestartSfx() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        [523.25, 659.25, 1046.5].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+          const g = ctx.createGain();
+          g.gain.setValueAtTime(0.001, now + idx * 0.08);
+          g.gain.linearRampToValueAtTime(0.14, now + idx * 0.08 + 0.015);
+          g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.24);
+          osc.connect(g);
+          g.connect(ctx.destination);
+          osc.start(now + idx * 0.08);
+          osc.stop(now + idx * 0.08 + 0.26);
+        });
+      } catch {}
+    }
+
+    function updateCamViewfinderUI() {
+      const showCam = active && currentRealm === 'level0' && l0CameraOn && !l0Caught && !l0PcRestarting;
+      if (camViewEl) {
+        camViewEl.hidden = !showCam;
+        camViewEl.classList.toggle('is-active', showCam);
+        const stareRatio = Math.max(0, Math.min(1, l0StareTimer / L0_STARE_LIMIT));
+        camViewEl.classList.toggle('is-warn', showCam && stareRatio > 0.08);
+        if (stareFillEl) stareFillEl.style.width = `${Math.round(stareRatio * 100)}%`;
       }
+    }
+
+    function setL0Camera(nextOn, silent) {
+      l0CameraOn = !!nextOn;
+      if (!l0CameraOn) l0StareTimer = Math.max(0, l0StareTimer * 0.25);
+      if (flashBtn) {
+        flashBtn.classList.toggle('is-active', l0CameraOn);
+        flashBtn.setAttribute('aria-pressed', String(l0CameraOn));
+        flashBtn.textContent = l0CameraOn ? 'CAMERA: ON [F]' : 'CAMERA: OFF [F]';
+      }
+      updateCamViewfinderUI();
       if (!silent) playFlashlightClickSfx();
+    }
+
+    function hasL0LineOfSight(ax, az, bx, bz) {
+      const dist = Math.hypot(bx - ax, bz - az);
+      if (dist <= 0.6) return true;
+      const steps = Math.max(2, Math.ceil(dist / 0.45));
+      for (let i = 1; i < steps; i++) {
+        const t = i / steps;
+        if (isInsideAnyL0Wall(ax + (bx - ax) * t, az + (bz - az) * t, -0.08)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function triggerL0Jumpscare(reason) {
+      if (l0Caught || l0PcRestarting) return;
+      l0Caught = true;
+      l0CaughtReason = reason || 'caught';
+      l0GrabTime = 0;
+      l0GrabClosedFired = false;
+      l0Danger = 1.0;
+      l0StareTimer = 0;
+      l0ChaserGroup.visible = l0ChaserLoaded;
+      if (hudEl) hudEl.classList.remove('is-active');
+      if (pcBtn) pcBtn.hidden = true;
+      updateCamViewfinderUI();
+      if (dangerEl) dangerEl.style.setProperty('--danger', '1');
+      if (jumpscareSpanEl) {
+        jumpscareSpanEl.textContent = l0CaughtReason === 'stare' ? 'YOU STARED TOO LONG' : 'SHE GOT YOU';
+      }
+      if (jumpscareEl) {
+        jumpscareEl.classList.remove('is-reboot');
+        jumpscareEl.hidden = false;
+      }
+      playJumpscareSfx();
+      stopAmbience();
+      if (l0SprintAction) l0SprintAction.stop();
+      restoreChaserBindPose();
+      animateL0ChaserGrab(0);
+    }
+
+    function triggerL0PcRestart() {
+      if (!active || currentRealm !== 'level0' || l0Caught || l0PcRestarting) return;
+      l0PcRestarting = true;
+      l0PcRestartTime = 0;
+      l0PcRestarted = true;
+      l0PcResetFired = false;
+      l0StareTimer = 0;
+      vhsGlitchSpike = 2.8;
+      if (hudEl) hudEl.classList.remove('is-active');
+      if (pcBtn) pcBtn.hidden = true;
+      updateCamViewfinderUI();
+      if (jumpscareSpanEl) jumpscareSpanEl.textContent = 'SYSTEM REBOOTING...';
+      if (jumpscareEl) {
+        jumpscareEl.classList.add('is-reboot');
+        jumpscareEl.hidden = false;
+      }
+      playPcRestartSfx();
+      stopAmbience();
+    }
+
+    function animateL0PcRestart(dt) {
+      l0PcRestartTime += dt;
+      vhsGlitchSpike = 2.4 + Math.sin(l0PcRestartTime * 36.0) * 0.4;
+      const toPcYaw = Math.atan2(pos.x - l0PcPos.x, pos.z - l0PcPos.z);
+      brCamera.position.set(
+        pos.x + (Math.random() - 0.5) * 0.05,
+        1.52 + (Math.random() - 0.5) * 0.04,
+        pos.z + (Math.random() - 0.5) * 0.05
+      );
+      brCamera.rotation.order = 'YXZ';
+      brCamera.rotation.y = toPcYaw + (Math.random() - 0.5) * 0.04;
+      brCamera.rotation.x = -0.14 + (Math.random() - 0.5) * 0.04;
+      brCamera.rotation.z = Math.sin(l0PcRestartTime * 28.0) * 0.05;
+      const nextFov = Math.max(44, 62 - l0PcRestartTime * 22);
+      if (Math.abs(brCamera.fov - nextFov) > 0.2) {
+        brCamera.fov = nextFov;
+        brCamera.updateProjectionMatrix();
+      }
+      l0PcGlow.intensity = 3.2 + Math.sin(l0PcRestartTime * 35.0) * 1.4;
+      if (l0PcRestartTime >= 0.85 && !l0PcResetFired) {
+        l0PcResetFired = true;
+        onPcRestartReset();
+      }
     }
 
     function pickL0PatrolPoint() {
@@ -2116,12 +2367,13 @@
         }
       }
 
-      // Subtle purple glint in the dark -> intense crimson emissive ramp when closing in
+      // Subtle purple glint when seen through camera -> intense crimson emissive ramp when closing in or stared at
+      const glareBoost = Math.max(l0Danger, Math.min(1, l0StareTimer / L0_STARE_LIMIT));
       for (let i = 0; i < cMaterials.length; i++) {
-        cMaterials[i].emissive.setRGB(0.10 + l0Danger * 0.55, 0.03, 0.14 * (1.0 - l0Danger * 0.5));
+        cMaterials[i].emissive.setRGB(0.14 + glareBoost * 0.58, 0.04, 0.18 * (1.0 - glareBoost * 0.45));
       }
-      l0ChaserGlow.color.setHex(l0Danger > 0.35 ? 0xff2a6d : 0xd8b4fe);
-      l0ChaserGlow.intensity = 0.22 + l0Danger * 2.25;
+      l0ChaserGlow.color.setHex(glareBoost > 0.32 ? 0xff2a6d : 0x6ee7b7);
+      l0ChaserGlow.intensity = l0CameraOn ? (0.45 + glareBoost * 2.4) : 0;
     }
 
     function restoreChaserBindPose() {
@@ -2208,8 +2460,8 @@
       }
     }
 
-    function stepLevel0WisteriaChase(dt) {
-      if (l0Caught) return;
+    function stepLevel0WisteriaChase(dt, isMoving, isSprinting) {
+      if (l0Caught || l0PcRestarting) return;
       const toPlayerX = pos.x - l0PetPos.x;
       const toPlayerZ = pos.z - l0PetPos.z;
       const dist = Math.hypot(toPlayerX, toPlayerZ);
@@ -2217,60 +2469,112 @@
       l0Danger = Math.max(0, Math.min(1, 1.0 - (dist - 2.2) / 22.0));
 
       if (dist < 2.15) {
-        l0Caught = true;
-        l0GrabTime = 0;
-        l0GrabClosedFired = false;
-        l0Danger = 1.0;
-        if (hudEl) hudEl.classList.remove('is-active');
-        if (dangerEl) dangerEl.style.setProperty('--danger', '1');
-        if (jumpscareEl) jumpscareEl.hidden = false;
-        playJumpscareSfx();
-        stopAmbience();
-        if (l0SprintAction) l0SprintAction.stop();
-        restoreChaserBindPose();
-        animateL0ChaserGrab(0);
+        triggerL0Jumpscare('caught');
         return;
       }
 
-      // Stealth & detection: very hard for Wisteria to spot you in the dark unless flashlight is ON (or < 3.6m bump)
-      const wasKnowing = l0KnowsPlayer;
-      if (l0FlashlightOn || dist < 3.6) {
-        l0KnowsPlayer = true;
-        l0LastKnownPos.copy(pos);
-      } else {
-        if (wasKnowing) {
-          l0PatrolTarget.copy(l0LastKnownPos);
-          bfsTimer = 0;
+      // 1. Visibility: completely invisible in Level 0 unless player looks through their handheld camera
+      const canSeeWisteria = l0CameraOn && l0ChaserLoaded;
+
+      // 2. Blind-wander ambush: walking/running around without checking the camera causes her to teleport ahead
+      if (!l0CameraOn && isMoving) {
+        l0CamOffWanderTimer += dt * (isSprinting ? 1.85 : 1.0);
+        if (l0CamOffWanderTimer >= l0NextAmbushAt) {
+          l0CamOffWanderTimer = 0;
+          l0NextAmbushAt = 3.2 + Math.random() * 2.0;
+          const distChoices = [5.8, 4.8, 7.0, 3.9];
+          const angChoices = [0, 0.25, -0.25, 0.52, -0.52];
+          let placed = false;
+          for (let dIdx = 0; dIdx < distChoices.length && !placed; dIdx++) {
+            for (let aIdx = 0; aIdx < angChoices.length; aIdx++) {
+              const ang = yaw + angChoices[aIdx];
+              const tx = pos.x - Math.sin(ang) * distChoices[dIdx];
+              const tz = pos.z - Math.cos(ang) * distChoices[dIdx];
+              if (!isInsideAnyL0Wall(tx, tz, 0.55) && hasL0LineOfSight(pos.x, pos.z, tx, tz)) {
+                l0PetPos.set(tx, 0, tz);
+                l0ChaserGroup.position.copy(l0PetPos);
+                placed = true;
+                break;
+              }
+            }
+          }
+          if (placed) {
+            l0TeleportCount++;
+            l0AmbushBoost = 2.6;
+            vhsGlitchSpike = Math.max(vhsGlitchSpike, 0.85);
+            playStaticVanishSfx();
+            bfsTimer = 0;
+          }
         }
-        l0KnowsPlayer = false;
-        if (Math.hypot(l0PatrolTarget.x - l0PetPos.x, l0PatrolTarget.z - l0PetPos.z) < 2.4) {
-          pickL0PatrolPoint();
-          bfsTimer = 0;
-        }
+      } else if (l0CameraOn) {
+        l0CamOffWanderTimer = Math.max(0, l0CamOffWanderTimer - dt * 1.4);
       }
 
-      const activeGoalX = l0KnowsPlayer ? pos.x : l0PatrolTarget.x;
-      const activeGoalZ = l0KnowsPlayer ? pos.z : l0PatrolTarget.z;
-      const goalDistToTarget = Math.hypot(activeGoalX - l0PetPos.x, activeGoalZ - l0PetPos.z);
+      if (l0AmbushBoost > 0) {
+        l0AmbushBoost = Math.max(0, l0AmbushBoost - dt);
+      }
+
+      // 3. Staring too long through camera: builds dread, shakes viewfinder, then teleports directly to jumpscare
+      const curDist = Math.hypot(pos.x - l0PetPos.x, pos.z - l0PetPos.z);
+      const fwdX = -Math.sin(yaw);
+      const fwdZ = -Math.cos(yaw);
+      const toWX = (l0PetPos.x - pos.x) / Math.max(0.001, curDist);
+      const toWZ = (l0PetPos.z - pos.z) / Math.max(0.001, curDist);
+      const viewDot = fwdX * toWX + fwdZ * toWZ;
+      const isStaring = Boolean(
+        l0CameraOn &&
+        curDist < 24.0 &&
+        viewDot > 0.82 &&
+        hasL0LineOfSight(pos.x, pos.z, l0PetPos.x, l0PetPos.z)
+      );
+
+      if (isStaring) {
+        l0StareTimer += dt;
+        const stareRatio = Math.min(1, l0StareTimer / L0_STARE_LIMIT);
+        vhsGlitchSpike = Math.max(vhsGlitchSpike, stareRatio * 1.15);
+        brCamera.position.x += (Math.random() - 0.5) * 0.045 * stareRatio;
+        brCamera.position.y += (Math.random() - 0.5) * 0.03 * stareRatio;
+        if (l0StareTimer >= L0_STARE_LIMIT) {
+          l0TeleportCount++;
+          updateCamViewfinderUI();
+          triggerL0Jumpscare('stare');
+          return;
+        }
+      } else {
+        l0StareTimer = Math.max(0, l0StareTimer - dt * 1.35);
+      }
+      updateCamViewfinderUI();
+
+      // 4. Stalking & pathing toward player
+      l0KnowsPlayer = true;
+      l0LastKnownPos.copy(pos);
+      const goalDistToTarget = Math.hypot(pos.x - l0PetPos.x, pos.z - l0PetPos.z);
 
       bfsTimer -= dt;
       if (bfsTimer <= 0 || Math.hypot(bfsTargetX - l0PetPos.x, bfsTargetZ - l0PetPos.z) < 0.75) {
-        bfsTimer = 0.16;
-        if (!computeChaseWaypoint(activeGoalX, activeGoalZ)) {
-          bfsTargetX = activeGoalX;
-          bfsTargetZ = activeGoalZ;
+        bfsTimer = 0.18;
+        if (!computeChaseWaypoint(pos.x, pos.z)) {
+          bfsTargetX = pos.x;
+          bfsTargetZ = pos.z;
         }
       }
 
-      const goalX = goalDistToTarget < 5.0 ? activeGoalX : bfsTargetX;
-      const goalZ = goalDistToTarget < 5.0 ? activeGoalZ : bfsTargetZ;
+      const goalX = goalDistToTarget < 5.0 ? pos.x : bfsTargetX;
+      const goalZ = goalDistToTarget < 5.0 ? pos.z : bfsTargetZ;
       const gx = goalX - l0PetPos.x;
       const gz = goalZ - l0PetPos.z;
       const gDist = Math.hypot(gx, gz);
       const dirX = gx / Math.max(0.001, gDist);
       const dirZ = gz / Math.max(0.001, gDist);
-      // Terrifying full-speed sprint when she spots you (10.6 -> 13.4 m/s), slow blind search when flashlight is OFF
-      const chaseSpeed = l0KnowsPlayer ? (10.6 + l0Danger * 2.8) : 3.2;
+
+      const stareRatio = Math.min(1, l0StareTimer / L0_STARE_LIMIT);
+      let chaseSpeed = l0AmbushBoost > 0
+        ? 6.8
+        : (l0CameraOn ? (3.6 + l0Danger * 1.6) : (2.4 + l0Danger * 1.1));
+      if (isStaring) {
+        // Freeze & twitch toward the camera lens while stare meter builds toward teleport-jumpscare
+        chaseSpeed = 0.0;
+      }
       const stepDist = chaseSpeed * Math.min(dt, 0.25);
 
       const oldX = l0PetPos.x;
@@ -2278,7 +2582,7 @@
       let next = resolveLevel0Collisions(oldX + dirX * stepDist, oldZ + dirZ * stepDist);
       const moved = Math.hypot(next.x - oldX, next.z - oldZ);
       if (moved < stepDist * 0.25) {
-        computeChaseWaypoint(activeGoalX, activeGoalZ);
+        computeChaseWaypoint(pos.x, pos.z);
         const fx = bfsTargetX - oldX;
         const fz = bfsTargetZ - oldZ;
         const fl = Math.hypot(fx, fz) || 1;
@@ -2287,43 +2591,108 @@
 
       l0PetPos.x = next.x;
       l0PetPos.z = next.z;
-      l0ChaserGroup.visible = l0ChaserLoaded;
+      l0ChaserGroup.visible = canSeeWisteria;
       l0ChaserGroup.position.copy(l0PetPos);
-      // Face chase travel direction smoothly
-      const faceDx = next.x - oldX;
-      const faceDz = next.z - oldZ;
-      if (Math.hypot(faceDx, faceDz) > 0.002) {
-        l0ChaserGroup.rotation.y = Math.atan2(faceDx, faceDz);
+      if (isStaring && stareRatio > 0.2) {
+        l0ChaserGroup.rotation.y = Math.atan2(pos.x - l0PetPos.x, pos.z - l0PetPos.z);
       } else {
-        l0ChaserGroup.rotation.y = Math.atan2(toPlayerX, toPlayerZ);
+        const faceDx = next.x - oldX;
+        const faceDz = next.z - oldZ;
+        if (Math.hypot(faceDx, faceDz) > 0.002) {
+          l0ChaserGroup.rotation.y = Math.atan2(faceDx, faceDz);
+        } else {
+          l0ChaserGroup.rotation.y = Math.atan2(pos.x - l0PetPos.x, pos.z - l0PetPos.z);
+        }
       }
       animateL0ChaserRun(dt, l0Danger);
 
-      // Proximity horror feedback: camera FOV tension, screen shake, crimson vignette & heartbeat
+      const effDanger = Math.max(l0Danger, stareRatio * 0.9);
+      // Proximity danger vignette, micro-tremor & heartbeat (wide FOV handled by chest body-cam rig)
       if (dangerEl) {
-        dangerEl.style.setProperty('--danger', (l0Danger * 0.92).toFixed(3));
+        dangerEl.style.setProperty('--danger', (effDanger * 0.92).toFixed(3));
       }
-      const nextFov = 62 + l0Danger * 9;
-      if (Math.abs(brCamera.fov - nextFov) > 0.05) {
-        brCamera.fov = nextFov;
-        brCamera.updateProjectionMatrix();
-      }
-      if (l0Danger > 0.12) {
-        brCamera.position.x += (Math.random() - 0.5) * 0.08 * l0Danger;
-        brCamera.position.y += (Math.random() - 0.5) * 0.05 * l0Danger;
+      if (effDanger > 0.14) {
+        brCamera.position.x += (Math.random() - 0.5) * 0.055 * effDanger;
+        brCamera.position.y += (Math.random() - 0.5) * 0.035 * effDanger;
         l0HeartbeatTimer -= dt;
         if (l0HeartbeatTimer <= 0) {
-          playHeartbeatThump(l0Danger);
-          l0HeartbeatTimer = Math.max(0.32, 0.98 - l0Danger * 0.62);
+          playHeartbeatThump(effDanger);
+          l0HeartbeatTimer = Math.max(0.32, 0.98 - effDanger * 0.62);
         }
       }
     }
 
-    // Subdued wind ambience (Plains) / 60Hz fluorescent hum (Level 0) + vanish SFX
+    // Subdued wind ambience (Plains) / real MP3 fluorescent hum (Level 0) + vanish SFX
     let ambienceCleanup = null;
+    let l0HumActive = false;
+    let l0HumBuffer = null;
+    let l0HumFetchStarted = false;
+    let l0HumFallbackEl = null;
+    const L0_HUM_URL = '../assets/music/level0-fluorescent-hum.mp3';
+
+    function prefetchLevel0Hum(ctx) {
+      if (l0HumFetchStarted || l0HumBuffer || !ctx || typeof fetch !== 'function') return;
+      l0HumFetchStarted = true;
+      fetch(L0_HUM_URL)
+        .then((res) => (res.ok ? res.arrayBuffer() : null))
+        .then((ab) => (ab ? ctx.decodeAudioData(ab) : null))
+        .then((decoded) => {
+          if (!decoded) return;
+          l0HumBuffer = decoded;
+          // Seamlessly upgrade fallback element to gapless WebAudio loop if still in Level 0
+          if (active && currentRealm === 'level0' && !l0Caught && !l0PcRestarting && ambienceCleanup && !ambienceCleanup.hasRealBuffer) {
+            startAmbience('level0');
+          }
+        })
+        .catch(() => {});
+    }
+
+    function stopHumFallbackElement() {
+      if (!l0HumFallbackEl) return;
+      try {
+        l0HumFallbackEl.pause();
+        l0HumFallbackEl.currentTime = 0;
+      } catch {}
+    }
+
     function startAmbience(realm) {
       stopAmbienceImmediate();
       const ctx = getAudio();
+      if (realm === 'level0') {
+        if (ctx) prefetchLevel0Hum(ctx);
+        if (ctx && l0HumBuffer) {
+          try {
+            if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+            const master = ctx.createGain();
+            master.gain.value = 0.001;
+            master.connect(ctx.destination);
+            const src = ctx.createBufferSource();
+            src.buffer = l0HumBuffer;
+            src.loop = true;
+            src.connect(master);
+            src.start(0);
+            master.gain.exponentialRampToValueAtTime(0.42, ctx.currentTime + 0.35);
+            ambienceCleanup = { master, nodesToStop: [src], hasRealBuffer: true };
+            l0HumActive = true;
+            return;
+          } catch {}
+        }
+        try {
+          if (!l0HumFallbackEl) {
+            l0HumFallbackEl = new Audio(L0_HUM_URL);
+            l0HumFallbackEl.loop = true;
+            l0HumFallbackEl.preload = 'auto';
+          }
+          l0HumFallbackEl.volume = 0.36;
+          l0HumFallbackEl.currentTime = 0;
+          const p = l0HumFallbackEl.play();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+          ambienceCleanup = { nodesToStop: [], hasRealBuffer: false, usesHtmlAudio: true };
+          l0HumActive = true;
+          return;
+        } catch {}
+        return;
+      }
       if (!ctx) return;
       try {
         if (ctx.state === 'suspended') ctx.resume().catch(() => {});
@@ -2332,81 +2701,50 @@
         master.gain.value = 0.001;
         master.connect(ctx.destination);
 
-        if (realm === 'level0') {
-          // 60Hz + 120Hz + 180Hz fluorescent ballast buzz + quiet vent hiss
-          [60, 120, 180].forEach((freq, idx) => {
-            const osc = ctx.createOscillator();
-            osc.type = idx === 0 ? 'sawtooth' : 'triangle';
-            osc.frequency.value = freq;
-            const og = ctx.createGain();
-            og.gain.value = idx === 0 ? 0.36 : idx === 1 ? 0.22 : 0.08;
-            const lp = ctx.createBiquadFilter();
-            lp.type = 'lowpass';
-            lp.frequency.value = 340;
-            osc.connect(lp);
-            lp.connect(og);
-            og.connect(master);
-            osc.start();
-            nodesToStop.push(osc);
-          });
-          const len = Math.floor(ctx.sampleRate * 2);
-          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-          const ch = buf.getChannelData(0);
-          for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * 0.25;
-          const nSrc = ctx.createBufferSource();
-          nSrc.buffer = buf;
-          nSrc.loop = true;
-          const bp = ctx.createBiquadFilter();
-          bp.type = 'bandpass';
-          bp.frequency.value = 520;
-          const ng = ctx.createGain();
-          ng.gain.value = 0.25;
-          nSrc.connect(bp);
-          bp.connect(ng);
-          ng.connect(master);
-          nSrc.start();
-          nodesToStop.push(nSrc);
-          master.gain.exponentialRampToValueAtTime(0.055, ctx.currentTime + 0.9);
-        } else {
-          const len = Math.floor(ctx.sampleRate * 2);
-          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-          const ch = buf.getChannelData(0);
-          let last = 0;
-          for (let i = 0; i < len; i++) {
-            last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03;
-            ch[i] = last * 2.5;
-          }
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
-          src.loop = true;
-          const lp = ctx.createBiquadFilter();
-          lp.type = 'lowpass';
-          lp.frequency.value = 390;
-          src.connect(lp);
-          lp.connect(master);
-          src.start();
-          nodesToStop.push(src);
-          master.gain.exponentialRampToValueAtTime(0.085, ctx.currentTime + 1.1);
+        const len = Math.floor(ctx.sampleRate * 2);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const ch = buf.getChannelData(0);
+        let last = 0;
+        for (let i = 0; i < len; i++) {
+          last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03;
+          ch[i] = last * 2.5;
         }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 390;
+        src.connect(lp);
+        lp.connect(master);
+        src.start();
+        nodesToStop.push(src);
+        master.gain.exponentialRampToValueAtTime(0.085, ctx.currentTime + 1.1);
         ambienceCleanup = { master, nodesToStop };
       } catch {}
     }
 
     function stopAmbienceImmediate() {
+      l0HumActive = false;
+      stopHumFallbackElement();
       if (!ambienceCleanup) return;
       const cur = ambienceCleanup;
       ambienceCleanup = null;
       cur.nodesToStop.forEach((n) => { try { n.stop(); } catch {} });
-      try { cur.master.disconnect(); } catch {}
+      if (cur.master) {
+        try { cur.master.disconnect(); } catch {}
+      }
     }
 
     function stopAmbience() {
+      l0HumActive = false;
+      stopHumFallbackElement();
       if (!ambienceCleanup) return;
       const cur = ambienceCleanup;
       ambienceCleanup = null;
       const ctx = getAudio();
       try {
-        if (ctx) {
+        if (ctx && cur.master) {
           cur.master.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.1);
           setTimeout(() => {
             cur.nodesToStop.forEach((n) => { try { n.stop(); } catch {} });
@@ -2461,8 +2799,8 @@
         const dx = hx - pos.x;
         const dz = hz - pos.z;
         const dist = Math.hypot(dx, dz);
-        // Keep close houses always rendered; derender anything behind or outside the player's forward view
-        if (!(dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.22))) continue;
+        // Keep close houses always rendered; derender anything behind or outside the wide fisheye view
+        if (!(dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.08))) continue;
 
         _instDummy.position.set(hx, item.oy, hz);
         _instDummy.rotation.set(0, item.rot, 0);
@@ -2512,7 +2850,7 @@
         const dx = tx - pos.x;
         const dz = tz - pos.z;
         const dist = Math.hypot(dx, dz);
-        if (!(dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.22))) continue;
+        if (!(dist < 12.0 || (dist < 145.0 && (dx * fx + dz * fz) / (dist || 1) > 0.08))) continue;
         _instDummy.position.set(tx, item.oy, tz);
         _instDummy.rotation.set(0, 0, 0);
         _instDummy.scale.set(1, 1, 1);
@@ -2552,9 +2890,78 @@
       grassMat.uniforms.uFogColor.value.copy(liveFogColor);
     }
 
-    function stepSimulation(dt, directStepX, directStepZ) {
+    function syncBodyCamLagImmediate(chestY) {
+      const fwdX = -Math.sin(yaw);
+      const fwdZ = -Math.cos(yaw);
+      const rightX = Math.cos(yaw);
+      const rightZ = -Math.sin(yaw);
+      camLagPos.set(pos.x + fwdX * 0.13 + rightX * 0.045, chestY, pos.z + fwdZ * 0.13 + rightZ * 0.045);
+      camLagYaw = yaw;
+      camLagPitch = pitch;
+      camTurnRollCur = 0;
+      camLagInit = true;
+    }
+
+    function applyChestBodyCam(dt, baseGroundY, moving, sprinting, baseFov) {
+      const clampDt = Math.min(Math.max(dt, 0.001), 0.06);
+      const fwdX = -Math.sin(yaw);
+      const fwdZ = -Math.cos(yaw);
+      const rightX = Math.cos(yaw);
+      const rightZ = -Math.sin(yaw);
+
+      const chestBaseY = baseGroundY + 1.44;
+      if (!camLagInit) syncBodyCamLagImmediate(chestBaseY);
+
+      camMoveBlend += ((moving ? 1 : 0) - camMoveBlend) * Math.min(1, clampDt * 7.5);
+      camSprintBlend += (((moving && sprinting) ? 1 : 0) - camSprintBlend) * Math.min(1, clampDt * 6.5);
+
+      const breatheY = Math.sin(brTime * 1.55) * 0.013;
+      const stepBob = Math.abs(Math.sin(bobPhase)) * (0.072 + camSprintBlend * 0.052) * camMoveBlend + breatheY;
+      const targetLat = Math.cos(bobPhase) * (0.048 + camSprintBlend * 0.036) * camMoveBlend + Math.sin(brTime * 0.85) * 0.009;
+      const targetRoll = Math.cos(bobPhase) * (0.034 + camSprintBlend * 0.032) * camMoveBlend + Math.sin(brTime * 0.78) * 0.007;
+      const targetPitchBob = Math.sin(bobPhase * 2.0) * (0.018 + camSprintBlend * 0.016) * camMoveBlend;
+
+      camLatCur += (targetLat - camLatCur) * Math.min(1, clampDt * 12.0);
+      camRollCur += (targetRoll - camRollCur) * Math.min(1, clampDt * 12.0);
+      camPitchBobCur += (targetPitchBob - camPitchBobCur) * Math.min(1, clampDt * 12.0);
+
+      pos.y = chestBaseY + stepBob;
+      const targetCamX = pos.x + fwdX * 0.13 + rightX * (0.045 + camLatCur);
+      const targetCamY = pos.y;
+      const targetCamZ = pos.z + fwdZ * 0.13 + rightZ * (0.045 + camLatCur);
+
+      // Weighted spring lag on both torso translation and head/chest rotation
+      const posK = 1.0 - Math.exp(-clampDt * 10.5);
+      const rotK = 1.0 - Math.exp(-clampDt * 12.0);
+      camLagPos.x += (targetCamX - camLagPos.x) * posK;
+      camLagPos.y += (targetCamY - camLagPos.y) * posK;
+      camLagPos.z += (targetCamZ - camLagPos.z) * posK;
+      camLagYaw += (yaw - camLagYaw) * rotK;
+      camLagPitch += (pitch - camLagPitch) * rotK;
+
+      const yawLagDelta = yaw - camLagYaw;
+      const targetTurnRoll = Math.max(-0.085, Math.min(0.085, -yawLagDelta * 0.24));
+      camTurnRollCur += (targetTurnRoll - camTurnRollCur) * Math.min(1, clampDt * 10.0);
+
+      const targetFov = baseFov + camSprintBlend * 4.5;
+      camFovCur += (targetFov - camFovCur) * Math.min(1, clampDt * 8.0);
+      if (Math.abs(brCamera.fov - camFovCur) > 0.05) {
+        brCamera.fov = camFovCur;
+        brCamera.updateProjectionMatrix();
+      }
+
+      brCamera.position.copy(camLagPos);
+      brCamera.rotation.order = 'YXZ';
+      brCamera.rotation.y = camLagYaw;
+      brCamera.rotation.x = Math.max(-1.28, Math.min(1.25, camLagPitch + camPitchBobCur));
+      brCamera.rotation.z = camRollCur + camTurnRollCur;
+    }
+
+    function stepSimulation(dt, directStepX, directStepZ, testOpts) {
       brTime += dt;
       vhsGlitchSpike = Math.max(0, vhsGlitchSpike - dt * 2.8);
+      const targetCamView = (currentRealm === 'level0' && l0CameraOn && !l0Caught && !l0PcRestarting) ? 1.0 : 0.0;
+      l0CamViewUniform += (targetCamView - l0CamViewUniform) * Math.min(1, dt * 16.0);
       if (vhsStampEl) {
         const totalFrames = Math.max(0, Math.floor(brTime * 30));
         const ff = String(totalFrames % 30).padStart(2, '0');
@@ -2575,11 +2982,13 @@
       let stepX = 0;
       let stepZ = 0;
       let moving = false;
+      let sprinting = false;
 
       if (typeof directStepX === 'number' || typeof directStepZ === 'number') {
         stepX = directStepX || 0;
         stepZ = directStepZ || 0;
-        moving = Math.hypot(stepX, stepZ) > 0.001;
+        moving = Math.hypot(stepX, stepZ) > 0.001 || Boolean(testOpts && testOpts.moving);
+        sprinting = Boolean(testOpts && testOpts.sprinting);
       } else {
         let fwd = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
         let str = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
@@ -2588,12 +2997,12 @@
           str += joyX;
         }
         if (keys.KeyQ) yaw += clampedDt * 1.85;
-        if (keys.KeyE) yaw -= clampedDt * 1.85;
+        if (keys.KeyE && !(currentRealm === 'level0' && l0PcDist < 3.2)) yaw -= clampedDt * 1.85;
         const mag = Math.hypot(fwd, str);
         if (mag > 0.05) {
           moving = true;
           const joyAutoSprint = Math.hypot(joyX, joyY) > 0.88;
-          const sprinting = keys.ShiftLeft || keys.ShiftRight || mobileSprint || joyAutoSprint;
+          sprinting = Boolean(keys.ShiftLeft || keys.ShiftRight || mobileSprint || joyAutoSprint);
           const speed = (sprinting ? 10.6 : 6.4) * Math.min(1, mag);
           const fNorm = fwd / mag;
           const sNorm = str / mag;
@@ -2613,21 +3022,36 @@
         brCamera.getWorldDirection(_flashDirVec);
         l0FlashSpot.position.set(pos.x, pos.y - 0.12, pos.z);
         l0FlashTarget.position.copy(pos).addScaledVector(_flashDirVec, 12.0);
-        l0FlashSpot.intensity = l0FlashlightOn ? 3.8 : 0.0;
+        l0FlashSpot.intensity = l0CameraOn ? 3.4 : 0.0;
+        l0PcGlow.intensity = 1.65 + 0.35 * Math.sin(brTime * 4.2);
+
+        if (l0PcRestarting) {
+          animateL0PcRestart(dt);
+          l0FloorMat.uniforms.uTime.value = brTime;
+          l0FloorMat.uniforms.uDanger.value = 0;
+          l0FloorMat.uniforms.uFlashOn.value = 0;
+          l0CeilMat.uniforms.uTime.value = brTime;
+          l0CeilMat.uniforms.uDanger.value = 0;
+          l0CeilMat.uniforms.uFlashOn.value = 0;
+          l0WallMat.uniforms.uTime.value = brTime;
+          l0WallMat.uniforms.uDanger.value = 0;
+          l0WallMat.uniforms.uFlashOn.value = 0;
+          return;
+        }
 
         if (l0Caught) {
           animateL0ChaserGrab(dt);
           l0FloorMat.uniforms.uTime.value = brTime;
           l0FloorMat.uniforms.uDanger.value = 1.0;
-          l0FloorMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+          l0FloorMat.uniforms.uFlashOn.value = l0CameraOn ? 1.0 : 0.0;
           l0FloorMat.uniforms.uFlashDir.value.copy(_flashDirVec);
           l0CeilMat.uniforms.uTime.value = brTime;
           l0CeilMat.uniforms.uDanger.value = 1.0;
-          l0CeilMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+          l0CeilMat.uniforms.uFlashOn.value = l0CameraOn ? 1.0 : 0.0;
           l0CeilMat.uniforms.uFlashDir.value.copy(_flashDirVec);
           l0WallMat.uniforms.uTime.value = brTime;
           l0WallMat.uniforms.uDanger.value = 1.0;
-          l0WallMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+          l0WallMat.uniforms.uFlashOn.value = l0CameraOn ? 1.0 : 0.0;
           l0WallMat.uniforms.uFlashDir.value.copy(_flashDirVec);
           return;
         }
@@ -2637,34 +3061,33 @@
 
         const movedDist = Math.hypot(pos.x - prevX, pos.z - prevZ);
         if (moving && movedDist > 0.001) {
-          bobPhase += movedDist * 1.5;
+          bobPhase += movedDist * 1.65;
         }
+
         loopDistance += movedDist;
         const curWrap = Math.floor((Math.abs(pos.x) + Math.abs(pos.z)) / L0_TILE);
         if (curWrap > wrapCount) wrapCount = curWrap;
 
-        const bob = moving ? Math.sin(bobPhase) * 0.048 : Math.sin(brTime * 1.5) * 0.009;
-        pos.y = 1.65 + bob;
-
-        brCamera.position.copy(pos);
-        brCamera.rotation.order = 'YXZ';
-        brCamera.rotation.y = yaw;
-        brCamera.rotation.x = pitch;
+        const stareRatioCur = Math.min(1, l0StareTimer / L0_STARE_LIMIT);
+        const effTension = Math.max(l0Danger, stareRatioCur * 0.9);
+        const aimFov = (l0CameraOn ? BODYCAM_IR_FOV : BODYCAM_BASE_FOV) + effTension * 5.0;
+        applyChestBodyCam(dt, 0, moving, sprinting, aimFov);
         brCamera.getWorldDirection(_flashDirVec);
 
         l0CamLight.position.set(pos.x, pos.y + 0.2, pos.z);
         l0FlashSpot.position.set(pos.x, pos.y - 0.12, pos.z);
         l0FlashTarget.position.copy(pos).addScaledVector(_flashDirVec, 12.0);
-        l0FlashSpot.intensity = l0FlashlightOn ? 3.8 : 0.0;
+        l0FlashSpot.intensity = l0CameraOn ? 3.4 : 0.0;
 
         wrapLevel0Entities();
-        stepLevel0WisteriaChase(dt);
+        if (pcBtn) pcBtn.hidden = !(l0PcDist < 3.2 && !l0Caught && !l0PcRestarting);
+        stepLevel0WisteriaChase(dt, moving, sprinting);
 
         l0FloorMat.uniforms.uTime.value = brTime;
         l0FloorMat.uniforms.uCenterX.value = pos.x;
         l0FloorMat.uniforms.uCenterZ.value = pos.z;
         l0FloorMat.uniforms.uDanger.value = l0Danger;
-        l0FloorMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+        l0FloorMat.uniforms.uFlashOn.value = l0CameraOn ? 1.0 : 0.0;
         l0FloorMat.uniforms.uFlashDir.value.copy(_flashDirVec);
         l0FloorMat.uniforms.uCameraPos.value.copy(pos);
 
@@ -2672,13 +3095,13 @@
         l0CeilMat.uniforms.uCenterX.value = pos.x;
         l0CeilMat.uniforms.uCenterZ.value = pos.z;
         l0CeilMat.uniforms.uDanger.value = l0Danger;
-        l0CeilMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+        l0CeilMat.uniforms.uFlashOn.value = l0CameraOn ? 1.0 : 0.0;
         l0CeilMat.uniforms.uFlashDir.value.copy(_flashDirVec);
         l0CeilMat.uniforms.uCameraPos.value.copy(pos);
 
         l0WallMat.uniforms.uTime.value = brTime;
         l0WallMat.uniforms.uDanger.value = l0Danger;
-        l0WallMat.uniforms.uFlashOn.value = l0FlashlightOn ? 1.0 : 0.0;
+        l0WallMat.uniforms.uFlashOn.value = l0CameraOn ? 1.0 : 0.0;
         l0WallMat.uniforms.uFlashDir.value.copy(_flashDirVec);
         l0WallMat.uniforms.uCameraPos.value.copy(pos);
         return;
@@ -2690,7 +3113,7 @@
 
       const movedDist = Math.hypot(pos.x - prevX, pos.z - prevZ);
       if (moving && movedDist > 0.001) {
-        bobPhase += movedDist * 1.45;
+        bobPhase += movedDist * 1.65;
       }
 
       // Accumulate loop distance & detect 84m tile wraps -> progressive darkness
@@ -2700,14 +3123,8 @@
       darkness = Math.min(1.0, loopDistance / 200.0 + wrapCount * 0.035);
 
       const groundH = terrainY(pos.x, pos.z);
-      const bob = moving ? Math.sin(bobPhase) * 0.055 : Math.sin(brTime * 1.4) * 0.012;
-      pos.y = groundH + 1.68 + bob;
-
-      // Update camera + wrapped entities + atmosphere
-      brCamera.position.copy(pos);
-      brCamera.rotation.order = 'YXZ';
-      brCamera.rotation.y = yaw;
-      brCamera.rotation.x = pitch;
+      // Update chest body-cam rig (lag + wide FOV + bounce) + wrapped entities + atmosphere
+      applyChestBodyCam(dt, groundH, moving, sprinting, BODYCAM_BASE_FOV);
       skySphere.position.copy(pos);
       starPoints.position.copy(pos);
       starMat.uniforms.uTime.value = brTime;
@@ -2799,19 +3216,37 @@
         exit();
         return;
       }
-      if (e.code === 'KeyF' && !e.repeat && currentRealm === 'level0' && !l0Caught) {
+      if (e.code === 'KeyF' && !e.repeat && currentRealm === 'level0' && !l0Caught && !l0PcRestarting) {
         e.preventDefault();
-        setL0Flashlight(!l0FlashlightOn);
+        setL0Camera(!l0CameraOn);
+        return;
+      }
+      if (e.code === 'KeyE' && !e.repeat && currentRealm === 'level0' && !l0Caught && !l0PcRestarting && l0PcDist < 3.2) {
+        e.preventDefault();
+        triggerL0PcRestart();
         return;
       }
       keys[e.code] = true;
     }
 
     function onFlashBtnClick(e) {
-      if (!active || currentRealm !== 'level0' || l0Caught) return;
+      if (!active || currentRealm !== 'level0' || l0Caught || l0PcRestarting) return;
       e.preventDefault();
       e.stopPropagation();
-      setL0Flashlight(!l0FlashlightOn);
+      setL0Camera(!l0CameraOn);
+    }
+
+    function onPcBtnClick(e) {
+      if (!active || currentRealm !== 'level0' || l0Caught || l0PcRestarting) return;
+      e.preventDefault();
+      e.stopPropagation();
+      triggerL0PcRestart();
+    }
+
+    function onCanvasRightClick(e) {
+      if (!active || currentRealm !== 'level0' || l0Caught || l0PcRestarting) return;
+      e.preventDefault();
+      setL0Camera(!l0CameraOn);
     }
 
     function onKeyUp(e) {
@@ -2973,6 +3408,7 @@
       window.addEventListener('keyup', onKeyUp);
       document.addEventListener('pointerlockchange', onPointerLockChange);
       canvas.addEventListener('click', onCanvasClick);
+      canvas.addEventListener('contextmenu', onCanvasRightClick);
       canvas.addEventListener('pointermove', onPointerMove);
       canvas.addEventListener('touchstart', onTouchStart, { passive: true });
       canvas.addEventListener('touchmove', onTouchMove, { passive: false });
@@ -2990,6 +3426,9 @@
       if (flashBtn) {
         flashBtn.addEventListener('click', onFlashBtnClick);
       }
+      if (pcBtn) {
+        pcBtn.addEventListener('click', onPcBtnClick);
+      }
     }
 
     function detachListeners() {
@@ -2997,6 +3436,7 @@
       window.removeEventListener('keyup', onKeyUp);
       document.removeEventListener('pointerlockchange', onPointerLockChange);
       canvas.removeEventListener('click', onCanvasClick);
+      canvas.removeEventListener('contextmenu', onCanvasRightClick);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('touchstart', onTouchStart);
       canvas.removeEventListener('touchmove', onTouchMove);
@@ -3013,6 +3453,9 @@
       }
       if (flashBtn) {
         flashBtn.removeEventListener('click', onFlashBtnClick);
+      }
+      if (pcBtn) {
+        pcBtn.removeEventListener('click', onPcBtnClick);
       }
       resetJoystick();
       lookTouchId = null;
@@ -3049,7 +3492,33 @@
       if (flashBtn) {
         flashBtn.hidden = currentRealm !== 'level0';
       }
-      setL0Flashlight(true, true);
+      if (pcBtn) pcBtn.hidden = true;
+      l0CameraOn = false;
+      l0CamOffWanderTimer = 0;
+      l0NextAmbushAt = 3.6;
+      l0AmbushBoost = 0;
+      l0StareTimer = 0;
+      l0TeleportCount = 0;
+      l0CaughtReason = null;
+      l0CamViewUniform = 0;
+      l0PcBaseX = L0_PC_ALCOVES[0][0];
+      l0PcBaseZ = L0_PC_ALCOVES[0][1];
+      l0PcPos.set(l0PcBaseX, 0, l0PcBaseZ);
+      l0PcGroup.position.copy(l0PcPos);
+      l0PcDist = 99;
+      l0PcRestarting = false;
+      l0PcRestartTime = 0;
+      l0PcRestarted = false;
+      l0PcResetFired = false;
+      camMoveBlend = 0;
+      camSprintBlend = 0;
+      camRollCur = 0;
+      camLatCur = 0;
+      camPitchBobCur = 0;
+      camTurnRollCur = 0;
+      camLagInit = false;
+      camFovCur = BODYCAM_BASE_FOV;
+      setL0Camera(false, true);
       l0KnowsPlayer = true;
       l0LastKnownPos.set(0, 0, 0);
       l0PatrolTarget.set(0, 0, -14);
@@ -3057,8 +3526,8 @@
       if (hintLabel) {
         if (currentRealm === 'level0') {
           hintLabel.textContent = isTouchLike
-            ? 'Left stick · Drag look · Tap FLASHLIGHT (she tracks light!) / RUN'
-            : 'WASD move · Shift sprint · F flashlight (attracts her!) · ESC wake up';
+            ? 'Left stick · Drag look · Tap CAMERA to spot her (don\'t stare!) · Find & restart the PC'
+            : 'WASD move · F / Right-Click camera (don\'t stare!) · Find PC & [E] restart · ESC wake up';
         } else {
           hintLabel.textContent = isTouchLike
             ? 'Left stick to move · Drag screen to look · Tap RUN'
@@ -3072,7 +3541,7 @@
       watcherDisappearCount = 0;
       watcherFollowCount = 0;
       watcherRespawnTimer = 0;
-      l0PetVisible = true;
+      l0PetVisible = false;
       l0PetDisappearCount = 0;
       l0Danger = 0;
       l0Caught = false;
@@ -3082,10 +3551,14 @@
       l0RunPhase = 0;
       bfsTimer = 0;
       if (dangerEl) dangerEl.style.setProperty('--danger', '0');
-      if (jumpscareEl) jumpscareEl.hidden = true;
+      if (jumpscareSpanEl) jumpscareSpanEl.textContent = 'SHE GOT YOU';
+      if (jumpscareEl) {
+        jumpscareEl.classList.remove('is-reboot');
+        jumpscareEl.hidden = true;
+      }
       brCamera.rotation.z = 0;
-      if (brCamera.fov !== 62) {
-        brCamera.fov = 62;
+      if (brCamera.fov !== BODYCAM_BASE_FOV) {
+        brCamera.fov = BODYCAM_BASE_FOV;
         brCamera.updateProjectionMatrix();
       }
 
@@ -3093,12 +3566,13 @@
       lastMouseY = null;
 
       if (currentRealm === 'level0') {
-        pos.set(0, 1.65, 0);
+        pos.set(0, 1.44, 0);
         yaw = 0.0;
         pitch = -0.02;
+        syncBodyCamLagImmediate(1.44);
         watcherGroup.visible = false;
         placeL0PetFarAway(0, 0, 29, 35);
-        l0ChaserGroup.visible = l0ChaserLoaded;
+        l0ChaserGroup.visible = false;
         restoreChaserBindPose();
         if (l0SprintAction) {
           l0SprintAction.reset();
@@ -3109,9 +3583,10 @@
         l0MatReset();
         wrapLevel0Entities();
       } else {
-        pos.set(0, terrainY(0, 0) + 1.68, 0);
+        pos.set(0, terrainY(0, 0) + 1.44, 0);
         yaw = 0.06;
         pitch = -0.02;
+        syncBodyCamLagImmediate(pos.y);
         placeWatcherOnHill(0, 0, 20, 29);
         watcherGroup.visible = watcherLoaded;
         syncAtmosphereLighting();
@@ -3144,8 +3619,8 @@
       if (dangerEl) dangerEl.style.setProperty('--danger', '0');
       if (jumpscareEl) jumpscareEl.hidden = true;
       brCamera.rotation.z = 0;
-      if (brCamera.fov !== 62) {
-        brCamera.fov = 62;
+      if (brCamera.fov !== BODYCAM_BASE_FOV) {
+        brCamera.fov = BODYCAM_BASE_FOV;
         brCamera.updateProjectionMatrix();
       }
       canvas.style.touchAction = '';
@@ -3158,6 +3633,20 @@
         hudEl.hidden = true;
       }
       if (flashBtn) flashBtn.hidden = true;
+      if (pcBtn) pcBtn.hidden = true;
+      if (camViewEl) {
+        camViewEl.hidden = true;
+        camViewEl.classList.remove('is-active', 'is-warn');
+      }
+      camMoveBlend = 0;
+      camSprintBlend = 0;
+      camRollCur = 0;
+      camLatCur = 0;
+      camPitchBobCur = 0;
+      camTurnRollCur = 0;
+      camLagInit = false;
+      camFovCur = BODYCAM_BASE_FOV;
+      l0CamViewUniform = 0;
       onExit();
     }
 
@@ -3169,6 +3658,7 @@
       renderer.setRenderTarget(null);
       vhsPostMat.uniforms.uTime.value = brTime;
       vhsPostMat.uniforms.uRealm.value = currentRealm === 'level0' ? 1.0 : 0.0;
+      vhsPostMat.uniforms.uCamView.value = l0CamViewUniform;
       vhsPostMat.uniforms.uIntensity.value = 1.0 + (currentRealm === 'level0' ? l0Danger * 1.45 : 0) + vhsGlitchSpike * 1.25;
       renderer.render(vhsPostScene, vhsPostCam);
     }
@@ -3180,18 +3670,34 @@
       return true;
     }
 
-    function stepForTest(dz, dYaw, dtSim, directStepX, directStepZ) {
+    function stepForTest(dz, dYaw, dtSim, directStepX, directStepZ, testOpts) {
       if (!active) return;
       if (typeof dYaw === 'number') yaw += dYaw;
       if (typeof directStepX === 'number' || typeof directStepZ === 'number') {
-        stepSimulation(dtSim || 0.04, directStepX, directStepZ);
+        stepSimulation(dtSim || 0.04, directStepX, directStepZ, testOpts);
       } else if (dz) {
         const fx = -Math.sin(yaw);
         const fz = -Math.cos(yaw);
-        stepSimulation(dtSim || 0.05, fx * dz, fz * dz);
+        stepSimulation(dtSim || 0.05, fx * dz, fz * dz, testOpts);
       } else {
-        stepSimulation(dtSim || 0.04, 0, 0);
+        stepSimulation(dtSim || 0.04, 0, 0, testOpts);
       }
+      renderActiveScene();
+    }
+
+    function teleportForTest(nx, nz, nYaw, petX, petZ) {
+      if (!active) return;
+      pos.x = nx;
+      pos.z = nz;
+      if (typeof nYaw === 'number') yaw = nYaw;
+      syncBodyCamLagImmediate(currentRealm === 'level0' ? 1.44 : terrainY(nx, nz) + 1.44);
+      if (typeof petX === 'number' && typeof petZ === 'number' && currentRealm === 'level0') {
+        l0PetPos.set(petX, 0, petZ);
+        l0ChaserGroup.position.copy(l0PetPos);
+      }
+      if (currentRealm === 'level0') wrapLevel0Entities();
+      else wrapWorldEntities();
+      stepSimulation(0.016, 0, 0);
       renderActiveScene();
     }
 
@@ -3229,7 +3735,23 @@
         l0FogDensity,
         l0TileGridCount: l0TileGroups.length,
         l0ChaserLoaded,
-        l0FlashlightOn,
+        l0CameraOn,
+        l0FlashlightOn: l0CameraOn,
+        l0ChaserVisible: l0ChaserGroup.visible,
+        l0StareTimer: +l0StareTimer.toFixed(2),
+        l0CamOffWanderTimer: +l0CamOffWanderTimer.toFixed(2),
+        l0TeleportCount,
+        l0CaughtReason,
+        l0HumActive,
+        bodyCamRoll: +brCamera.rotation.z.toFixed(4),
+        bodyCamFov: +brCamera.fov.toFixed(1),
+        bodyCamYawLag: +(yaw - camLagYaw).toFixed(4),
+        bodyCamPosLag: +Math.hypot(brCamera.position.x - pos.x, brCamera.position.z - pos.z).toFixed(4),
+        fisheyeEnabled: true,
+        l0PcPos: { x: +l0PcPos.x.toFixed(2), z: +l0PcPos.z.toFixed(2) },
+        l0PcDist: +l0PcDist.toFixed(2),
+        l0PcRestarting,
+        l0PcRestarted,
         l0KnowsPlayer,
         l0SprintClip: l0SprintClipName,
         l0SprintPlaying: Boolean(l0SprintAction && l0SprintAction.isRunning()),
@@ -3264,6 +3786,9 @@
         else currentRealm = r === 'level0' ? 'level0' : 'plains';
       },
       stepForTest,
+      teleportForTest,
+      setL0Camera: (on) => setL0Camera(on, true),
+      triggerL0PcRestart,
       getDebugState,
       exit,
       isActive: () => active,

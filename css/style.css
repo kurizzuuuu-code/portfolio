@@ -4421,6 +4421,10 @@ html.tilt-js .case__hero-text { transform: translate3d(calc(var(--tx, 0) * -13px
   line-height: 0;
   transition: transform 0.14s linear;
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
 .pet__anim-wrap {
@@ -4428,6 +4432,7 @@ html.tilt-js .case__hero-text { transform: translate3d(calc(var(--tx, 0) * -13px
   line-height: 0;
   transform-origin: bottom center;
   will-change: transform;
+  touch-action: none;
 }
 .pet__stage img {
   display: block;
@@ -5729,6 +5734,17 @@ body.is-party .window {
   display: block;
   filter: drop-shadow(0 2px 2px rgba(14, 3, 28, 0.35));
 }
+.desktop-icon__art--img {
+  padding: 2px 2px 0 2px;
+}
+.desktop-icon__art img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  display: block;
+  filter: drop-shadow(0 2px 2px rgba(14, 3, 28, 0.35));
+}
 .desktop-icon__ext {
   position: absolute;
   bottom: -4px;
@@ -5854,7 +5870,7 @@ body.is-party .window {
 }
 .window.is-maximized {
   position: fixed !important;
-  inset: 68px 20px 66px 20px !important;
+  inset: 12px 20px 66px 20px !important;
   width: auto !important;
   max-width: none !important;
   height: auto !important;
@@ -5940,7 +5956,7 @@ body.is-desktop-os > .footer {
 
 .os-desktop {
   position: fixed;
-  inset: 58px 0 var(--taskbar-h, 54px) 0;
+  inset: 0 0 var(--taskbar-h, 54px) 0;
   z-index: 6;
   overflow: hidden;
   background:
@@ -6005,7 +6021,7 @@ body.is-desktop-os > .footer {
   top: 20px;
   left: clamp(200px, 23vw, 350px);
   width: min(880px, calc(100vw - 230px));
-  max-height: calc(100vh - 146px);
+  max-height: calc(100vh - 88px);
   margin: 0 !important;
   display: flex !important;
   flex-direction: column !important;
@@ -6104,10 +6120,10 @@ body.is-desktop-os .os-floating-win.is-closed {
   display: none !important;
 }
 
-/* Maximized window fills the entire desktop area between topbar and taskbar */
+/* Maximized window fills the entire desktop area above taskbar */
 body.is-desktop-os .os-floating-win.is-maximized {
   position: fixed !important;
-  inset: 62px 10px calc(var(--taskbar-h, 54px) + 8px) 10px !important;
+  inset: 10px 10px calc(var(--taskbar-h, 54px) + 8px) 10px !important;
   width: auto !important;
   max-width: none !important;
   height: auto !important;
@@ -6896,12 +6912,16 @@ body.is-desktop-os .os-floating-win.is-maximized {
   min-height: 0;
   position: relative;
   background: #220838;
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 .dropship-win__frame iframe {
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
+  touch-action: none;
+  overscroll-behavior: contain;
 }
 
 /* ============================================================
@@ -6909,7 +6929,7 @@ body.is-desktop-os .os-floating-win.is-maximized {
    ============================================================ */
 @media (max-width: 860px) {
   .os-desktop {
-    inset: 54px 0 var(--taskbar-h, 52px) 0;
+    inset: 0 0 var(--taskbar-h, 52px) 0;
   }
 
   .os-desktop::after {
@@ -7155,6 +7175,22 @@ body.is-desktop-os .os-floating-win.is-maximized {
   .taskbar__sound[data-sound-toggle],
   .taskbar__clock {
     display: none !important;
+  }
+  .dropship-win__toolbar {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 5px 8px;
+  }
+  .chess-url-form {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 3px 8px;
+    font-size: 6.5px;
+  }
+  .dropship-win__actions .btn {
+    padding: 4px 8px;
+    font-size: 7px;
+    white-space: nowrap;
   }
 }
 
