@@ -231,6 +231,11 @@ window.KURIZU = {
       art: "wisp",
       image: "assets/images/project-wisp.png",
       imageAlt: "Wisp purple pixel download manager interface with Wisteria keeping the hoard",
+      video: {
+        src: "assets/videos/wisp-tutorial.mp4",
+        poster: "assets/images/wisp-tutorial-poster.jpg",
+        label: "Wisp tutorial · 2:19",
+      },
       blurb:
         "One wisp, many hands — a purple pixel Windows download manager built with Tauri 2 + Rust that splits downloads across up to 16 connections, resumes crashes, and pairs with a direct-download browser extension.",
       description:
