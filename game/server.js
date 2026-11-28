@@ -29,9 +29,186 @@ const MIME = {
   ".wav": "audio/wav", ".woff2": "font/woff2", ".webp": "image/webp"
 };
 
+/* ------------------------------ operator auth (Kurizu-only moderation) ------------------------------ */
+const ADMIN_PASSWORD_HASH =
+  process.env.KURIZU_ADMIN_PASSWORD_HASH ||
+  "pbkdf2_sha256$310000$55a8f83169ae893b5dad6f03fa246b58$7cbc55208c357e1fdf0d17e5684115aefae903d5f683fdded84ff02fa56a2d11";
+const ADMIN_TOKEN_SECRET = process.env.KURIZU_TOKEN_SECRET
+  ? Buffer.from(process.env.KURIZU_TOKEN_SECRET, "utf8")
+  : crypto.randomBytes(32);
+const ADMIN_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+const ADMIN_MAX_SESSIONS = 20;
+const ADMIN_FAIL_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_LOCKOUT_MS = 15 * 60 * 1000;
+const ADMIN_MAX_FAILS = 5;
+
+const adminSessions = new Map(); // sid -> { expiresAt, ip }
+const adminFailTracker = new Map(); // ip -> { count, windowStart, lockedUntil }
+
+function clientIpFromReq(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "")
+    .split(",")[0]
+    .trim() || "unknown";
+}
+
+function pruneAdminSessions(now = Date.now()) {
+  for (const [sid, s] of adminSessions.entries()) {
+    if (!s || s.expiresAt <= now) adminSessions.delete(sid);
+  }
+  while (adminSessions.size > ADMIN_MAX_SESSIONS) {
+    const oldest = adminSessions.keys().next().value;
+    if (!oldest) break;
+    adminSessions.delete(oldest);
+  }
+}
+
+function verifyPasswordHash(password, spec = ADMIN_PASSWORD_HASH) {
+  if (typeof password !== "string" || !password) return false;
+  const parts = String(spec || "").split("$");
+  if (parts.length !== 4 || parts[0] !== "pbkdf2_sha256") return false;
+  const iterations = Number(parts[1]);
+  const salt = parts[2];
+  const expectedHex = parts[3];
+  if (!Number.isFinite(iterations) || iterations < 10000 || !salt || !/^[0-9a-f]+$/i.test(expectedHex)) {
+    return false;
+  }
+  try {
+    const expected = Buffer.from(expectedHex, "hex");
+    const derived = crypto.pbkdf2Sync(password, salt, iterations, expected.length, "sha256");
+    return derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+function signAdminSession(sid, exp) {
+  return crypto.createHmac("sha256", ADMIN_TOKEN_SECRET).update(`${sid}.${exp}`).digest("base64url");
+}
+
+function createAdminSession(ip) {
+  const now = Date.now();
+  pruneAdminSessions(now);
+  const sid = crypto.randomBytes(18).toString("hex");
+  const expiresAt = now + ADMIN_SESSION_TTL_MS;
+  adminSessions.set(sid, { expiresAt, ip });
+  const token = `v1.${sid}.${expiresAt}.${signAdminSession(sid, expiresAt)}`;
+  return { sid, token, expiresAt };
+}
+
+function verifyAdminToken(req) {
+  const auth = String(req.headers["authorization"] || "").trim();
+  if (!auth.startsWith("Bearer ")) return null;
+  const token = auth.slice(7).trim();
+  const parts = token.split(".");
+  if (parts.length !== 4 || parts[0] !== "v1") return null;
+  const [, sid, expStr, sig] = parts;
+  if (!/^[0-9a-f]{16,64}$/i.test(sid)) return null;
+  const exp = Number(expStr);
+  const now = Date.now();
+  if (!Number.isFinite(exp) || exp <= now) {
+    adminSessions.delete(sid);
+    return null;
+  }
+  const expectedSig = signAdminSession(sid, exp);
+  const sigBuf = Buffer.from(sig, "utf8");
+  const expBuf = Buffer.from(expectedSig, "utf8");
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+  const session = adminSessions.get(sid);
+  if (!session || session.expiresAt <= now) {
+    adminSessions.delete(sid);
+    return null;
+  }
+  return { sid, expiresAt: session.expiresAt };
+}
+
+function readJsonBody(req, limitBytes = 32768) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    let exceeded = false;
+    req.on("data", chunk => {
+      if (exceeded) return;
+      body += chunk;
+      if (body.length > limitBytes) {
+        exceeded = true;
+        reject(new Error("Payload too large"));
+        req.destroy();
+      }
+    });
+    req.on("end", () => {
+      if (exceeded) return;
+      try { resolve(JSON.parse(body || "{}")); }
+      catch { reject(new Error("Invalid JSON")); }
+    });
+    req.on("error", reject);
+  });
+}
+
+function handleAdminApi(req, res, pathname) {
+  const noStore = { "Cache-Control": "no-store" };
+  if (req.method === "OPTIONS") { sendJson(res, 204, {}, noStore); return; }
+
+  if (pathname === "/api/admin/verify" && req.method === "GET") {
+    const verified = verifyAdminToken(req);
+    if (!verified) { sendJson(res, 401, { ok: false, error: "Unauthorized" }, noStore); return; }
+    sendJson(res, 200, { ok: true, expiresAt: verified.expiresAt }, noStore);
+    return;
+  }
+
+  if (pathname === "/api/admin/logout" && req.method === "POST") {
+    const verified = verifyAdminToken(req);
+    if (verified) adminSessions.delete(verified.sid);
+    sendJson(res, 200, { ok: true }, noStore);
+    return;
+  }
+
+  if (pathname === "/api/admin/login" && req.method === "POST") {
+    const ip = clientIpFromReq(req);
+    const now = Date.now();
+    let tracker = adminFailTracker.get(ip);
+    if (tracker && tracker.lockedUntil > now) {
+      const retryAfterSec = Math.max(1, Math.ceil((tracker.lockedUntil - now) / 1000));
+      sendJson(res, 429, { ok: false, error: "Too many failed attempts. Try again later.", retryAfterSec }, noStore);
+      return;
+    }
+    readJsonBody(req, 8192).then(data => {
+      const pwd = typeof data.password === "string" ? data.password : "";
+      if (verifyPasswordHash(pwd)) {
+        adminFailTracker.delete(ip);
+        const session = createAdminSession(ip);
+        sendJson(res, 200, { ok: true, token: session.token, expiresAt: session.expiresAt }, noStore);
+        return;
+      }
+      if (!tracker || now - tracker.windowStart > ADMIN_FAIL_WINDOW_MS) {
+        tracker = { count: 0, windowStart: now, lockedUntil: 0 };
+      }
+      tracker.count += 1;
+      if (tracker.count >= ADMIN_MAX_FAILS) {
+        tracker.lockedUntil = now + ADMIN_LOCKOUT_MS;
+      }
+      adminFailTracker.set(ip, tracker);
+      setTimeout(() => {
+        if (tracker.lockedUntil > Date.now()) {
+          const retryAfterSec = Math.max(1, Math.ceil((tracker.lockedUntil - Date.now()) / 1000));
+          sendJson(res, 429, { ok: false, error: "Too many failed attempts. Try again later.", retryAfterSec }, noStore);
+          return;
+        }
+        const remaining = Math.max(0, ADMIN_MAX_FAILS - tracker.count);
+        sendJson(res, 401, { ok: false, error: "Wrong passphrase.", remainingAttempts: remaining }, noStore);
+      }, 600);
+    }).catch(err => {
+      sendJson(res, 400, { ok: false, error: err.message || "Bad request" }, noStore);
+    });
+    return;
+  }
+
+  sendJson(res, 404, { ok: false, error: "Not found" }, noStore);
+}
+
 /* ------------------------------ portfolio reviews & ratings API ------------------------------ */
 const REVIEWS_FILE = path.join(ROOT, "reviews.json");
-let reviewStore = {}; // { [projectId]: { ratings: { [clientId]: 1..5 }, comments: [{ id, name, rating, text, ts }] } }
+let reviewStore = {}; // { [projectId]: { ratings: { [clientId]: 1..5 }, comments: [...], deletedIds: [], deletedReplyIds: [] } }
 try {
   if (fs.existsSync(REVIEWS_FILE)) {
     const parsed = JSON.parse(fs.readFileSync(REVIEWS_FILE, "utf8"));
@@ -45,24 +222,68 @@ function saveReviews() {
 function cleanProjectId(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 48);
 }
+function cleanCommentId(s) {
+  return String(s || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40);
+}
+function normalizeTag(tag) {
+  return tag === "fixed" || tag === "not_fixed" ? tag : null;
+}
+function ensureProjectStore(pid) {
+  if (!reviewStore[pid] || typeof reviewStore[pid] !== "object") {
+    reviewStore[pid] = { ratings: {}, comments: [], deletedIds: [], deletedReplyIds: [] };
+  }
+  const entry = reviewStore[pid];
+  if (!entry.ratings || typeof entry.ratings !== "object") entry.ratings = {};
+  if (!Array.isArray(entry.comments)) entry.comments = [];
+  if (!Array.isArray(entry.deletedIds)) entry.deletedIds = [];
+  if (!Array.isArray(entry.deletedReplyIds)) entry.deletedReplyIds = [];
+  entry.comments = entry.comments.map(c => ({
+    ...c,
+    tag: normalizeTag(c.tag),
+    isOperator: Boolean(c.isOperator),
+    replies: Array.isArray(c.replies)
+      ? c.replies.map(r => ({ ...r, isOperator: Boolean(r.isOperator) })).slice(0, 50)
+      : []
+  }));
+  return entry;
+}
+function pushTombstone(arr, id, cap = 500) {
+  if (!id || arr.includes(id)) return;
+  arr.unshift(id);
+  if (arr.length > cap) arr.length = cap;
+}
 function projectSummary(id) {
-  const entry = reviewStore[id] || { ratings: {}, comments: [] };
+  const entry = ensureProjectStore(id);
   const vals = Object.values(entry.ratings || {}).filter(v => v >= 1 && v <= 5);
   const count = vals.length;
   const avg = count ? +(vals.reduce((a, b) => a + b, 0) / count).toFixed(1) : 0;
   return { avg, count, commentsCount: (entry.comments || []).length };
 }
-function sendJson(res, status, obj) {
-  res.writeHead(status, {
+function sendJson(res, status, obj, extraHeaders = {}) {
+  res.writeHead(status, Object.assign({
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "X-Content-Type-Options": "nosniff",
     "Cache-Control": "no-cache"
-  });
+  }, extraHeaders));
   res.end(JSON.stringify(obj));
 }
 const reviewCooldown = new Map();
+
+function buildProjectPayload(pid, extra = {}) {
+  const entry = ensureProjectStore(pid);
+  const sum = projectSummary(pid);
+  return Object.assign({
+    project: pid,
+    avg: sum.avg,
+    count: sum.count,
+    comments: (entry.comments || []).slice(0, 100),
+    deletedIds: entry.deletedIds || [],
+    deletedReplyIds: entry.deletedReplyIds || []
+  }, extra);
+}
 
 function handleReviewsApi(req, res) {
   if (req.method === "OPTIONS") { sendJson(res, 204, {}); return; }
@@ -71,9 +292,7 @@ function handleReviewsApi(req, res) {
   if (req.method === "GET") {
     const pid = cleanProjectId(params.get("project"));
     if (pid) {
-      const entry = reviewStore[pid] || { ratings: {}, comments: [] };
-      const sum = projectSummary(pid);
-      sendJson(res, 200, { project: pid, avg: sum.avg, count: sum.count, comments: (entry.comments || []).slice(0, 100) });
+      sendJson(res, 200, buildProjectPayload(pid));
       return;
     }
     const projects = {};
@@ -81,32 +300,112 @@ function handleReviewsApi(req, res) {
     sendJson(res, 200, { projects });
     return;
   }
-  if (req.method === "POST") {
-    const ip = (req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+
+  if (req.method === "POST" || req.method === "PATCH" || req.method === "DELETE") {
+    const ip = clientIpFromReq(req);
     const now = Date.now();
-    let body = "";
-    req.on("data", chunk => {
-      body += chunk;
-      if (body.length > 32768) { req.destroy(); }
-    });
-    req.on("end", () => {
-      let data;
-      try { data = JSON.parse(body || "{}"); } catch (e) { sendJson(res, 400, { error: "Invalid JSON" }); return; }
-      const pid = cleanProjectId(data.project);
+    const isAdmin = Boolean(verifyAdminToken(req));
+
+    readJsonBody(req, 32768).then(data => {
+      const pid = cleanProjectId(data.project || params.get("project"));
       if (!pid) { sendJson(res, 400, { error: "Missing project id" }); return; }
 
+      const action = req.method === "DELETE"
+        ? "delete"
+        : (req.method === "PATCH" ? "tag" : String(data.action || "").toLowerCase());
+
+      // Operator-only: delete comment or reply
+      if (action === "delete") {
+        if (!isAdmin) { sendJson(res, 401, { error: "Operator authentication required." }); return; }
+        const cid = cleanCommentId(data.commentId || params.get("commentId"));
+        const rid = cleanCommentId(data.replyId || params.get("replyId"));
+        if (!cid) { sendJson(res, 400, { error: "Missing comment id" }); return; }
+        const entry = ensureProjectStore(pid);
+        if (rid) {
+          const target = entry.comments.find(c => c.id === cid);
+          if (target && Array.isArray(target.replies)) {
+            target.replies = target.replies.filter(r => r.id !== rid);
+          }
+          pushTombstone(entry.deletedReplyIds, rid);
+        } else {
+          entry.comments = entry.comments.filter(c => c.id !== cid);
+          if (entry.ratings && Object.prototype.hasOwnProperty.call(entry.ratings, `c_${cid}`)) {
+            delete entry.ratings[`c_${cid}`];
+          }
+          pushTombstone(entry.deletedIds, cid);
+        }
+        saveReviews();
+        sendJson(res, 200, buildProjectPayload(pid, { ok: true }));
+        return;
+      }
+
+      // Operator-only: set or clear comment tag ("fixed" | "not_fixed" | null)
+      if (action === "tag") {
+        if (!isAdmin) { sendJson(res, 401, { error: "Operator authentication required." }); return; }
+        const cid = cleanCommentId(data.commentId);
+        if (!cid) { sendJson(res, 400, { error: "Missing comment id" }); return; }
+        if (data.tag !== null && data.tag !== "" && data.tag !== undefined && data.tag !== "fixed" && data.tag !== "not_fixed") {
+          sendJson(res, 400, { error: "Invalid tag" });
+          return;
+        }
+        const nextTag = normalizeTag(data.tag);
+        const entry = ensureProjectStore(pid);
+        const target = entry.comments.find(c => c.id === cid);
+        if (!target) { sendJson(res, 404, { error: "Comment not found" }); return; }
+        target.tag = nextTag;
+        saveReviews();
+        sendJson(res, 200, buildProjectPayload(pid, { ok: true }));
+        return;
+      }
+
+      // Public + Operator: reply to an existing comment
+      if (action === "reply") {
+        if (!isAdmin && now - (reviewCooldown.get(ip) || 0) < 1800) {
+          sendJson(res, 429, { error: "Slow down a bit — try again in a few seconds." });
+          return;
+        }
+        const cid = cleanCommentId(data.commentId);
+        const text = String(data.text || "").trim().slice(0, 300);
+        const rawName = String(data.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24);
+        const name = isAdmin ? "kurizu" : (rawName || "anonymous");
+        if (!cid || !text) { sendJson(res, 400, { error: "Reply text is required." }); return; }
+        const entry = ensureProjectStore(pid);
+        if (entry.deletedIds.includes(cid)) {
+          sendJson(res, 404, { error: "Comment was removed." });
+          return;
+        }
+        const target = entry.comments.find(c => c.id === cid);
+        if (!target) { sendJson(res, 404, { error: "Comment not found" }); return; }
+        reviewCooldown.set(ip, now);
+        const rid = cleanCommentId(data.replyId) || ("rep_" + crypto.randomBytes(6).toString("hex"));
+        if (!Array.isArray(target.replies)) target.replies = [];
+        target.replies = target.replies.filter(r => r.id !== rid);
+        target.replies.push({
+          id: rid,
+          name,
+          text,
+          ts: now,
+          isOperator: isAdmin
+        });
+        if (target.replies.length > 50) target.replies = target.replies.slice(-50);
+        saveReviews();
+        sendJson(res, 200, buildProjectPayload(pid, { ok: true }));
+        return;
+      }
+
       const isSync = Boolean(data.sync);
-      if (!isSync && now - (reviewCooldown.get(ip) || 0) < 1800) {
+      if (!isSync && !isAdmin && now - (reviewCooldown.get(ip) || 0) < 1800) {
         sendJson(res, 429, { error: "Slow down a bit — try again in a few seconds." });
         return;
       }
 
-      if (!reviewStore[pid]) reviewStore[pid] = { ratings: {}, comments: [] };
-      const entry = reviewStore[pid];
+      const entry = ensureProjectStore(pid);
       const clientId = String(data.clientId || ip || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 36);
 
       // Handle background re-sync of cached comments/ratings after a cold boot
       if (isSync && Array.isArray(data.syncComments)) {
+        const deletedSet = new Set(entry.deletedIds || []);
+        const deletedRepSet = new Set(entry.deletedReplyIds || []);
         const rating = Math.round(Number(data.rating) || 0);
         if (rating >= 1 && rating <= 5 && !entry.ratings[clientId]) {
           entry.ratings[clientId] = rating;
@@ -117,18 +416,40 @@ function handleReviewsApi(req, res) {
         for (const item of data.syncComments.slice(0, 50)) {
           const cText = String(item?.text || "").trim().slice(0, 400);
           if (!cText) continue;
+          const cId = cleanCommentId(item?.id) || crypto.randomBytes(6).toString("hex");
+          if (deletedSet.has(cId)) continue;
           const cName = String(item?.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24) || "anonymous";
-          const cId = String(item?.id || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
           const cRating = Math.round(Number(item?.rating) || 0);
           const validCRating = cRating >= 1 && cRating <= 5 ? cRating : 0;
           const cTs = Number(item?.ts) > 1000000000000 ? Number(item.ts) : now;
           const dedupKey = `${cId}|${cName.toLowerCase()}|${cText.toLowerCase()}`;
-          const textMatches = (entry.comments || []).some(
+          const existing = (entry.comments || []).find(
             c => c.id === cId || ((c.name || "").toLowerCase() === cName.toLowerCase() && (c.text || "").toLowerCase() === cText.toLowerCase())
           );
-          if (!existingKeys.has(dedupKey) && !textMatches) {
+          if (!existing && !existingKeys.has(dedupKey)) {
             existingKeys.add(dedupKey);
-            entry.comments.push({ id: cId, name: cName, rating: validCRating, text: cText, ts: cTs });
+            const cleanReplies = Array.isArray(item?.replies)
+              ? item.replies
+                  .filter(r => r && r.text && !deletedRepSet.has(cleanCommentId(r.id)))
+                  .slice(0, 50)
+                  .map(r => ({
+                    id: cleanCommentId(r.id) || crypto.randomBytes(5).toString("hex"),
+                    name: String(r.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24) || "anonymous",
+                    text: String(r.text || "").trim().slice(0, 300),
+                    ts: Number(r.ts) > 1000000000000 ? Number(r.ts) : now,
+                    isOperator: false
+                  }))
+              : [];
+            entry.comments.push({
+              id: cId,
+              name: cName,
+              rating: validCRating,
+              text: cText,
+              ts: cTs,
+              tag: null,
+              isOperator: false,
+              replies: cleanReplies
+            });
             if (validCRating && !entry.ratings[`c_${cId}`]) {
               entry.ratings[`c_${cId}`] = validCRating;
             }
@@ -137,15 +458,15 @@ function handleReviewsApi(req, res) {
         entry.comments.sort((a, b) => (b.ts || 0) - (a.ts || 0));
         if (entry.comments.length > 100) entry.comments.length = 100;
         saveReviews();
-        const sum = projectSummary(pid);
-        sendJson(res, 200, { ok: true, project: pid, avg: sum.avg, count: sum.count, comments: entry.comments });
+        sendJson(res, 200, buildProjectPayload(pid, { ok: true }));
         return;
       }
 
       const rating = Math.round(Number(data.rating) || 0);
       const validRating = rating >= 1 && rating <= 5 ? rating : 0;
       const text = String(data.text || "").trim().slice(0, 400);
-      const name = String(data.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24) || "anonymous";
+      const rawName = String(data.name || "").replace(/[\r\n\t]/g, " ").trim().slice(0, 24);
+      const name = isAdmin ? "kurizu" : (rawName || "anonymous");
       if (!validRating && !text) {
         sendJson(res, 400, { error: "Add a star rating or a comment first." });
         return;
@@ -153,20 +474,24 @@ function handleReviewsApi(req, res) {
       reviewCooldown.set(ip, now);
       if (validRating) entry.ratings[clientId] = validRating;
       if (text) {
-        const cid = String(data.id || crypto.randomBytes(6).toString("hex")).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 32);
+        const cid = cleanCommentId(data.id) || crypto.randomBytes(6).toString("hex");
         entry.comments = (entry.comments || []).filter(c => c.id !== cid);
         entry.comments.unshift({
           id: cid,
           name,
           rating: validRating,
           text,
-          ts: now
+          ts: now,
+          tag: null,
+          isOperator: isAdmin,
+          replies: []
         });
         if (entry.comments.length > 100) entry.comments.length = 100;
       }
       saveReviews();
-      const sum = projectSummary(pid);
-      sendJson(res, 200, { ok: true, project: pid, avg: sum.avg, count: sum.count, comments: entry.comments });
+      sendJson(res, 200, buildProjectPayload(pid, { ok: true }));
+    }).catch(err => {
+      sendJson(res, 400, { error: err.message || "Invalid request" });
     });
     return;
   }
@@ -589,6 +914,10 @@ const server = http.createServer((req, res) => {
   let url = "/";
   try { url = decodeURIComponent(parsedUrl.pathname); } catch (e) { res.writeHead(400); res.end(); return; }
   if (url === "/health") { res.writeHead(200, { "Content-Type": "text/plain" }); res.end("ok"); return; }
+  if (url === "/api/admin/login" || url === "/api/admin/verify" || url === "/api/admin/logout") {
+    handleAdminApi(req, res, url);
+    return;
+  }
   if (url === "/api/reviews") { handleReviewsApi(req, res); return; }
   if (url === "/api/events" || url === "/api/profile" || url === "/api/me" || url === "/api/signal" || url === "/api/upload" || url === "/api/offer" || url === "/api/respond" || url.startsWith("/api/file/")) {
     handleDropshipApi(req, res, url, parsedUrl.searchParams);

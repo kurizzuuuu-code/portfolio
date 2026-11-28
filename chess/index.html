@@ -412,6 +412,101 @@
       background: radial-gradient(circle at center, #08020d 10%, #020005 70%, #000 100%);
     }
 
+    /* VHS Time-Rewind Visual Effect */
+    @keyframes rewindTrackScrollA {
+      0%   { transform: translateY(115vh); }
+      100% { transform: translateY(-28vh); }
+    }
+    @keyframes rewindTrackScrollB {
+      0%   { transform: translateY(105vh); }
+      100% { transform: translateY(-40vh); }
+    }
+    @keyframes rewindFlicker {
+      0%, 100% { opacity: 0.96; }
+      25%      { opacity: 0.84; }
+      50%      { opacity: 1.00; }
+      75%      { opacity: 0.88; }
+    }
+    @keyframes rewindBlink {
+      0%, 49%  { opacity: 1; transform: translateX(0); }
+      50%, 100% { opacity: 0.35; transform: translateX(-3px); }
+    }
+    .rewind-fx {
+      position: fixed;
+      inset: 0;
+      z-index: 55;
+      pointer-events: none;
+      opacity: 0;
+      overflow: hidden;
+      transition: opacity 0.16s ease-out;
+      backdrop-filter: saturate(1.22) contrast(1.12) hue-rotate(-12deg);
+      -webkit-backdrop-filter: saturate(1.22) contrast(1.12) hue-rotate(-12deg);
+      background:
+        repeating-linear-gradient(
+          0deg,
+          rgba(180, 235, 255, 0.065) 0px,
+          rgba(180, 235, 255, 0.065) 1px,
+          transparent 1px,
+          transparent 3px
+        ),
+        radial-gradient(circle at center, rgba(56, 189, 248, 0.04) 42%, rgba(28, 8, 52, 0.56) 100%);
+    }
+    .rewind-fx.is-active {
+      opacity: 1;
+      animation: rewindFlicker 0.14s steps(2, end) infinite;
+    }
+    .rewind-fx__bar {
+      position: absolute;
+      left: -4%;
+      right: -4%;
+      pointer-events: none;
+      background: linear-gradient(
+        180deg,
+        transparent 0%,
+        rgba(56, 189, 248, 0.24) 22%,
+        rgba(244, 210, 255, 0.42) 50%,
+        rgba(232, 121, 249, 0.22) 78%,
+        transparent 100%
+      );
+      mix-blend-mode: screen;
+    }
+    .rewind-fx__bar--a {
+      height: 54px;
+      animation: rewindTrackScrollA 0.52s linear infinite;
+    }
+    .rewind-fx__bar--b {
+      height: 26px;
+      opacity: 0.78;
+      animation: rewindTrackScrollB 0.34s linear infinite;
+      animation-delay: -0.17s;
+    }
+    .rewind-fx__osd {
+      position: fixed;
+      top: 66px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 14px;
+      border-radius: 999px;
+      border: 2px solid rgba(103, 232, 249, 0.78);
+      background: rgba(14, 7, 30, 0.86);
+      color: #e0f2fe;
+      font-family: var(--font-pixel);
+      font-size: 10px;
+      letter-spacing: 0.10em;
+      text-shadow: 0 0 10px rgba(56, 189, 248, 0.9), -2px 0 0 rgba(255, 62, 165, 0.65);
+      box-shadow: 0 0 22px rgba(56, 189, 248, 0.38);
+      white-space: nowrap;
+    }
+    .rewind-fx__icon {
+      font-style: normal;
+      color: #67e8f9;
+      display: inline-block;
+      animation: rewindBlink 0.36s steps(2, end) infinite;
+    }
+
     .backrooms-hud {
       position: fixed;
       inset: 0;
@@ -988,6 +1083,11 @@
 
   <div class="reality-flash" id="realityFlash" aria-hidden="true"></div>
   <div class="noclip-void-veil" id="noclipVoidVeil" aria-hidden="true"></div>
+  <div class="rewind-fx" id="rewindFx" aria-hidden="true">
+    <div class="rewind-fx__bar rewind-fx__bar--a"></div>
+    <div class="rewind-fx__bar rewind-fx__bar--b"></div>
+    <div class="rewind-fx__osd"><i class="rewind-fx__icon">◀◀</i><span id="rewindStepTag">REWINDING</span></div>
+  </div>
   <div class="l0-danger-overlay" id="l0DangerOverlay" aria-hidden="true"></div>
   <div class="l0-jumpscare" id="l0Jumpscare" hidden aria-hidden="true">
     <span>SHE GOT YOU</span>
@@ -1008,6 +1108,7 @@
       </div>
     </div>
     <button type="button" class="br-pc-prompt" id="brPcBtn" hidden>[E] RESTART PC</button>
+    <button type="button" class="br-pc-prompt" id="brPickupBtn" hidden>[E] PICK UP CAMCORDER</button>
     <div class="backrooms-hud__top" style="align-items: flex-start;">
       <div>
         <div class="br-rec"><i></i><span id="brLevelLabel">LEVEL 94 · MOTION (PLAINS)</span></div>
@@ -1057,6 +1158,11 @@
 
     function sqToWorld(r, c, out = new THREE.Vector3()) {
       return out.set((c - 3.5) * SQ, BOARD_Y, (r - 3.5) * SQ);
+    }
+    function sqToSceneWorld(r, c, out = new THREE.Vector3()) {
+      sqToWorld(r, c, out);
+      boardGroup.updateMatrixWorld();
+      return boardGroup.localToWorld(out);
     }
 
     function base64ToArrayBuffer(b64) {
@@ -1707,9 +1813,20 @@
         const lookY = camTarget.y + dropY * 0.35 - Math.pow(u, 3.0) * 5.2;
         camera.lookAt(camTarget.x, lookY, camTarget.z);
         camera.rotateZ(Math.sin(u * 16.0) * 0.16 * u);
+      } else if (eggRef && eggRef.rewinding) {
+        const nextFov = camera.fov + (41.5 - camera.fov) * Math.min(1, dt * 12);
+        if (Math.abs(camera.fov - nextFov) > 0.05) {
+          camera.fov = nextFov;
+          camera.updateProjectionMatrix();
+        }
+        const nowT = performance.now();
+        camera.position.x += Math.sin(nowT * 0.055) * 0.014;
+        camera.lookAt(camTarget);
+        camera.rotateZ(Math.sin(nowT * 0.048) * 0.016);
       } else {
-        if (Math.abs(camera.fov - 44) > 0.2) {
-          camera.fov = 44;
+        const nextFov = camera.fov + (44 - camera.fov) * Math.min(1, dt * 10);
+        if (Math.abs(camera.fov - nextFov) > 0.05) {
+          camera.fov = nextFov;
           camera.updateProjectionMatrix();
         }
         camera.rotation.z = 0;
@@ -1719,6 +1836,8 @@
     updateCamera(1);
 
     /* ---------------- 3D Table, Board, Chair & Highlight Rings ---------------- */
+    const tableGroup = new THREE.Group();
+    scene.add(tableGroup);
     const boardGroup = new THREE.Group();
     scene.add(boardGroup);
 
@@ -1729,7 +1848,7 @@
     tableMesh.position.set(0, -0.045, 0.03);
     tableMesh.castShadow = true;
     tableMesh.receiveShadow = true;
-    boardGroup.add(tableMesh);
+    tableGroup.add(tableMesh);
 
     const tableLegGeo = new THREE.BoxGeometry(0.10, 0.82, 0.10);
     [[-1.08, -0.78], [1.08, -0.78], [-1.08, 0.84], [1.08, 0.84]].forEach(([lx, lz]) => {
@@ -1737,7 +1856,7 @@
       leg.position.set(lx, -0.50, lz);
       leg.castShadow = true;
       leg.receiveShadow = true;
-      boardGroup.add(leg);
+      tableGroup.add(leg);
     });
 
     // Cozy velvet chair on Wisteria's side (-Z), proportioned & tucked neatly so she sits squarely on the seat
@@ -1952,6 +2071,8 @@
     /* ---------------- Easy-Mode Horror Easter Egg & Backrooms Controller ---------------- */
     const realityFlashEl = document.getElementById('realityFlash');
     const noclipVeilEl = document.getElementById('noclipVoidVeil');
+    const rewindFxEl = document.getElementById('rewindFx');
+    const rewindStepTagEl = document.getElementById('rewindStepTag');
     const backroomsHudEl = document.getElementById('backroomsHud');
     const topBarEl = document.querySelector('.chess-topbar');
     const bottomBarEl = document.querySelector('.chess-bottom');
@@ -1962,6 +2083,8 @@
       voidActive: false,
       snapAnim: null,
       boardSpin: null,
+      rewinding: false,
+      rewindAnim: null,
       nextTwitchAt: 0,
       twitchUntil: 0,
       twitchOffset: { x: 0, y: 0, z: 0 },
@@ -1995,18 +2118,123 @@
             osc.start(now);
             osc.stop(now + 0.65);
           });
+        } else if (kind === 'rewindStart') {
+          // Layered VCR tape motor whirr + modulated flutter + reverse pitch swell
+          const len = Math.floor(ctx.sampleRate * 0.95);
+          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+          const nSrc = ctx.createBufferSource();
+          nSrc.buffer = buf;
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.setValueAtTime(580, now);
+          bp.frequency.exponentialRampToValueAtTime(2500, now + 0.36);
+          bp.frequency.exponentialRampToValueAtTime(1150, now + 0.92);
+          bp.Q.value = 2.4;
+          const nGain = ctx.createGain();
+          nGain.gain.setValueAtTime(0.001, now);
+          nGain.gain.linearRampToValueAtTime(0.11, now + 0.14);
+          nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.94);
+
+          const lfo = ctx.createOscillator();
+          const lfoGain = ctx.createGain();
+          lfo.type = 'sine';
+          lfo.frequency.value = 22;
+          lfoGain.gain.value = 0.04;
+          lfo.connect(lfoGain).connect(nGain.gain);
+          lfo.start(now);
+          lfo.stop(now + 0.95);
+
+          nSrc.connect(bp).connect(nGain).connect(ctx.destination);
+          nSrc.start(now);
+          nSrc.stop(now + 0.95);
+
+          [145, 149].forEach((f, idx) => {
+            const osc = ctx.createOscillator();
+            const og = ctx.createGain();
+            osc.type = idx === 0 ? 'triangle' : 'sawtooth';
+            osc.frequency.setValueAtTime(f, now);
+            osc.frequency.exponentialRampToValueAtTime(640 + idx * 14, now + 0.42);
+            osc.frequency.exponentialRampToValueAtTime(390, now + 0.85);
+            og.gain.setValueAtTime(0.001, now);
+            og.gain.linearRampToValueAtTime(idx === 0 ? 0.095 : 0.032, now + 0.25);
+            og.gain.exponentialRampToValueAtTime(0.0001, now + 0.88);
+            osc.connect(og).connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.90);
+          });
         } else if (kind === 'rewindStep') {
+          // Reverse tape whoosh swelling into a sharp backward wood-clack snap
+          const len = Math.floor(ctx.sampleRate * 0.27);
+          const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+          const data = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            const prog = i / len;
+            data[i] = (Math.random() * 2 - 1) * (0.25 + 0.75 * prog);
+          }
+          const nSrc = ctx.createBufferSource();
+          nSrc.buffer = buf;
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.setValueAtTime(420, now);
+          bp.frequency.exponentialRampToValueAtTime(2200, now + 0.26);
+          bp.Q.value = 1.9;
+          const ng = ctx.createGain();
+          ng.gain.setValueAtTime(0.002, now);
+          ng.gain.linearRampToValueAtTime(0.11, now + 0.24);
+          ng.gain.exponentialRampToValueAtTime(0.0001, now + 0.27);
+          nSrc.connect(bp).connect(ng).connect(ctx.destination);
+          nSrc.start(now);
+
           const osc = ctx.createOscillator();
           const g = ctx.createGain();
           osc.type = 'triangle';
-          osc.frequency.setValueAtTime(190, now);
-          osc.frequency.exponentialRampToValueAtTime(520, now + 0.14);
-          g.gain.setValueAtTime(0.001, now);
-          g.gain.exponentialRampToValueAtTime(0.09, now + 0.08);
-          g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+          osc.frequency.setValueAtTime(210, now);
+          osc.frequency.exponentialRampToValueAtTime(860, now + 0.26);
+          g.gain.setValueAtTime(0.002, now);
+          g.gain.exponentialRampToValueAtTime(0.14, now + 0.25);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + 0.275);
           osc.connect(g).connect(ctx.destination);
           osc.start(now);
-          osc.stop(now + 0.17);
+          osc.stop(now + 0.28);
+
+          // Crisp reverse-clack transient as piece seats back on its origin square
+          const tapTime = now + 0.26;
+          const tap = ctx.createOscillator();
+          const tg = ctx.createGain();
+          tap.type = 'triangle';
+          tap.frequency.setValueAtTime(920, tapTime);
+          tap.frequency.exponentialRampToValueAtTime(310, tapTime + 0.055);
+          tg.gain.setValueAtTime(0.001, tapTime);
+          tg.gain.linearRampToValueAtTime(0.15, tapTime + 0.005);
+          tg.gain.exponentialRampToValueAtTime(0.0001, tapTime + 0.06);
+          tap.connect(tg).connect(ctx.destination);
+          tap.start(tapTime);
+          tap.stop(tapTime + 0.065);
+        } else if (kind === 'rewindStop') {
+          // Mechanical VCR tape-lock clunk when rewind finishes
+          const thump = ctx.createOscillator();
+          const tg = ctx.createGain();
+          thump.type = 'sine';
+          thump.frequency.setValueAtTime(175, now);
+          thump.frequency.exponentialRampToValueAtTime(52, now + 0.09);
+          tg.gain.setValueAtTime(0.18, now);
+          tg.gain.exponentialRampToValueAtTime(0.0001, now + 0.10);
+          thump.connect(tg).connect(ctx.destination);
+          thump.start(now);
+          thump.stop(now + 0.11);
+
+          const clk = ctx.createOscillator();
+          const cg = ctx.createGain();
+          clk.type = 'square';
+          clk.frequency.setValueAtTime(1450, now);
+          clk.frequency.exponentialRampToValueAtTime(620, now + 0.035);
+          cg.gain.setValueAtTime(0.075, now);
+          cg.gain.exponentialRampToValueAtTime(0.0001, now + 0.04);
+          clk.connect(cg).connect(ctx.destination);
+          clk.start(now);
+          clk.stop(now + 0.045);
         } else if (kind === 'voidDrop') {
           const osc = ctx.createOscillator();
           const g = ctx.createGain();
@@ -2151,6 +2379,7 @@
             if (topBarEl) topBarEl.hidden = false;
             if (bottomBarEl) bottomBarEl.hidden = false;
             if (wisteriaSpeech) wisteriaSpeech.hidden = false;
+            tableGroup.visible = true;
             boardGroup.visible = true;
             const p = CAM_PRESETS[0];
             desiredTarget.copy(p.target);
@@ -2549,6 +2778,9 @@
 
     /* ---------------- Chess State, 3D Pieces & Visual Sync ---------------- */
     const game = new ChessGame();
+    let playerColor = 'w';
+    const getWisteriaColor = () => (playerColor === 'w' ? 'b' : 'w');
+    const isPlayerPiece = (code) => Boolean(code) && (playerColor === 'w' ? code === code.toUpperCase() : code === code.toLowerCase());
     let difficulty = 'medium';
     let busy = false; // true while Wisteria is thinking or a piece animation is playing
     let selectedSq = null; // { r, c, moves }
@@ -2763,19 +2995,21 @@
 
     function updateHud() {
       const st = game.getStatus();
+      const wColor = getWisteriaColor();
+      const sideLabel = playerColor === 'w' ? 'White' : 'Black';
       statusPill.classList.remove('is-check', 'is-over');
       if (st.over) {
         statusPill.classList.add('is-over');
         if (st.state === 'checkmate') {
-          statusPill.textContent = st.winner === 'w' ? 'Checkmate! You Win ♡' : 'Checkmate! Wisteria Wins!';
+          statusPill.textContent = st.winner === playerColor ? 'Checkmate! You Win ♡' : 'Checkmate! Wisteria Wins!';
         } else {
           statusPill.textContent = st.state === 'stalemate' ? 'Stalemate — Draw!' : 'Draw!';
         }
-      } else if (game.turn === 'b') {
+      } else if (game.turn === wColor) {
         statusPill.textContent = st.inCheck ? 'Check! Wisteria thinking...' : 'Wisteria is thinking...';
         if (st.inCheck) statusPill.classList.add('is-check');
       } else {
-        statusPill.textContent = st.inCheck ? 'Check! Your Turn (White)' : 'Your Turn (White)';
+        statusPill.textContent = st.inCheck ? `Check! Your Turn (${sideLabel})` : `Your Turn (${sideLabel})`;
         if (st.inCheck) statusPill.classList.add('is-check');
       }
 
@@ -2812,15 +3046,18 @@
         capByB += UNI_PIECES[t.toUpperCase()].repeat(cntW);
         matW += (cntB - cntW) * PIECE_VALUES[t];
       }
-      capWhiteEl.textContent = capByW ? `You took: ${capByW}` : '';
-      capBlackEl.textContent = capByB ? `Wisteria: ${capByB}` : '';
-      const pawnsDiff = Math.round(matW / 100);
+      const capByPlayer = playerColor === 'w' ? capByW : capByB;
+      const capByAi = playerColor === 'w' ? capByB : capByW;
+      const matPlayer = playerColor === 'w' ? matW : -matW;
+      capWhiteEl.textContent = capByPlayer ? `You took: ${capByPlayer}` : '';
+      capBlackEl.textContent = capByAi ? `Wisteria: ${capByAi}` : '';
+      const pawnsDiff = Math.round(matPlayer / 100);
       matAdvantageEl.textContent = pawnsDiff > 0 ? `+${pawnsDiff}` : pawnsDiff < 0 ? `${pawnsDiff}` : '';
     }
 
     function showGameOverModal(st) {
       if (st.state === 'checkmate') {
-        if (st.winner === 'w') {
+        if (st.winner === playerColor) {
           endTitle.textContent = 'You Won!!';
           endBody.textContent = difficulty === 'gm'
             ? 'WOAH you actually beat Grandmaster Wisteria?! huge respect!! ♡'
@@ -2843,7 +3080,7 @@
 
     /* ---------------- Player Move Execution ---------------- */
     function performPlayerMove(moveObj) {
-      if (busy || game.turn !== 'w') return false;
+      if (busy || game.turn !== playerColor) return false;
       const fromKey = `${moveObj.fromR},${moveObj.fromC}`;
       const toKey = `${moveObj.toR},${moveObj.toC}`;
       const movingMesh = pieceMeshes.get(fromKey);
@@ -2911,7 +3148,7 @@
         dur: 0.28,
         onDone: () => {
           if (capMesh) {
-            spawnCaptureSparks(toPos, 0xbef264);
+            spawnCaptureSparks(sqToSceneWorld(record.toR, record.toC), 0xbef264);
             boardGroup.remove(capMesh);
           }
           playWoodClack(Boolean(capMesh), record.isCheck);
@@ -2928,7 +3165,7 @@
 
           const st = game.getStatus();
           if (st.over) {
-            if (st.state === 'checkmate' && st.winner === 'w' && difficulty === 'easy') {
+            if (st.state === 'checkmate' && st.winner === playerColor && difficulty === 'easy') {
               if (egg.stage < 2) {
                 triggerBoardSwapEasterEgg();
               } else {
@@ -3045,59 +3282,6 @@
       });
     }
 
-    function swapGameColorsAndMirror(g) {
-      const nextBoard = Array.from({ length: 8 }, () => Array(8).fill(null));
-      for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-          const p = g.board[7 - r][c];
-          if (!p) continue;
-          nextBoard[r][c] = p === p.toUpperCase() ? p.toLowerCase() : p.toUpperCase();
-        }
-      }
-      g.board = nextBoard;
-      g.turn = 'b';
-      g.castling = {
-        K: g.castling.k,
-        Q: g.castling.q,
-        k: g.castling.K,
-        q: g.castling.Q,
-      };
-      g.ep = g.ep ? { r: 7 - g.ep.r, c: g.ep.c } : null;
-      g.history = [];
-      g.positionCounts = new Map();
-      g.positionCounts.set(g.positionKey(), 1);
-    }
-
-    function pickCheckingMove(g) {
-      if (g.inCheck('w')) return null; // swapped side cannot leave White already in check on Black's turn
-      const legal = g.getAllLegalMoves('b');
-      if (!legal.length) return null;
-      const nonMateChecks = [];
-      const mateChecks = [];
-      for (const m of legal) {
-        const after = g.clone();
-        const rec = after.makeMove(m);
-        if (rec && rec.isCheck) {
-          const opp = after.getAllLegalMoves('w');
-          if (opp.length > 0) nonMateChecks.push(m);
-          else mateChecks.push(m);
-        }
-      }
-      if (nonMateChecks.length) return nonMateChecks[0];
-      if (mateChecks.length) return mateChecks[0];
-      return null;
-    }
-
-    function findCheckingMoveAfterUndoAndSwap(undoCount) {
-      const sim = game.clone();
-      sim.history = game.history.slice();
-      for (let i = 0; i < undoCount && sim.history.length; i++) {
-        sim.undoMove();
-      }
-      swapGameColorsAndMirror(sim);
-      return pickCheckingMove(sim);
-    }
-
     async function triggerBoardSwapEasterEgg() {
       const prevCam = {
         target: desiredTarget.clone(),
@@ -3144,49 +3328,103 @@
       targetPhi = prevCam.phi;
       targetRadius = prevCam.radius;
 
-      // Search ideal undo count [3, 2, 1, 4] that yields an immediate Black counter-check after board swap
-      let bestK = Math.min(3, game.history.length);
-      for (const k of [3, 2, 1, 4]) {
-        if (k <= game.history.length && findCheckingMoveAfterUndoAndSwap(k)) {
-          bestK = k;
-          break;
-        }
+      // 1. Rotate board 180 degrees and swap sides (Player becomes Black, Wisteria becomes White)
+      const fromRot = boardGroup.rotation.y;
+      const toRot = fromRot + Math.PI;
+      await new Promise((resolve) => {
+        egg.boardSpin = { t: 0, dur: 0.62, fromRot, toRot, onDone: resolve };
+      });
+      if (!busy && egg.stage === 0) return;
+      boardGroup.rotation.y = toRot % (Math.PI * 2);
+      playerColor = getWisteriaColor();
+      egg.stage = 2;
+      selectedSq = null;
+      clearLegalMarkers();
+      updateBoardMarkers();
+      updateHud();
+
+      await new Promise((r) => setTimeout(r, 220));
+      if (!busy && egg.stage === 0) return;
+
+      // 2. Rewind 2 moves back after swapping sides (with VHS overlay, reverse glide & layered tape SFX)
+      const rewindSteps = Math.min(2, game.history.length);
+      if (rewindSteps > 0) {
+        egg.rewinding = true;
+        if (rewindStepTagEl) rewindStepTagEl.textContent = `REWINDING ×${rewindSteps}`;
+        if (rewindFxEl) rewindFxEl.classList.add('is-active');
+        playHorrorSfx('rewindStart');
+        setWisteriaBanter('◀◀ rewinding... let’s try that again. ♡', true, 0);
       }
 
-      for (let i = 0; i < bestK && game.history.length; i++) {
+      for (let i = 0; i < rewindSteps && game.history.length; i++) {
+        if (rewindStepTagEl) rewindStepTagEl.textContent = `REWIND -${i + 1} / ${rewindSteps}`;
+        const rec = game.history[game.history.length - 1];
+        const movingMesh = rec ? pieceMeshes.get(`${rec.toR},${rec.toC}`) : null;
+        let rookPair = null;
+        if (rec && (rec.castle === 'K' || rec.castle === 'Q')) {
+          const rOrigC = rec.castle === 'K' ? 7 : 0;
+          const rCurC = rec.castle === 'K' ? 5 : 3;
+          const rkMesh = pieceMeshes.get(`${rec.toR},${rCurC}`);
+          if (rkMesh) {
+            rookPair = { mesh: rkMesh, from: sqToWorld(rec.toR, rCurC), to: sqToWorld(rec.toR, rOrigC) };
+          }
+        }
+        if (rec) {
+          spawnCaptureSparks(sqToSceneWorld(rec.toR, rec.toC), 0x38bdf8);
+        }
+        playHorrorSfx('rewindStep');
+
+        if (rec && movingMesh) {
+          const fromPos = sqToWorld(rec.toR, rec.toC);
+          const toPos = sqToWorld(rec.fromR, rec.fromC);
+          await new Promise((resolve) => {
+            egg.rewindAnim = { mesh: movingMesh, rookPair, from: fromPos, to: toPos, t: 0, dur: 0.34, onDone: resolve };
+          });
+        } else {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        if (!busy && egg.stage === 0) {
+          egg.rewinding = false;
+          egg.rewindAnim = null;
+          if (rewindFxEl) rewindFxEl.classList.remove('is-active');
+          return;
+        }
+
         game.undoMove();
         selectedSq = null;
         clearLegalMarkers();
         rebuildPiecesFromGame();
-        playHorrorSfx('rewindStep');
-        await new Promise((r) => setTimeout(r, 210));
-        if (!busy && egg.stage === 0) return;
+        if (rec && rec.captured) {
+          spawnCaptureSparks(sqToSceneWorld(rec.enPassant ? rec.fromR : rec.toR, rec.toC), 0xe879f9);
+        }
+        await new Promise((r) => setTimeout(r, 140));
+        if (!busy && egg.stage === 0) {
+          egg.rewinding = false;
+          egg.rewindAnim = null;
+          if (rewindFxEl) rewindFxEl.classList.remove('is-active');
+          return;
+        }
       }
 
-      // 180-degree eerie board spin + color swap
-      await new Promise((resolve) => {
-        egg.boardSpin = { t: 0, dur: 0.58, onDone: resolve };
-      });
-      if (!busy && egg.stage === 0) return;
-      boardGroup.rotation.y = 0;
-      swapGameColorsAndMirror(game);
-      egg.stage = 2;
-      rebuildPiecesFromGame();
+      if (rewindSteps > 0) {
+        egg.rewinding = false;
+        egg.rewindAnim = null;
+        if (rewindFxEl) rewindFxEl.classList.remove('is-active');
+        playHorrorSfx('rewindStop');
+      }
 
       await snapFinished;
       if (egg.stage !== 2) return;
 
-      let counterMove = pickCheckingMove(game);
-      if (!counterMove) {
-        counterMove = chooseBestMove(game, 'hard');
-      }
-      setWisteriaBanter('my turn.  N O W   Y O U ’ R E   I N   C H E C K . ♡', true, 0.05);
-      if (counterMove) {
-        await new Promise((r) => setTimeout(r, 180));
-        playWisteriaMoveAnimation(counterMove);
+      if (game.turn === getWisteriaColor()) {
+        setWisteriaBanter('my pieces now. watch how it’s done. ♡', true, 0.05);
+        triggerWisteriaTurn();
       } else {
         busy = false;
+        updateBoardMarkers();
         updateHud();
+        setWisteriaBanter('we’re switching sides. my white pieces now — your turn, black. ♡', false, 0.05);
       }
     }
 
@@ -3197,10 +3435,14 @@
       busy = true;
       egg.stage = 4;
       egg.twitchIntensity = 0;
+      egg.rewinding = false;
+      egg.rewindAnim = null;
+      if (rewindFxEl) rewindFxEl.classList.remove('is-active');
       setVoidEnvironment(true);
       notifyParentEgg('snap-backrooms', { rate: 0.62, glitchIcons: true, realm: targetRealm });
 
       // Erase board & table so only Wisteria sitting in her chair remains in the void
+      tableGroup.visible = false;
       boardGroup.visible = false;
       clearLegalMarkers();
       selectedSq = null;
@@ -3226,7 +3468,8 @@
     }
 
     async function triggerWisteriaTurn() {
-      if (game.turn !== 'b') { busy = false; return; }
+      const wColor = getWisteriaColor();
+      if (game.turn !== wColor) { busy = false; return; }
       busy = true;
       updateHud();
 
@@ -3237,7 +3480,7 @@
           hard: 'calculating variations... don’t blink! ⚡',
           gm: 'Grandmaster mode engaged... reading 6 ply ahead!! ♟️⚡',
         };
-        if (!game.inCheck('b')) setWisteriaBanter(thinkLines[difficulty] || thinkLines.medium, true);
+        if (!game.inCheck(wColor)) setWisteriaBanter(thinkLines[difficulty] || thinkLines.medium, true);
         rig.targetHeadPitch = 0.22;
         rig.targetHeadYaw = (Math.random() - 0.5) * 0.25;
 
@@ -3328,8 +3571,10 @@
 
       const fromPos = sqToWorld(record.fromR, record.fromC);
       const toPos = sqToWorld(record.toR, record.toC);
+      const fromWorld = sqToSceneWorld(record.fromR, record.fromC);
+      const toWorld = sqToSceneWorld(record.toR, record.toC);
       const grabH = finalMesh?.userData?.grabH || 0.14;
-      const side = chooseClosestArm(fromPos);
+      const side = chooseClosestArm(fromWorld);
 
       wisteriaAnim = {
         side,
@@ -3339,6 +3584,8 @@
         rookPair,
         fromPos,
         toPos,
+        fromWorld,
+        toWorld,
         grabH,
         t: 0,
         dur: 1.25,
@@ -3362,14 +3609,14 @@
       if (t < 0.30) {
         const u = smooth(t / 0.30);
         ikWeight = u;
-        handTarget.set(a.fromPos.x, BOARD_Y + a.grabH + (1 - u) * 0.24, a.fromPos.z);
+        handTarget.set(a.fromWorld.x, BOARD_Y + a.grabH + (1 - u) * 0.24, a.fromWorld.z);
       }
       // Stage 2: Lift piece up (0.30 -> 0.44)
       else if (t < 0.44) {
         const u = smooth((t - 0.30) / 0.14);
         ikWeight = 1;
         const lift = u * 0.26;
-        handTarget.set(a.fromPos.x, BOARD_Y + a.grabH + lift, a.fromPos.z);
+        handTarget.set(a.fromWorld.x, BOARD_Y + a.grabH + lift, a.fromWorld.z);
         if (a.mesh) a.mesh.position.set(a.fromPos.x, BOARD_Y + lift, a.fromPos.z);
       }
       // Stage 3: Carry in arc to target square (0.44 -> 0.72)
@@ -3377,9 +3624,11 @@
         const u = smooth((t - 0.44) / 0.28);
         ikWeight = 1;
         const arcY = 0.26 + Math.sin(u * Math.PI) * 0.14;
+        const wx = a.fromWorld.x + (a.toWorld.x - a.fromWorld.x) * u;
+        const wz = a.fromWorld.z + (a.toWorld.z - a.fromWorld.z) * u;
         const px = a.fromPos.x + (a.toPos.x - a.fromPos.x) * u;
         const pz = a.fromPos.z + (a.toPos.z - a.fromPos.z) * u;
-        handTarget.set(px, BOARD_Y + a.grabH + arcY * (1 - u * 0.35), pz);
+        handTarget.set(wx, BOARD_Y + a.grabH + arcY * (1 - u * 0.35), wz);
         if (a.mesh) a.mesh.position.set(px, BOARD_Y + arcY * (1 - u * 0.5), pz);
         if (a.rookPair) {
           a.rookPair.mesh.position.lerpVectors(a.rookPair.from, a.rookPair.to, u);
@@ -3388,7 +3637,7 @@
         // Knock off captured piece cleanly before landing
         if (a.capMesh && !a.capturedKnocked && u >= 0.65) {
           a.capturedKnocked = true;
-          spawnCaptureSparks(a.toPos, 0xff5ea8);
+          spawnCaptureSparks(a.toWorld, 0xff5ea8);
           a.capFly = { t: 0, start: a.capMesh.position.clone() };
         }
       }
@@ -3397,7 +3646,7 @@
         const u = smooth((t - 0.72) / 0.12);
         ikWeight = 1;
         const dropY = (1 - u) * 0.12;
-        handTarget.set(a.toPos.x, BOARD_Y + a.grabH + dropY, a.toPos.z);
+        handTarget.set(a.toWorld.x, BOARD_Y + a.grabH + dropY, a.toWorld.z);
         if (a.mesh) a.mesh.position.set(a.toPos.x, BOARD_Y + dropY, a.toPos.z);
         if (a.rookPair) a.rookPair.mesh.position.copy(a.rookPair.to);
 
@@ -3413,7 +3662,7 @@
       else {
         const u = smooth((t - 0.84) / 0.16);
         ikWeight = 1 - u;
-        handTarget.set(a.toPos.x, BOARD_Y + a.grabH + u * 0.25, a.toPos.z);
+        handTarget.set(a.toWorld.x, BOARD_Y + a.grabH + u * 0.25, a.toWorld.z);
         if (a.mesh) a.mesh.position.copy(a.toPos);
         if (!a.placed) {
           a.placed = true;
@@ -3423,16 +3672,17 @@
         }
       }
 
-      // Sweep captured mesh off to the side
+      // Sweep captured mesh off to the side (local boardGroup space adjusted when board is spun 180deg)
       if (a.capMesh && a.capFly) {
         a.capFly.t = Math.min(1, a.capFly.t + dt * 4.5);
         const fu = a.capFly.t;
+        const capDir = playerColor === 'b' ? -1 : 1;
         a.capMesh.position.set(
-          a.capFly.start.x - 0.45 * fu,
+          a.capFly.start.x - 0.45 * capDir * fu,
           a.capFly.start.y + Math.sin(fu * Math.PI) * 0.22,
-          a.capFly.start.z - 0.25 * fu
+          a.capFly.start.z - 0.25 * capDir * fu
         );
-        a.capMesh.rotation.z = fu * 1.1;
+        a.capMesh.rotation.z = fu * 1.1 * capDir;
         if (fu >= 1) {
           boardGroup.remove(a.capMesh);
           a.capMesh = null;
@@ -3506,7 +3756,7 @@
     }
 
     function handleSquareClick(r, c) {
-      if (busy || game.turn !== 'w' || game.getStatus().over) return;
+      if (busy || game.turn !== playerColor || game.getStatus().over) return;
 
       if (selectedSq) {
         const chosen = selectedSq.moves.filter((m) => m.toR === r && m.toC === c);
@@ -3522,7 +3772,7 @@
       }
 
       const piece = game.board[r][c];
-      if (piece && piece === piece.toUpperCase()) {
+      if (isPlayerPiece(piece)) {
         const moves = game.getLegalMoves(r, c);
         selectedSq = { r, c, moves };
         showLegalMarkers(moves);
@@ -3562,7 +3812,7 @@
           targetTheta -= stepX * 0.0065;
           targetPhi -= stepY * 0.0055;
         }
-      } else if (e.pointerType === 'mouse' && !busy && game.turn === 'w') {
+      } else if (e.pointerType === 'mouse' && !busy && game.turn === playerColor) {
         const hit = getHitSquare(e.clientX, e.clientY);
         canvas.classList.toggle('is-hovering', Boolean(hit));
       }
@@ -3672,6 +3922,7 @@
 
     function resetBoard() {
       game.loadFen();
+      playerColor = 'w';
       busy = false;
       selectedSq = null;
       playerAnim = null;
@@ -3681,7 +3932,11 @@
       egg.twitchIntensity = 0;
       egg.snapAnim = null;
       egg.boardSpin = null;
+      egg.rewinding = false;
+      egg.rewindAnim = null;
+      if (rewindFxEl) rewindFxEl.classList.remove('is-active');
       boardGroup.rotation.y = 0;
+      tableGroup.visible = true;
       boardGroup.visible = true;
       if (topBarEl) topBarEl.hidden = false;
       if (bottomBarEl) bottomBarEl.hidden = false;
@@ -3705,7 +3960,7 @@
 
     undoBtn.addEventListener('click', () => {
       if (busy || !game.history.length) return;
-      if (game.turn === 'w' && game.history.length >= 2) {
+      if (game.turn === playerColor && game.history.length >= 2) {
         game.undoMove();
         game.undoMove();
       } else {
@@ -3771,7 +4026,9 @@
       if (egg.boardSpin) {
         egg.boardSpin.t = Math.min(1, egg.boardSpin.t + dt / egg.boardSpin.dur);
         const u = egg.boardSpin.t * egg.boardSpin.t * (3 - 2 * egg.boardSpin.t);
-        boardGroup.rotation.y = u * Math.PI;
+        const fromRot = typeof egg.boardSpin.fromRot === 'number' ? egg.boardSpin.fromRot : 0;
+        const toRot = typeof egg.boardSpin.toRot === 'number' ? egg.boardSpin.toRot : Math.PI;
+        boardGroup.rotation.y = fromRot + (toRot - fromRot) * u;
         if (egg.boardSpin.t >= 1) {
           const done = egg.boardSpin.onDone;
           egg.boardSpin = null;
@@ -3894,9 +4151,27 @@
         }
       }
 
+      // Smooth reverse piece glide while Wisteria rewinds moves
+      if (egg.rewindAnim) {
+        egg.rewindAnim.t = Math.min(1, egg.rewindAnim.t + dt / egg.rewindAnim.dur);
+        const u = egg.rewindAnim.t * egg.rewindAnim.t * (3 - 2 * egg.rewindAnim.t);
+        if (egg.rewindAnim.mesh) {
+          egg.rewindAnim.mesh.position.lerpVectors(egg.rewindAnim.from, egg.rewindAnim.to, u);
+          egg.rewindAnim.mesh.position.y += Math.sin(u * Math.PI) * 0.15;
+        }
+        if (egg.rewindAnim.rookPair) {
+          egg.rewindAnim.rookPair.mesh.position.lerpVectors(egg.rewindAnim.rookPair.from, egg.rewindAnim.rookPair.to, u);
+        }
+        if (egg.rewindAnim.t >= 1) {
+          const done = egg.rewindAnim.onDone;
+          egg.rewindAnim = null;
+          done();
+        }
+      }
+
       // Wisteria seated base pose + optional 5-stage hand IK piece movement
       if (rig.loaded) {
-        applySeatedPose(t, busy && !wisteriaAnim && game.turn === 'b');
+        applySeatedPose(t, busy && !wisteriaAnim && game.turn === getWisteriaColor());
       }
       if (wisteriaAnim) {
         stepWisteriaMoveAnimation(dt);
@@ -3993,6 +4268,9 @@
       getGame: () => game,
       getState: () => ({
         turn: game.turn,
+        playerColor,
+        wisteriaColor: getWisteriaColor(),
+        boardRotY: +boardGroup.rotation.y.toFixed(3),
         busy,
         difficulty,
         historyLen: game.history.length,
@@ -4044,6 +4322,9 @@
       },
       getEggState: () => ({
         stage: egg.stage,
+        playerColor,
+        wisteriaColor: getWisteriaColor(),
+        boardRotY: +boardGroup.rotation.y.toFixed(3),
         twitchIntensity: egg.twitchIntensity,
         voidActive: egg.voidActive,
         boardVisible: boardGroup.visible,
@@ -4051,6 +4332,7 @@
         snapPhase: egg.snapAnim?.phase || null,
         snapSnapped: Boolean(egg.snapAnim?.snapped),
         snapMode: egg.snapAnim?.mode || null,
+        rewinding: Boolean(egg.rewinding),
         inBackrooms: backrooms.isActive(),
         realm: backrooms.getRealm(),
       }),
@@ -4070,6 +4352,7 @@
       walkBackroomsForTest: (dz, dyaw, dtSim) => backrooms.stepForTest?.(dz, dyaw, dtSim),
       getPlainsDebug: () => backrooms.getDebugState?.(),
       setL0CameraForTest: (on) => backrooms.setL0Camera?.(on),
+      pickupL0CamcorderForTest: () => backrooms.pickupL0Camcorder?.(),
       teleportL0ForTest: (x, z, yawVal, petX, petZ) => backrooms.teleportForTest?.(x, z, yawVal, petX, petZ),
       triggerL0PcRestartForTest: () => backrooms.triggerL0PcRestart?.(),
       exitBackrooms: () => backrooms.exit(),

@@ -22,7 +22,7 @@
   <meta name="twitter:image:alt" content="kurizu.exe — a purple pixel portfolio with a chibi mascot">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/fonts.css">
-  <link rel="stylesheet" href="css/style.css?v=interactive25">
+  <link rel="stylesheet" href="css/style.css?v=interactive27">
 </head>
 <body class="is-desktop-os">
   <a class="skip-link" href="#main">skip to content</a>
@@ -296,7 +296,7 @@
             </div>
             <div class="browser__status">
               <span><span class="dot dot--lime"></span>online</span>
-              <span>9 projects &amp; counting</span>
+              <span>10 projects &amp; counting</span>
               <button type="button" class="browser__heart-btn" id="browserHeartBtn" aria-label="Press heart to be nice">press ♡ to be nice <b id="browserHeartCount">0</b></button>
             </div>
           </div>
@@ -335,7 +335,7 @@
                 <img src="assets/sprites/avatar.webp" alt="Kurizu mascot avatar" width="360" height="360">
                 <span class="online-pip" title="online"></span>
               </div>
-              <h2 class="profile-card__name">kurizu <span class="verified-badge" aria-label="verified"><svg class="icon"><use href="#i-check"/></svg></span></h2>
+              <h2 class="profile-card__name">kurizu <span class="verified-badge" aria-label="verified"><svg class="icon"><use href="#i-check"/></svg></span> <span class="profile-admin-badge" id="profileAdminBadge" hidden>★ admin</span></h2>
               <p class="profile-card__handle">@kurizu</p>
               <p class="profile-card__bio">developer / designer / friendly gremlin <span>:3</span></p>
               <div class="social-list" data-socials="rows"></div>
@@ -442,7 +442,7 @@
                 </div>
                 <div class="terminal__lines" id="terminalLines">
                   <p><span class="term-pink">$</span> based_in <b>Philippines (GMT+8)</b></p>
-                  <p><span class="term-pink">$</span> currently_building <b>AIPet + Malfoy.exe</b></p>
+                  <p><span class="term-pink">$</span> currently_building <b>Wisp + AIPet + Malfoy.exe</b></p>
                   <p><span class="term-pink">$</span> learning <b>Rust · Unity · motion design</b></p>
                   <p><span class="term-pink">$</span> fuel <b>iced coffee &amp; phonk</b></p>
                   <p><span class="term-pink">$</span> open_to <b>collabs · commissions · fun problems</b></p>
@@ -518,7 +518,7 @@
               <div class="category-list" id="categoryList"></div>
               <div class="side-note">
                 <span class="side-note__heart" aria-hidden="true"><svg class="icon"><use href="#i-heart"/></svg></span>
-                <p><strong>9 projects</strong> and counting.<br>Most source lives on GitHub — the rest is on my PC, probably.</p>
+                <p><strong>10 projects</strong> and counting.<br>Most source lives on GitHub — the rest is on my PC, probably.</p>
                 <a href="https://github.com/kurizzuuuu-code" target="_blank" rel="noopener">visit github <svg class="icon"><use href="#i-arrow-ur"/></svg></a>
               </div>
             </aside>
@@ -886,9 +886,11 @@
 
   <div class="start-menu" id="startMenu" hidden>
     <div class="start-menu__head">
-      <img src="assets/sprites/avatar-still.webp" alt="" width="360" height="360">
+      <button type="button" class="start-menu__avatar-btn" id="startSecretLoginTrigger" aria-label="Kurizu avatar">
+        <img src="assets/sprites/avatar-still.webp" alt="" width="360" height="360">
+      </button>
       <div>
-        <strong>kurizu<span>.exe</span></strong>
+        <strong>kurizu<span>.exe</span> <span class="start-menu__op-badge" id="startOpBadge" hidden>★ admin</span></strong>
         <span><i class="dot dot--lime"></i>kurizu.OS · desktop edition</span>
       </div>
     </div>
@@ -1004,6 +1006,63 @@
     </figure>
   </dialog>
 
+  <dialog class="kurizu-gate" id="kurizuGateDialog" aria-labelledby="kurizuGateTitle">
+    <div class="window kurizu-gate__window">
+      <div class="window__bar">
+        <span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="window__title" id="kurizuGateTitle"><svg class="icon"><use href="#i-lock"/></svg>wisteria_check.exe</span>
+        <button type="button" class="window__close" data-close-dialog aria-label="Close"><svg class="icon"><use href="#i-close"/></svg></button>
+      </div>
+
+      <div class="kurizu-gate__body" id="kurizuGateAuthView">
+        <div class="kurizu-gate__pet-row">
+          <img class="kurizu-gate__sprite" id="kurizuGateSprite" src="assets/Pet/idle animation/Idea.webp" alt="Wisteria" width="120" height="120">
+          <div class="kurizu-gate__bubble">
+            <strong id="kurizuGateSpeech">are you kurizu?</strong>
+            <span id="kurizuGateSub">prove it to unlock operator controls ♡</span>
+          </div>
+        </div>
+        <form class="kurizu-gate__form" id="kurizuGateForm" autocomplete="off">
+          <label class="sr-only" for="kurizuGatePassword">Operator passphrase</label>
+          <div class="kurizu-gate__input-wrap">
+            <input
+              type="password"
+              id="kurizuGatePassword"
+              class="kurizu-gate__input"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              maxlength="64"
+              placeholder="secret passphrase..."
+              required
+            >
+            <button type="button" class="kurizu-gate__eye" id="kurizuGateEye" aria-label="Show passphrase" aria-pressed="false">show</button>
+          </div>
+          <p class="kurizu-gate__error" id="kurizuGateError" role="status" aria-live="polite"></p>
+          <div class="kurizu-gate__actions">
+            <button type="submit" class="btn btn--small btn--primary" id="kurizuGateSubmit">yes, it's me</button>
+            <button type="button" class="btn btn--small" data-close-dialog>cancel</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="kurizu-gate__body" id="kurizuGateSessionView" hidden>
+        <div class="kurizu-gate__pet-row">
+          <img class="kurizu-gate__sprite" src="assets/Pet/head pat animation/SampleCharacter7_Blushing 1_2026-11-17-16-30-12.webp" alt="Wisteria happy" width="120" height="120">
+          <div class="kurizu-gate__bubble">
+            <strong>welcome back, kurizu!! ♡</strong>
+            <span>delete comments · tag fixed / not fixed</span>
+          </div>
+        </div>
+        <p class="kurizu-gate__mode" id="kurizuGateMode">operator session active</p>
+        <div class="kurizu-gate__actions">
+          <button type="button" class="btn btn--small btn--primary" id="kurizuLogoutBtn">log out</button>
+          <button type="button" class="btn btn--small" data-close-dialog>close</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <div class="pet" id="pet" aria-hidden="true">
     <div class="pet__stage">
       <div class="pet__bubble" id="petBubble" role="status" aria-live="polite"></div>
@@ -1096,8 +1155,8 @@
   <script src="slider.js"></script>
   <script src="tooltip.js"></script>
   <script src="button.js"></script>
-  <script src="js/site.config.js?v=interactive24"></script>
-  <script src="js/main.js?v=interactive25"></script>
+  <script src="js/site.config.js?v=interactive27"></script>
+  <script src="js/main.js?v=interactive29"></script>
   <script src="game/three.min.js"></script>
   <script src="game/GLTFLoader.js"></script>
   <script src="game/player_model_data.js"></script>

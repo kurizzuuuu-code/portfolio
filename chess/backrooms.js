@@ -411,10 +411,12 @@
     const camViewEl = hudEl ? hudEl.querySelector('#brCamViewfinder') : null;
     const stareFillEl = hudEl ? hudEl.querySelector('#brStareFill') : null;
     const pcBtn = hudEl ? hudEl.querySelector('#brPcBtn') : null;
+    const pickupBtn = hudEl ? hudEl.querySelector('#brPickupBtn') : null;
     const jumpscareSpanEl = jumpscareEl ? jumpscareEl.querySelector('span') : null;
     const vhsStampEl = hudEl ? hudEl.querySelector('#brVhsStamp') : null;
     let lastVhsStampKey = '';
     let vhsGlitchSpike = 0;
+    let l0TeleportGlitch = 0;
     let l0CamViewUniform = 0;
     let lastSceneRenderCalls = 0;
     let joyPointerId = null;
@@ -479,6 +481,7 @@
         uIntensity: { value: 1.0 },
         uRealm: { value: 0.0 },
         uCamView: { value: 0.0 },
+        uTeleportGlitch: { value: 0.0 },
         uResolution: { value: new THREE.Vector2(initVhsSz.w, initVhsSz.h) },
       },
       vertexShader: `
@@ -494,6 +497,7 @@
         uniform float uIntensity;
         uniform float uRealm;
         uniform float uCamView;
+        uniform float uTeleportGlitch;
         uniform vec2 uResolution;
         varying vec2 vUv;
 
@@ -532,10 +536,28 @@
           sampleUv.x += microJitter;
           sampleUv.x += lineNoise * trackingBand * 0.014;
           sampleUv.x += lineNoise * headSwitch * (0.018 * uIntensity);
+
+          float tearBand = 0.0;
+          float tpNoise = 0.0;
+          if (uTeleportGlitch > 0.001) {
+            float tick = floor(uTime * 34.0);
+            float coarseIdx = floor(uv.y * 18.0);
+            float fineIdx = floor(uv.y * 46.0);
+            float coarseShift = (vhsHash(vec2(coarseIdx, tick)) - 0.5) * 2.0;
+            float fineShift = (vhsHash(vec2(fineIdx, tick + 7.3)) - 0.5) * 2.0;
+            tearBand = step(0.45, vhsHash(vec2(coarseIdx + 3.1, tick + 1.9)));
+            float tpSliceShift = (coarseShift * tearBand * 0.08 + fineShift * 0.03) * uTeleportGlitch;
+            sampleUv.x += tpSliceShift;
+            sampleUv.y += (vhsHash(vec2(tick, 19.0)) - 0.5) * 0.022 * uTeleportGlitch;
+            tpNoise = vhsHash(vec2(floor(uv.x * 92.0), fineIdx + tick * 2.1));
+          }
           sampleUv = clamp(sampleUv, 0.001, 0.999);
 
-          // Radial fisheye chromatic dispersion + analog chroma smear
+          // Radial fisheye chromatic dispersion + analog chroma smear (+ teleport RGB split)
           vec2 caRadial = cUv * (0.0042 + 0.022 * r2) * uIntensity + vec2(trackingBand * 0.0042, 0.0);
+          if (uTeleportGlitch > 0.001) {
+            caRadial.x += (0.024 + 0.036 * tearBand) * uTeleportGlitch;
+          }
           float r = texture2D(tDiffuse, clamp(sampleUv + caRadial, 0.001, 0.999)).r;
           vec3 centerTap = texture2D(tDiffuse, sampleUv).rgb;
           float b = texture2D(tDiffuse, clamp(sampleUv - caRadial * vec2(1.0, 0.85), 0.001, 0.999)).b;
@@ -548,6 +570,11 @@
           float snow = vhsHash(vec2(floor(uv.x * uResolution.x * 0.5), floor(uv.y * uResolution.y) + floor(uTime * 30.0)));
           col += vec3(snow) * trackingBand * 0.16;
           col = mix(col, vec3(snow * 0.65 + 0.18), headSwitch * step(0.62, snow) * 0.55);
+          if (uTeleportGlitch > 0.001) {
+            float staticBar = tearBand * step(0.58, tpNoise) * uTeleportGlitch;
+            col = mix(col, vec3(0.92, 0.24, 0.62) * (0.45 + 0.55 * snow), staticBar * 0.52);
+            col += vec3(0.16, 0.82, 0.72) * step(0.84, snow) * tearBand * uTeleportGlitch * 0.45;
+          }
 
           // CRT scanlines + animated CMOS sensor grain
           float scan = 1.0 - (0.055 + 0.03 * uRealm) * (0.5 + 0.5 * sin(uv.y * uResolution.y * 1.15));
@@ -582,6 +609,434 @@
     const vhsPostQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), vhsPostMat);
     vhsPostQuad.frustumCulled = false;
     vhsPostScene.add(vhsPostQuad);
+
+    // Handheld Level 0 Camcorder viewmodel (Outlast-style, no hands) + live LCD feed target
+    let camcorderRaise = 0;
+    let camcorderEquipBlend = 0;
+    let camcorderVisible = false;
+    let camcorderFeedActive = false;
+    const camcorderFeedTarget = new THREE.WebGLRenderTarget(320, 200, {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+    });
+    const camcorderLensCamera = new THREE.PerspectiveCamera(64, 320 / 200, 0.08, 120);
+    const camcorderScene = new THREE.Scene();
+    const camcorderCamera = new THREE.PerspectiveCamera(
+      42,
+      Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight),
+      0.04,
+      6
+    );
+    camcorderScene.add(camcorderCamera);
+
+    const camKeyLight = new THREE.DirectionalLight(0xffe9ad, 1.45);
+    camKeyLight.position.set(0.4, 1.6, 0.8);
+    const camRimLight = new THREE.DirectionalLight(0x6c8c80, 0.52);
+    camRimLight.position.set(-1.2, 0.6, -0.5);
+    const camFillAmb = new THREE.AmbientLight(0x3f3928, 0.68);
+    const camLcdBounce = new THREE.PointLight(0x9ee89a, 0.30, 0.65);
+    camLcdBounce.position.set(-0.08, -0.02, 0.14);
+    camcorderScene.add(camKeyLight, camRimLight, camFillAmb);
+
+    function createCamcorderTextures() {
+      const sCan = document.createElement('canvas');
+      sCan.width = 256;
+      sCan.height = 256;
+      const sCtx = sCan.getContext('2d');
+      const sGrad = sCtx.createLinearGradient(0, 0, 0, 256);
+      sGrad.addColorStop(0, '#8c887d');
+      sGrad.addColorStop(0.42, '#636057');
+      sGrad.addColorStop(1, '#3b3935');
+      sCtx.fillStyle = sGrad;
+      sCtx.fillRect(0, 0, 256, 256);
+      for (let y = 0; y < 256; y++) {
+        const v = Math.floor(88 + Math.sin(y * 0.47) * 14 + ((y * 73) % 19));
+        sCtx.fillStyle = `rgba(${v},${v - 2},${v - 7},0.18)`;
+        sCtx.fillRect(0, y, 256, 1);
+      }
+      for (let i = 0; i < 420; i++) {
+        const sx = (i * 97) % 256;
+        const sy = (i * 53) % 256;
+        sCtx.fillStyle = (i % 3 === 0) ? 'rgba(25,22,18,0.16)' : 'rgba(180,170,148,0.10)';
+        sCtx.fillRect(sx, sy, (i % 4) + 1, 1);
+      }
+      sCtx.fillStyle = 'rgba(18, 17, 15, 0.55)';
+      sCtx.fillRect(0, 96, 256, 2);
+      sCtx.fillRect(0, 178, 256, 2);
+      sCtx.fillStyle = 'rgba(218, 210, 190, 0.24)';
+      sCtx.fillRect(0, 98, 256, 1);
+      const brushedSilverTex = new THREE.CanvasTexture(sCan);
+      brushedSilverTex.encoding = THREE.sRGBEncoding;
+
+      const gCan = document.createElement('canvas');
+      gCan.width = 128;
+      gCan.height = 128;
+      const gCtx = gCan.getContext('2d');
+      gCtx.fillStyle = '#141312';
+      gCtx.fillRect(0, 0, 128, 128);
+      for (let x = 0; x < 128; x += 4) {
+        gCtx.fillStyle = (x % 8 === 0) ? 'rgba(255,248,232,0.05)' : 'rgba(0,0,0,0.38)';
+        gCtx.fillRect(x, 0, 2, 128);
+      }
+      for (let y = 0; y < 128; y += 3) {
+        for (let x = 0; x < 128; x += 5) {
+          gCtx.fillStyle = ((x * 13 + y * 7) % 19 > 9) ? 'rgba(255,248,230,0.025)' : 'rgba(0,0,0,0.24)';
+          gCtx.fillRect(x, y, 2, 2);
+        }
+      }
+      const darkGripTex = new THREE.CanvasTexture(gCan);
+      darkGripTex.wrapS = THREE.RepeatWrapping;
+      darkGripTex.wrapT = THREE.RepeatWrapping;
+      darkGripTex.encoding = THREE.sRGBEncoding;
+      return { brushedSilverTex, darkGripTex };
+    }
+
+    const { brushedSilverTex, darkGripTex } = createCamcorderTextures();
+    const camSilverMat = new THREE.MeshStandardMaterial({
+      map: brushedSilverTex,
+      color: 0xa49f92,
+      metalness: 0.56,
+      roughness: 0.44,
+    });
+    const camSilverTrimMat = new THREE.MeshStandardMaterial({
+      color: 0xbcb6a6,
+      metalness: 0.68,
+      roughness: 0.34,
+    });
+    const camGunmetalMat = new THREE.MeshStandardMaterial({
+      color: 0x2c2b29,
+      metalness: 0.45,
+      roughness: 0.52,
+    });
+    const camDarkGripMat = new THREE.MeshStandardMaterial({
+      map: darkGripTex,
+      color: 0x1b1a19,
+      metalness: 0.08,
+      roughness: 0.88,
+    });
+    const camMatteBlackMat = new THREE.MeshStandardMaterial({
+      color: 0x121110,
+      metalness: 0.06,
+      roughness: 0.94,
+    });
+    const camEvfGlassMat = new THREE.MeshStandardMaterial({
+      color: 0x0b1f24,
+      metalness: 0.85,
+      roughness: 0.12,
+    });
+    const camcorderRecLedMat = new THREE.MeshBasicMaterial({ color: 0xff2a6d });
+    const camcorderPwrLedMat = new THREE.MeshBasicMaterial({ color: 0x34d399 });
+
+    const camcorderLcdMat = new THREE.ShaderMaterial({
+      uniforms: {
+        tFeed: { value: camcorderFeedTarget.texture },
+        uTime: { value: 0 },
+        uDanger: { value: 0 },
+        uGlitch: { value: 0 },
+        uNightShot: { value: 0 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D tFeed;
+        uniform float uTime;
+        uniform float uDanger;
+        uniform float uGlitch;
+        uniform float uNightShot;
+        varying vec2 vUv;
+
+        float lcdHash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+
+        void main() {
+          vec2 c = vUv - 0.5;
+          vec2 uv = vUv + c * dot(c, c) * 0.08;
+          float glitchAmt = clamp(uGlitch * 0.35 + uDanger * 0.45, 0.0, 1.0);
+          float tear = (lcdHash(vec2(floor(uv.y * 54.0), floor(uTime * 18.0))) - 0.5) * 0.025 * glitchAmt;
+          uv.x = clamp(uv.x + tear, 0.002, 0.998);
+          uv.y = clamp(uv.y, 0.002, 0.998);
+
+          vec3 raw = texture2D(tFeed, uv).rgb;
+          raw = pow(max(raw, vec3(0.0)), vec3(0.76));
+          vec3 baseCol = raw * 1.95 + vec3(0.03, 0.04, 0.02);
+          float lum = dot(baseCol, vec3(0.299, 0.587, 0.114));
+          vec3 camTint = mix(baseCol * vec3(0.96, 1.05, 0.80), vec3(lum * 0.62, lum * 1.08, lum * 0.74), 0.28 + uNightShot * 0.38);
+
+          float scan = 1.0 - 0.04 * (0.5 + 0.5 * sin(uv.y * 220.0 + uTime * 8.0));
+          float grain = (lcdHash(floor(uv * vec2(160.0, 100.0)) + floor(uTime * 24.0)) - 0.5) * (0.032 + glitchAmt * 0.05);
+          vec3 col = camTint * scan + grain;
+
+          float bezelVig = smoothstep(0.76, 0.25, length(c * vec2(1.06, 1.15)));
+          col *= mix(0.72, 1.0, bezelVig);
+
+          // Procedural mini-OSD: corner brackets + top-left battery + top-right blinking REC dot
+          float edgeX = min(uv.x, 1.0 - uv.x);
+          float edgeY = min(uv.y, 1.0 - uv.y);
+          float inCornerBox = step(0.045, edgeX) * step(edgeX, 0.15) * step(0.065, edgeY) * step(edgeY, 0.19);
+          float bracketLine = max(
+            step(edgeX, 0.056) * step(0.045, edgeX) * step(0.065, edgeY) * step(edgeY, 0.19),
+            step(edgeY, 0.080) * step(0.065, edgeY) * step(0.045, edgeX) * step(edgeX, 0.15)
+          );
+          col = mix(col, vec3(0.84, 0.98, 0.86), bracketLine * inCornerBox * 0.78);
+
+          // Battery outline top-left (uv.x in [0.06..0.16], uv.y in [0.85..0.92])
+          float bOut = step(0.065, uv.x) * step(uv.x, 0.155) * step(0.855, uv.y) * step(uv.y, 0.915);
+          float bIn = step(0.073, uv.x) * step(uv.x, 0.147) * step(0.868, uv.y) * step(uv.y, 0.902);
+          float bBars = step(0.077, uv.x) * step(uv.x, 0.143) * step(0.873, uv.y) * step(uv.y, 0.897)
+            * step(0.28, fract(uv.x * 46.0));
+          float bTip = step(0.155, uv.x) * step(uv.x, 0.165) * step(0.874, uv.y) * step(uv.y, 0.896);
+          col = mix(col, vec3(0.9, 0.98, 0.9), max(bOut - bIn, bTip) * 0.82);
+          col = mix(col, vec3(0.45, 0.96, 0.65), bBars * 0.88);
+
+          // Top-right REC dot & status tick
+          float recPulse = step(0.0, sin(uTime * 4.8));
+          float dRec = length((uv - vec2(0.89, 0.885)) * vec2(1.6, 1.0));
+          col = mix(col, vec3(1.0, 0.18, 0.42), (1.0 - smoothstep(0.018, 0.025, dRec)) * recPulse);
+          float recBar = step(0.76, uv.x) * step(uv.x, 0.855) * step(0.878, uv.y) * step(uv.y, 0.892);
+          col = mix(col, vec3(0.92, 0.96, 0.92), recBar * 0.72);
+
+          // Subtle center focus cross
+          float cx = step(abs(uv.x - 0.5), 0.004) * step(abs(uv.y - 0.5), 0.045);
+          float cy = step(abs(uv.y - 0.5), 0.0065) * step(abs(uv.x - 0.5), 0.028);
+          col = mix(col, vec3(0.82, 0.98, 0.86), max(cx, cy) * 0.42);
+
+          gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+        }
+      `,
+      toneMapped: false,
+    });
+
+    function buildCamcorderAssembly(lcdMat, includeBounceLight) {
+      const grp = new THREE.Group();
+
+      // 1. Upper graphite zoom lens barrel + ribbed front ring + chamfer bezel + top hot-shoe
+      const barrelGeo = new THREE.CylinderGeometry(0.056, 0.058, 0.248, 32);
+      barrelGeo.rotateX(Math.PI * 0.5);
+      const barrelMesh = new THREE.Mesh(barrelGeo, camSilverMat);
+      barrelMesh.position.set(0.0, 0.036, -0.018);
+      grp.add(barrelMesh);
+
+      const frontRingGeo = new THREE.CylinderGeometry(0.060, 0.059, 0.042, 32);
+      frontRingGeo.rotateX(Math.PI * 0.5);
+      const frontRing = new THREE.Mesh(frontRingGeo, camDarkGripMat);
+      frontRing.position.set(0.0, 0.036, -0.138);
+      grp.add(frontRing);
+
+      const frontTrimGeo = new THREE.CylinderGeometry(0.0615, 0.0615, 0.012, 32);
+      frontTrimGeo.rotateX(Math.PI * 0.5);
+      const frontTrim = new THREE.Mesh(frontTrimGeo, camSilverTrimMat);
+      frontTrim.position.set(0.0, 0.036, -0.114);
+      grp.add(frontTrim);
+
+      const lensHoodGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.016, 32);
+      lensHoodGeo.rotateX(Math.PI * 0.5);
+      const lensHood = new THREE.Mesh(lensHoodGeo, camMatteBlackMat);
+      lensHood.position.set(0.0, 0.036, -0.158);
+      grp.add(lensHood);
+
+      const lensChamferGeo = new THREE.CylinderGeometry(0.049, 0.053, 0.008, 28);
+      lensChamferGeo.rotateX(Math.PI * 0.5);
+      const lensChamfer = new THREE.Mesh(lensChamferGeo, camGunmetalMat);
+      lensChamfer.position.set(0.0, 0.036, -0.166);
+      grp.add(lensChamfer);
+
+      const zoomRocker = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.012, 0.036), camGunmetalMat);
+      zoomRocker.position.set(0.016, 0.094, 0.015);
+      grp.add(zoomRocker);
+
+      const hotShoe = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.006, 0.028), camGunmetalMat);
+      hotShoe.position.set(0.0, 0.092, -0.024);
+      grp.add(hotShoe);
+
+      const micGrille = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.010, 0.032), camDarkGripMat);
+      micGrille.position.set(0.0, 0.091, -0.072);
+      grp.add(micGrille);
+
+      // 2. Main chassis + left recessed control plate + right grip & strap
+      const mainBody = new THREE.Mesh(new THREE.BoxGeometry(0.104, 0.102, 0.214), camSilverMat);
+      mainBody.position.set(0.002, -0.018, 0.006);
+      grp.add(mainBody);
+
+      const topShoulder = new THREE.Mesh(new THREE.BoxGeometry(0.092, 0.024, 0.185), camSilverTrimMat);
+      topShoulder.position.set(0.004, 0.036, 0.018);
+      grp.add(topShoulder);
+
+      const leftRecessPlate = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.080, 0.165), camGunmetalMat);
+      leftRecessPlate.position.set(-0.049, -0.018, 0.008);
+      grp.add(leftRecessPlate);
+
+      const speakerGrid = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.006, 20), camMatteBlackMat);
+      speakerGrid.rotation.z = Math.PI * 0.5;
+      speakerGrid.position.set(-0.052, -0.024, -0.024);
+      grp.add(speakerGrid);
+
+      const rightGrip = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.090, 0.155), camDarkGripMat);
+      rightGrip.position.set(0.055, -0.018, 0.016);
+      grp.add(rightGrip);
+
+      const gripStrap = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.009, 8, 18, Math.PI * 0.92), camDarkGripMat);
+      gripStrap.rotation.x = Math.PI * 0.5;
+      gripStrap.rotation.z = -Math.PI * 0.46;
+      gripStrap.position.set(0.058, -0.022, 0.028);
+      grp.add(gripStrap);
+
+      // 3. Status LEDs + Rear REC thumb button
+      const recLed = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.0055, 0.016), camcorderRecLedMat);
+      recLed.position.set(-0.0545, 0.012, 0.030);
+      grp.add(recLed);
+
+      const pwrLed = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.0055, 0.016), camcorderPwrLedMat);
+      pwrLed.position.set(-0.0545, 0.012, 0.056);
+      grp.add(pwrLed);
+
+      const rearDot = new THREE.Mesh(new THREE.SphereGeometry(0.0042, 8, 8), camcorderPwrLedMat);
+      rearDot.position.set(0.045, 0.046, 0.114);
+      grp.add(rearDot);
+
+      const rearRecRim = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.014, 0.008, 16), camGunmetalMat);
+      rearRecRim.rotation.x = Math.PI * 0.5;
+      rearRecRim.position.set(0.042, -0.022, 0.114);
+      grp.add(rearRecRim);
+
+      const rearRecBtn = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.010, 14), camcorderRecLedMat);
+      rearRecBtn.rotation.x = Math.PI * 0.5;
+      rearRecBtn.position.set(0.042, -0.022, 0.117);
+      grp.add(rearRecBtn);
+
+      // 4. Rear rubber eyepiece viewfinder (EVF)
+      const evfStem = new THREE.Mesh(new THREE.BoxGeometry(0.062, 0.056, 0.052), camMatteBlackMat);
+      evfStem.position.set(0.0, 0.042, 0.122);
+      grp.add(evfStem);
+
+      const evfCup = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.066, 0.026), camMatteBlackMat);
+      evfCup.position.set(0.0, 0.042, 0.152);
+      grp.add(evfCup);
+
+      const evfRecess = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.042, 0.012), camMatteBlackMat);
+      evfRecess.position.set(0.0, 0.042, 0.160);
+      grp.add(evfRecess);
+
+      const evfLens = new THREE.Mesh(new THREE.PlaneGeometry(0.036, 0.030), camEvfGlassMat);
+      evfLens.position.set(0.0, 0.042, 0.167);
+      grp.add(evfLens);
+
+      // 5. Rear matte-black battery pack
+      const battery = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.084, 0.044), camMatteBlackMat);
+      battery.position.set(-0.006, -0.030, 0.130);
+      grp.add(battery);
+
+      const battSeam = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.080, 0.046), camGunmetalMat);
+      battSeam.position.set(0.014, -0.030, 0.130);
+      grp.add(battSeam);
+
+      // 6. Flip-out live-feed LCD assembly (left hinge, angled cleanly toward player)
+      const hingeKnuckle = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.046, 14), camGunmetalMat);
+      hingeKnuckle.position.set(-0.058, -0.016, -0.056);
+      grp.add(hingeKnuckle);
+
+      const lcdPivot = new THREE.Group();
+      lcdPivot.position.set(-0.062, -0.016, -0.056);
+      lcdPivot.rotation.y = 0.16;
+      grp.add(lcdPivot);
+
+      const lcdOuterShell = new THREE.Mesh(new THREE.BoxGeometry(0.156, 0.104, 0.015), camSilverMat);
+      lcdOuterShell.position.set(-0.082, 0, 0);
+      lcdPivot.add(lcdOuterShell);
+
+      const lcdInnerBezel = new THREE.Mesh(new THREE.BoxGeometry(0.140, 0.090, 0.0165), camMatteBlackMat);
+      lcdInnerBezel.position.set(-0.082, 0, 0.0005);
+      lcdPivot.add(lcdInnerBezel);
+
+      const lcdScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.128, 0.078), lcdMat);
+      lcdScreen.position.set(-0.082, 0, 0.0098);
+      lcdPivot.add(lcdScreen);
+
+      if (includeBounceLight) {
+        lcdPivot.add(camLcdBounce);
+      }
+      return grp;
+    }
+
+    const camcorderRig = new THREE.Group();
+    camcorderScene.add(camcorderRig);
+    const camcorderModel = buildCamcorderAssembly(camcorderLcdMat, true);
+    camcorderRig.add(camcorderModel);
+
+    function shouldRenderCamcorder() {
+      return active && currentRealm === 'level0' && l0HasCamcorder && !l0Caught && !l0PcRestarting && camcorderRaise < 0.94;
+    }
+
+    function updateCamcorderRig(dt, moving, sprinting) {
+      const clampDt = Math.min(Math.max(dt, 0.001), 0.06);
+      if (l0HasCamcorder && camcorderEquipBlend < 1.0) {
+        camcorderEquipBlend = Math.min(1.0, camcorderEquipBlend + clampDt * 3.2);
+      }
+      const equipEase = camcorderEquipBlend * camcorderEquipBlend * (3.0 - 2.0 * camcorderEquipBlend);
+      const equipDrop = (1.0 - equipEase) * 0.24;
+
+      const targetRaise = (currentRealm === 'level0' && l0HasCamcorder && l0CameraOn && !l0Caught && !l0PcRestarting) ? 1.0 : 0.0;
+      camcorderRaise += (targetRaise - camcorderRaise) * Math.min(1, clampDt * 11.0);
+
+      const t = camcorderRaise;
+      const raiseEase = t * t * (3.0 - 2.0 * t);
+
+      const rec = landRecoverTimer > 0 ? (landRecoverTimer / LAND_RECOVER_DUR) : 0;
+      const landDip = rec > 0 ? Math.pow(rec, 1.35) * 0.065 : 0;
+      const airDip = fallActive ? 0.045 : 0;
+
+      const strideAmp = (0.011 + camSprintBlend * 0.009) * camMoveBlend;
+      const bobX = Math.cos(bobPhase) * strideAmp + Math.sin(brTime * 0.9) * 0.0022;
+      const bobY = -Math.abs(Math.sin(bobPhase)) * (0.013 + camSprintBlend * 0.010) * camMoveBlend
+        + Math.sin(brTime * 1.55) * 0.0032;
+
+      const yawLag = Math.max(-0.22, Math.min(0.22, yaw - camLagYaw));
+      const pitchLag = Math.max(-0.18, Math.min(0.18, pitch - camLagPitch));
+      const tremor = l0Danger > 0.25 ? Math.sin(brTime * 38.0) * 0.0035 * l0Danger : 0;
+
+      const portrait = camcorderCamera.aspect < 1.0;
+      const baseX = portrait ? 0.105 : 0.142;
+      const baseY = portrait ? -0.115 : -0.105;
+      const baseZ = portrait ? -0.54 : -0.485;
+      const rigScale = portrait ? 0.76 : 1.0;
+
+      const curX = baseX + (0.02 - baseX) * raiseEase + (bobX - yawLag * 0.09 + tremor) * (1.0 - raiseEase * 0.7);
+      const curY = baseY + (0.005 - baseY) * raiseEase + (bobY + pitchLag * 0.07 - landDip - airDip - equipDrop) * (1.0 - raiseEase * 0.7);
+      const curZ = baseZ + (-0.22 - baseZ) * raiseEase;
+
+      camcorderRig.position.set(curX, curY, curZ);
+      camcorderRig.scale.setScalar(rigScale);
+      camcorderRig.rotation.set(
+        0.04 * (1.0 - raiseEase) - pitchLag * 0.22 - camPitchBobCur * 0.45,
+        0.22 * (1.0 - raiseEase) - yawLag * 0.32,
+        -0.02 * (1.0 - raiseEase) + camTurnRollCur * 0.45 + camRollCur * 0.35
+      );
+
+      // Match Level 0 warm fluorescent overhead flicker + crimson danger shift
+      const flick = 0.92 + 0.08 * Math.sin(brTime * 24.0) * Math.sin(brTime * 9.0);
+      const dangerShift = Math.min(1, l0Danger * 0.85);
+      camKeyLight.intensity = (1.35 + (l0Danger > 0.15 ? Math.sin(brTime * 38.0) * 0.14 * l0Danger : 0)) * flick;
+      camKeyLight.color.setRGB(
+        1.0,
+        0.91 - dangerShift * 0.46,
+        0.68 - dangerShift * 0.28
+      );
+
+      const ledOn = Math.sin(brTime * 4.8) > 0;
+      camcorderRecLedMat.color.setHex(ledOn ? 0xff2a6d : 0x4b0b22);
+      camcorderLcdMat.uniforms.uTime.value = brTime;
+      camcorderLcdMat.uniforms.uDanger.value = l0Danger;
+      camcorderLcdMat.uniforms.uGlitch.value = vhsGlitchSpike + l0TeleportGlitch * 1.4;
+      camcorderLcdMat.uniforms.uNightShot.value = l0CamViewUniform;
+
+      camcorderVisible = shouldRenderCamcorder();
+    }
 
     const ambientLight = new THREE.AmbientLight(0xc8def4, 0.48);
     const hemiLight = new THREE.HemisphereLight(0x9fd0ff, 0x32401b, 0.70);
@@ -1905,6 +2360,121 @@
     l0PcGroup.position.copy(l0PcPos);
     l0Scene.add(l0PcGroup);
 
+    // Ground Camcorder Pickup (spawns on the floor right ahead of Level 0 spawn)
+    let l0HasCamcorder = false;
+    let l0PickupDist = 99;
+    let currentIsTouchLike = false;
+    const l0PickupPos = new THREE.Vector3(0.0, 0.0, -3.1);
+
+    const l0PickupLcdMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          float flick = 0.85 + 0.15 * sin(uTime * 11.0);
+          vec3 col = mix(vec3(0.08, 0.20, 0.11), vec3(0.28, 0.56, 0.34), smoothstep(0.0, 0.7, vUv.y)) * flick;
+          float dRec = length((vUv - vec2(0.86, 0.86)) * vec2(1.5, 1.0));
+          float pulse = step(0.0, sin(uTime * 4.5));
+          col = mix(col, vec3(1.0, 0.22, 0.44), (1.0 - smoothstep(0.022, 0.032, dRec)) * pulse);
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `,
+      toneMapped: false,
+    });
+
+    const l0PickupCamGroup = new THREE.Group();
+    const l0PickupShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.42, 20),
+      new THREE.MeshBasicMaterial({ color: 0x050402, transparent: true, opacity: 0.65 })
+    );
+    l0PickupShadow.rotation.x = -Math.PI * 0.5;
+    l0PickupShadow.position.y = 0.012;
+    l0PickupCamGroup.add(l0PickupShadow);
+
+    const l0PickupRingMat = new THREE.MeshBasicMaterial({
+      color: 0x6ee7b7,
+      transparent: true,
+      opacity: 0.65,
+      side: THREE.DoubleSide,
+    });
+    const l0PickupRing = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.38, 28), l0PickupRingMat);
+    l0PickupRing.rotation.x = -Math.PI * 0.5;
+    l0PickupRing.position.y = 0.016;
+    l0PickupCamGroup.add(l0PickupRing);
+
+    const l0PickupCamMesh = buildCamcorderAssembly(l0PickupLcdMat, false);
+    l0PickupCamMesh.scale.setScalar(2.15);
+    l0PickupCamMesh.position.set(0, 0.145, 0);
+    l0PickupCamMesh.rotation.set(-0.08, 0.58, 0.05);
+    l0PickupCamGroup.add(l0PickupCamMesh);
+
+    const l0PickupLight = new THREE.PointLight(0x88f7b8, 1.35, 6.2, 1.6);
+    l0PickupLight.position.set(0, 0.42, 0);
+    l0PickupCamGroup.add(l0PickupLight);
+
+    l0PickupCamGroup.position.copy(l0PickupPos);
+    l0Scene.add(l0PickupCamGroup);
+
+    function playCamcorderPickupSfx() {
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        const now = ctx.currentTime;
+        const click = ctx.createOscillator();
+        const cg = ctx.createGain();
+        click.type = 'triangle';
+        click.frequency.setValueAtTime(640, now);
+        click.frequency.exponentialRampToValueAtTime(190, now + 0.055);
+        cg.gain.setValueAtTime(0.16, now);
+        cg.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+        click.connect(cg).connect(ctx.destination);
+        click.start(now);
+        click.stop(now + 0.065);
+
+        const whirr = ctx.createOscillator();
+        const wg = ctx.createGain();
+        whirr.type = 'sawtooth';
+        whirr.frequency.setValueAtTime(160, now + 0.04);
+        whirr.frequency.exponentialRampToValueAtTime(420, now + 0.18);
+        wg.gain.setValueAtTime(0.001, now + 0.04);
+        wg.gain.linearRampToValueAtTime(0.06, now + 0.07);
+        wg.gain.exponentialRampToValueAtTime(0.001, now + 0.21);
+        whirr.connect(wg).connect(ctx.destination);
+        whirr.start(now + 0.04);
+        whirr.stop(now + 0.22);
+      } catch {}
+    }
+
+    function pickupL0Camcorder(silent) {
+      if (l0HasCamcorder) return;
+      l0HasCamcorder = true;
+      camcorderEquipBlend = 0;
+      l0PickupDist = 99;
+      l0PickupCamGroup.visible = false;
+      l0PickupLight.intensity = 0;
+      if (pickupBtn) pickupBtn.hidden = true;
+      if (flashBtn && currentRealm === 'level0') {
+        flashBtn.hidden = false;
+        flashBtn.classList.toggle('is-active', false);
+        flashBtn.setAttribute('aria-pressed', 'false');
+        flashBtn.textContent = 'CAMERA: OFF [F]';
+      }
+      if (hintLabel && currentRealm === 'level0') {
+        hintLabel.textContent = currentIsTouchLike
+          ? 'Left stick · Drag look · Tap CAMERA to spot her (don\'t stare!) · Find & restart the PC'
+          : 'WASD move · F / Right-Click camera (don\'t stare!) · Find PC & [E] restart · ESC wake up';
+      }
+      if (!silent) playCamcorderPickupSfx();
+    }
+
     function wrapLevel0Entities() {
       const baseTX = Math.round(pos.x / L0_TILE);
       const baseTZ = Math.round(pos.z / L0_TILE);
@@ -2103,6 +2673,7 @@
     let l0StareTimer = 0;
     const L0_STARE_LIMIT = 2.2;
     let l0TeleportCount = 0;
+    let l0TeleportSfxCount = 0;
     let l0CaughtReason = null;
     let l0KnowsPlayer = true;
     const l0LastKnownPos = new THREE.Vector3(0, 0, 0);
@@ -2196,6 +2767,7 @@
       l0ChaserGroup.visible = l0ChaserLoaded;
       if (hudEl) hudEl.classList.remove('is-active');
       if (pcBtn) pcBtn.hidden = true;
+      if (pickupBtn) pickupBtn.hidden = true;
       updateCamViewfinderUI();
       if (dangerEl) dangerEl.style.setProperty('--danger', '1');
       if (jumpscareSpanEl) {
@@ -2222,6 +2794,7 @@
       vhsGlitchSpike = 2.8;
       if (hudEl) hudEl.classList.remove('is-active');
       if (pcBtn) pcBtn.hidden = true;
+      if (pickupBtn) pickupBtn.hidden = true;
       updateCamViewfinderUI();
       if (jumpscareSpanEl) jumpscareSpanEl.textContent = 'SYSTEM REBOOTING...';
       if (jumpscareEl) {
@@ -2483,13 +3056,13 @@
       const canSeeWisteria = l0CameraOn && l0ChaserLoaded;
 
       // 2. Blind-wander ambush: walking/running around without checking the camera causes her to teleport ahead
-      if (!l0CameraOn && isMoving) {
+      if (!l0CameraOn && isMoving && (l0HasCamcorder || Math.hypot(pos.x, pos.z) > 5.5)) {
         l0CamOffWanderTimer += dt * (isSprinting ? 1.85 : 1.0);
         if (l0CamOffWanderTimer >= l0NextAmbushAt) {
           l0CamOffWanderTimer = 0;
           l0NextAmbushAt = 3.2 + Math.random() * 2.0;
-          const distChoices = [5.8, 4.8, 7.0, 3.9];
-          const angChoices = [0, 0.25, -0.25, 0.52, -0.52];
+          const distChoices = [10.5, 9.0, 12.2, 7.8, 6.4, 5.4];
+          const angChoices = [0, 0.22, -0.22, 0.46, -0.46, 0.72, -0.72];
           let placed = false;
           for (let dIdx = 0; dIdx < distChoices.length && !placed; dIdx++) {
             for (let aIdx = 0; aIdx < angChoices.length; aIdx++) {
@@ -2507,8 +3080,7 @@
           if (placed) {
             l0TeleportCount++;
             l0AmbushBoost = 2.6;
-            vhsGlitchSpike = Math.max(vhsGlitchSpike, 0.85);
-            playStaticVanishSfx();
+            playL0TeleportAmbushSfx();
             bfsTimer = 0;
           }
         }
@@ -2790,6 +3362,81 @@
       } catch {}
     }
 
+    function playL0TeleportAmbushSfx() {
+      vhsGlitchSpike = Math.max(vhsGlitchSpike, 1.55);
+      l0TeleportGlitch = 1.0;
+      l0TeleportSfxCount++;
+      const ctx = getAudio();
+      if (!ctx) return;
+      try {
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        const now = ctx.currentTime;
+
+        // 1. Deep sub-bass spatial drop (cuts cleanly underneath the fluorescent hum)
+        const sub = ctx.createOscillator();
+        const subG = ctx.createGain();
+        sub.type = 'sine';
+        sub.frequency.setValueAtTime(135, now);
+        sub.frequency.exponentialRampToValueAtTime(36, now + 0.48);
+        subG.gain.setValueAtTime(0.001, now);
+        subG.gain.linearRampToValueAtTime(0.34, now + 0.025);
+        subG.gain.exponentialRampToValueAtTime(0.0001, now + 0.50);
+        sub.connect(subG).connect(ctx.destination);
+        sub.start(now);
+        sub.stop(now + 0.52);
+
+        // 2. Eerie detuned horror sting signaling she warped right ahead
+        [587.33, 622.25].forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const bp = ctx.createBiquadFilter();
+          const g = ctx.createGain();
+          osc.type = idx === 0 ? 'sawtooth' : 'triangle';
+          osc.frequency.setValueAtTime(freq, now);
+          osc.frequency.exponentialRampToValueAtTime(freq * 0.90, now + 0.58);
+          bp.type = 'bandpass';
+          bp.frequency.value = 1400;
+          bp.Q.value = 1.6;
+          g.gain.setValueAtTime(0.001, now);
+          g.gain.linearRampToValueAtTime(0.14, now + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + 0.62);
+          osc.connect(bp).connect(g).connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.64);
+        });
+
+        // 3. Sharp VHS static tear + downward electric blink warp
+        const len = Math.floor(ctx.sampleRate * 0.38);
+        const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+        const ch = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) {
+          ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.14));
+        }
+        const nSrc = ctx.createBufferSource();
+        nSrc.buffer = buf;
+        const nBp = ctx.createBiquadFilter();
+        nBp.type = 'bandpass';
+        nBp.frequency.setValueAtTime(2800, now);
+        nBp.frequency.exponentialRampToValueAtTime(900, now + 0.36);
+        nBp.Q.value = 1.4;
+        const nG = ctx.createGain();
+        nG.gain.setValueAtTime(0.24, now);
+        nG.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+        nSrc.connect(nBp).connect(nG).connect(ctx.destination);
+        nSrc.start(now);
+
+        const chirp = ctx.createOscillator();
+        const cG = ctx.createGain();
+        chirp.type = 'triangle';
+        chirp.frequency.setValueAtTime(1650, now);
+        chirp.frequency.exponentialRampToValueAtTime(240, now + 0.11);
+        cG.gain.setValueAtTime(0.14, now);
+        cG.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        chirp.connect(cG).connect(ctx.destination);
+        chirp.start(now);
+        chirp.stop(now + 0.13);
+      } catch {}
+    }
+
     function playCeilingBreachSfx() {
       const ctx = getAudio();
       if (!ctx) return;
@@ -3064,6 +3711,7 @@
     function stepSimulation(dt, directStepX, directStepZ, testOpts) {
       brTime += dt;
       vhsGlitchSpike = Math.max(0, vhsGlitchSpike - dt * 2.8);
+      l0TeleportGlitch = Math.max(0, l0TeleportGlitch - dt * 1.65);
       const targetCamView = (currentRealm === 'level0' && l0CameraOn && !l0Caught && !l0PcRestarting) ? 1.0 : 0.0;
       l0CamViewUniform += (targetCamView - l0CamViewUniform) * Math.min(1, dt * 16.0);
       if (vhsStampEl) {
@@ -3101,7 +3749,7 @@
           str += joyX;
         }
         if (keys.KeyQ) yaw += clampedDt * 1.85;
-        if (keys.KeyE && !(currentRealm === 'level0' && l0PcDist < 3.2)) yaw -= clampedDt * 1.85;
+        if (keys.KeyE && !(currentRealm === 'level0' && ((!l0HasCamcorder && l0PickupDist < 3.4) || l0PcDist < 3.2))) yaw -= clampedDt * 1.85;
         const mag = Math.hypot(fwd, str);
         if (mag > 0.05) {
           moving = true;
@@ -3197,12 +3845,25 @@
         l0FlashSpot.intensity = l0CameraOn ? 3.4 : 0.0;
 
         wrapLevel0Entities();
+        l0PickupDist = l0HasCamcorder ? 99 : Math.hypot(l0PickupPos.x - pos.x, l0PickupPos.z - pos.z);
+        if (!l0HasCamcorder) {
+          l0PickupLcdMat.uniforms.uTime.value = brTime;
+          const pulse = 0.5 + 0.5 * Math.sin(brTime * 4.2);
+          l0PickupRingMat.opacity = 0.35 + pulse * 0.45;
+          l0PickupRing.scale.setScalar(0.94 + pulse * 0.14);
+          l0PickupLight.intensity = 1.15 + pulse * 0.45;
+          if (!fallActive && !l0Caught && !l0PcRestarting && l0PickupDist < 1.1) {
+            pickupL0Camcorder();
+          }
+        }
+        if (pickupBtn) pickupBtn.hidden = !(!l0HasCamcorder && !fallActive && !l0Caught && !l0PcRestarting && l0PickupDist < 3.4);
         if (pcBtn) pcBtn.hidden = !(l0PcDist < 3.2 && !l0Caught && !l0PcRestarting && !fallActive);
         if (!fallActive) {
           stepLevel0WisteriaChase(dt, moving, sprinting);
         } else {
           l0ChaserGroup.visible = false;
         }
+        updateCamcorderRig(clampedDt, moving, sprinting);
 
         l0FloorMat.uniforms.uTime.value = brTime;
         l0FloorMat.uniforms.uCenterX.value = pos.x;
@@ -3341,9 +4002,14 @@
         exit();
         return;
       }
-      if (e.code === 'KeyF' && !e.repeat && currentRealm === 'level0' && !l0Caught && !l0PcRestarting) {
+      if (e.code === 'KeyF' && !e.repeat && currentRealm === 'level0' && l0HasCamcorder && !l0Caught && !l0PcRestarting) {
         e.preventDefault();
         setL0Camera(!l0CameraOn);
+        return;
+      }
+      if (e.code === 'KeyE' && !e.repeat && currentRealm === 'level0' && !l0HasCamcorder && !fallActive && !l0Caught && !l0PcRestarting && l0PickupDist < 3.4) {
+        e.preventDefault();
+        pickupL0Camcorder();
         return;
       }
       if (e.code === 'KeyE' && !e.repeat && currentRealm === 'level0' && !l0Caught && !l0PcRestarting && l0PcDist < 3.2) {
@@ -3355,10 +4021,17 @@
     }
 
     function onFlashBtnClick(e) {
-      if (!active || currentRealm !== 'level0' || l0Caught || l0PcRestarting) return;
+      if (!active || currentRealm !== 'level0' || !l0HasCamcorder || l0Caught || l0PcRestarting) return;
       e.preventDefault();
       e.stopPropagation();
       setL0Camera(!l0CameraOn);
+    }
+
+    function onPickupBtnClick(e) {
+      if (!active || currentRealm !== 'level0' || l0HasCamcorder || fallActive || l0Caught || l0PcRestarting) return;
+      e.preventDefault();
+      e.stopPropagation();
+      pickupL0Camcorder();
     }
 
     function onPcBtnClick(e) {
@@ -3369,7 +4042,7 @@
     }
 
     function onCanvasRightClick(e) {
-      if (!active || currentRealm !== 'level0' || l0Caught || l0PcRestarting) return;
+      if (!active || currentRealm !== 'level0' || !l0HasCamcorder || l0Caught || l0PcRestarting) return;
       e.preventDefault();
       setL0Camera(!l0CameraOn);
     }
@@ -3554,6 +4227,9 @@
       if (pcBtn) {
         pcBtn.addEventListener('click', onPcBtnClick);
       }
+      if (pickupBtn) {
+        pickupBtn.addEventListener('click', onPickupBtnClick);
+      }
     }
 
     function detachListeners() {
@@ -3581,6 +4257,9 @@
       }
       if (pcBtn) {
         pcBtn.removeEventListener('click', onPcBtnClick);
+      }
+      if (pickupBtn) {
+        pickupBtn.removeEventListener('click', onPickupBtnClick);
       }
       resetJoystick();
       lookTouchId = null;
@@ -3610,23 +4289,36 @@
       if (hudEl) {
         hudEl.classList.toggle('has-touch', !!isTouchLike);
       }
+      currentIsTouchLike = !!isTouchLike;
       if (levelLabel) {
         levelLabel.textContent = currentRealm === 'level0'
           ? 'LEVEL 0 · THE LOBBY'
           : 'LEVEL 94 · MOTION (PLAINS)';
       }
       if (flashBtn) {
-        flashBtn.hidden = currentRealm !== 'level0';
+        flashBtn.hidden = true;
       }
       if (pcBtn) pcBtn.hidden = true;
+      if (pickupBtn) pickupBtn.hidden = true;
       l0CameraOn = false;
+      l0HasCamcorder = false;
+      l0PickupDist = 99;
       l0CamOffWanderTimer = 0;
       l0NextAmbushAt = 3.6;
       l0AmbushBoost = 0;
       l0StareTimer = 0;
       l0TeleportCount = 0;
+      l0TeleportSfxCount = 0;
       l0CaughtReason = null;
       l0CamViewUniform = 0;
+      l0TeleportGlitch = 0;
+      camcorderRaise = 0;
+      camcorderEquipBlend = 0;
+      camcorderVisible = false;
+      camcorderFeedActive = false;
+      l0PickupCamGroup.position.copy(l0PickupPos);
+      l0PickupCamGroup.visible = currentRealm === 'level0';
+      l0PickupLight.intensity = currentRealm === 'level0' ? 1.35 : 0;
       l0PcBaseX = L0_PC_ALCOVES[0][0];
       l0PcBaseZ = L0_PC_ALCOVES[0][1];
       l0PcPos.set(l0PcBaseX, 0, l0PcBaseZ);
@@ -3657,8 +4349,8 @@
       if (hintLabel) {
         if (currentRealm === 'level0') {
           hintLabel.textContent = isTouchLike
-            ? 'Left stick · Drag look · Tap CAMERA to spot her (don\'t stare!) · Find & restart the PC'
-            : 'WASD move · F / Right-Click camera (don\'t stare!) · Find PC & [E] restart · ESC wake up';
+            ? 'Left stick · Drag look · Pick up camcorder ahead · Find & restart the PC'
+            : 'WASD move · Pick up camcorder ahead [E] · Find PC & [E] restart · ESC wake up';
         } else {
           hintLabel.textContent = isTouchLike
             ? 'Left stick to move · Drag screen to look · Tap RUN'
@@ -3767,6 +4459,7 @@
       }
       if (flashBtn) flashBtn.hidden = true;
       if (pcBtn) pcBtn.hidden = true;
+      if (pickupBtn) pickupBtn.hidden = true;
       if (camViewEl) {
         camViewEl.hidden = true;
         camViewEl.classList.remove('is-active', 'is-warn');
@@ -3783,18 +4476,69 @@
       landRecoverTimer = 0;
       camFovCur = BODYCAM_BASE_FOV;
       l0CamViewUniform = 0;
+      l0TeleportGlitch = 0;
+      camcorderRaise = 0;
+      camcorderEquipBlend = 0;
+      l0HasCamcorder = false;
+      camcorderVisible = false;
+      camcorderFeedActive = false;
       onExit();
     }
 
     function renderActiveScene() {
+      const renderCamcorder = shouldRenderCamcorder();
+      camcorderVisible = renderCamcorder;
+
+      if (renderCamcorder) {
+        camcorderLensCamera.position.copy(brCamera.position);
+        camcorderLensCamera.position.y -= 0.04;
+        camcorderLensCamera.quaternion.copy(brCamera.quaternion);
+
+        const prevFlashInt = l0FlashSpot.intensity;
+        const prevFloorFlash = l0FloorMat.uniforms.uFlashOn.value;
+        const prevCeilFlash = l0CeilMat.uniforms.uFlashOn.value;
+        const prevWallFlash = l0WallMat.uniforms.uFlashOn.value;
+        const prevChaserVis = l0ChaserGroup.visible;
+
+        l0FlashSpot.intensity = Math.max(prevFlashInt, 2.35);
+        l0FloorMat.uniforms.uFlashOn.value = 1.0;
+        l0CeilMat.uniforms.uFlashOn.value = 1.0;
+        l0WallMat.uniforms.uFlashOn.value = 1.0;
+        l0ChaserGroup.visible = l0ChaserLoaded && !fallActive;
+
+        renderer.setRenderTarget(camcorderFeedTarget);
+        renderer.clear();
+        renderer.render(l0Scene, camcorderLensCamera);
+        camcorderFeedActive = true;
+
+        l0FlashSpot.intensity = prevFlashInt;
+        l0FloorMat.uniforms.uFlashOn.value = prevFloorFlash;
+        l0CeilMat.uniforms.uFlashOn.value = prevCeilFlash;
+        l0WallMat.uniforms.uFlashOn.value = prevWallFlash;
+        l0ChaserGroup.visible = prevChaserVis;
+      } else {
+        camcorderFeedActive = false;
+      }
+
       renderer.setRenderTarget(vhsTarget);
       renderer.clear();
       renderer.render(currentRealm === 'level0' ? l0Scene : brScene, brCamera);
       lastSceneRenderCalls = renderer.info && renderer.info.render ? renderer.info.render.calls : 0;
+      if (renderCamcorder) {
+        const prevAutoClear = renderer.autoClear;
+        renderer.autoClear = false;
+        try {
+          renderer.clearDepth();
+          renderer.render(camcorderScene, camcorderCamera);
+        } finally {
+          renderer.autoClear = prevAutoClear;
+        }
+      }
       renderer.setRenderTarget(null);
       vhsPostMat.uniforms.uTime.value = brTime;
       vhsPostMat.uniforms.uRealm.value = currentRealm === 'level0' ? 1.0 : 0.0;
       vhsPostMat.uniforms.uCamView.value = l0CamViewUniform;
+      vhsPostMat.uniforms.uTeleportGlitch.value = l0TeleportGlitch;
       vhsPostMat.uniforms.uIntensity.value = 1.0 + (currentRealm === 'level0' ? l0Danger * 1.45 : 0) + vhsGlitchSpike * 1.25;
       renderer.render(vhsPostScene, vhsPostCam);
     }
@@ -3877,9 +4621,17 @@
         l0CameraOn,
         l0FlashlightOn: l0CameraOn,
         l0ChaserVisible: l0ChaserGroup.visible,
+        l0HasCamcorder,
+        l0PickupDist: +l0PickupDist.toFixed(2),
+        l0PickupPos: { x: +l0PickupPos.x.toFixed(2), z: +l0PickupPos.z.toFixed(2) },
+        camcorderVisible,
+        camcorderRaise: +camcorderRaise.toFixed(3),
+        camcorderFeedActive,
         l0StareTimer: +l0StareTimer.toFixed(2),
         l0CamOffWanderTimer: +l0CamOffWanderTimer.toFixed(2),
         l0TeleportCount,
+        l0TeleportSfxCount,
+        l0TeleportGlitch: +l0TeleportGlitch.toFixed(3),
         l0CaughtReason,
         l0HumActive,
         bodyCamRoll: +brCamera.rotation.z.toFixed(4),
@@ -3914,8 +4666,11 @@
     }
 
     function resize(w, h) {
-      brCamera.aspect = Math.max(1, w) / Math.max(1, h);
+      const aspect = Math.max(1, w) / Math.max(1, h);
+      brCamera.aspect = aspect;
       brCamera.updateProjectionMatrix();
+      camcorderCamera.aspect = aspect;
+      camcorderCamera.updateProjectionMatrix();
       const sz = getVhsTargetSize(w, h);
       vhsTarget.setSize(sz.w, sz.h);
       vhsPostMat.uniforms.uResolution.value.set(sz.w, sz.h);
@@ -3929,7 +4684,11 @@
       },
       stepForTest,
       teleportForTest,
-      setL0Camera: (on) => setL0Camera(on, true),
+      setL0Camera: (on) => {
+        if (on && !l0HasCamcorder) pickupL0Camcorder(true);
+        setL0Camera(on, true);
+      },
+      pickupL0Camcorder: () => pickupL0Camcorder(true),
       triggerL0PcRestart,
       getDebugState,
       exit,

@@ -220,7 +220,7 @@ window.KURIZU = {
     {
       id: "wisp",
       title: "Wisp",
-      subtitle: "Purple pixel download manager + browser extension",
+      subtitle: "Purple pixel download manager, BitTorrent + browser extension",
       category: "desktop",
       categoryLabel: "Desktop app",
       year: "2026",
@@ -237,48 +237,64 @@ window.KURIZU = {
         label: "Wisp tutorial · 2:19",
       },
       blurb:
-        "One wisp, many hands — a purple pixel Windows download manager built with Tauri 2 + Rust that splits downloads across up to 16 connections, resumes crashes, and pairs with a direct-download browser extension.",
+        "One wisp, many hands — a purple pixel Windows download manager built with Tauri 2 + Rust with 16-worker segmented HTTP downloads, native BitTorrent/magnet support, Midnight dark mode, system tray autostart, and an auto-intercept browser extension.",
       description:
-        "Wisp is a purple pixel download manager for Windows powered by Tauri 2 + Rust and themed around Wisteria keeping your hoard. It splits HTTP Range downloads across up to 16 parallel workers, handles YouTube and 1,000+ video sites via yt-dlp, persists block cursors to survive crashes and pauses cleanly, and ships with a companion Chrome/Edge/Brave Manifest V3 extension that intercepts downloads, media, links, and .torrent files straight into Wisp.",
+        "Wisp is a purple pixel download manager for Windows powered by Tauri 2 + Rust and themed around Wisteria keeping your hoard. It splits HTTP Range downloads across up to 16 parallel workers, handles native BitTorrent & magnet links via librqbit, captures YouTube and 1,000+ video sites through yt-dlp with media sniffing and cookie forwarding, features Midnight dark mode and close-to-system-tray Windows autostart, and pairs with companion Chrome/Edge/Brave & Firefox extensions that auto-intercept downloads, media, links, and .torrent files straight into Wisp.",
       highlights: [
-        "Segmented HTTP Range downloads with up to 16 parallel workers + honest single-connection fallback",
-        "YouTube + 1,000+ sites supported through yt-dlp with optional ffmpeg merging",
-        "Crash-safe pause/resume persisting block cursors & settings locally (no cloud or telemetry)",
-        "Companion Chrome/Edge/Brave extension (v0.2.0) — download directly below to intercept links, media & torrents",
-        "Built with Tauri v2 + Rust + vanilla HTML/CSS/JS — tiny footprint, zero Chromium bloat",
+        "Segmented HTTP Range downloads with up to 16 parallel workers + crash-safe pause/resume cursor persistence",
+        "Native BitTorrent & magnet link downloads built directly into Wisp via librqbit",
+        "YouTube + 1,000+ video sites supported via yt-dlp with live media sniffing & authenticated cookie/referer forwarding",
+        "Midnight Mode (deep plum dark theme), close-to-system-tray background running & Start with Windows autostart toggle",
+        "Companion Chrome/Edge/Brave & Firefox extensions (v0.2.1) with auto-intercept, floating video button & .torrent capture",
+        "Open-source Tauri v2 + Rust + vanilla HTML/CSS/JS desktop app — tiny footprint, zero telemetry",
       ],
-      tags: ["Tauri", "Rust", "Chrome Extension", "JavaScript"],
+      tags: ["Tauri", "Rust", "BitTorrent", "Chrome Extension", "Firefox Add-on", "JavaScript"],
       gallery: [
         "assets/images/project-wisp.png",
       ],
       extensionInstallNote:
-        "To use the browser extension with Wisp: click “download extension (.zip)” above, unzip the folder, open chrome://extensions (or edge://extensions), enable Developer mode, click Load unpacked, and select the unzipped folder while Wisp is running.",
+        "Chrome / Edge / Brave: download the Chrome/Edge .zip, unzip it, open chrome://extensions (or edge://extensions), enable Developer mode, click Load unpacked, and select the unzipped folder. Firefox: download the Firefox .zip, open about:debugging#/runtime/this-firefox, click Load Temporary Add-on, and select wisp-extension-firefox.zip (or unzip and pick manifest.json) while Wisp is running.",
       links: [
         {
           label: "download Wisp (Windows)",
           icon: "download",
-          url: "https://mega.nz/file/7TQz3Iia#8-ta0GHqY5z4S3Y5j70ij03NQdgLrMh2y4WD3DeGBY8",
+          url: "https://mega.nz/file/KKI1kK6K#FYfQs134Imj6fKKn0th1xzDMctjPbLcLHfDkaMQn_D0",
           primary: true,
         },
         {
-          label: "download extension (.zip)",
+          label: "extension (Chrome/Edge)",
           icon: "puzzle",
-          url: "assets/downloads/wisp-extension.zip",
-          download: "wisp-extension.zip",
+          url: "https://mega.nz/file/zCIBSK7R#IyxQEydqVafpo5xsuEcjcF1uXl7MUz8O9DHPhCV5Zgc",
           primary: true,
+        },
+        {
+          label: "extension (Firefox)",
+          icon: "puzzle",
+          url: "assets/downloads/wisp-extension-firefox.zip",
+          download: "wisp-extension-firefox.zip",
+          primary: true,
+        },
+        {
+          label: "GitHub",
+          icon: "github",
+          url: "https://github.com/kurizzuuuu-code/Wisp-Download-Manger",
         },
       ],
       devlogs: [
         {
           version: "v0.2.0",
-          tag: "latest · extension + local bridge",
-          title: "Browser Extension v0.2.0 Auto-Intercept, Media & Torrent Capture",
+          tag: "latest · torrents, dark mode & tray",
+          title: "BitTorrent Support, Midnight Dark Mode, System Tray & Extension v0.2.1",
           added: [
-            "Manifest V3 Chrome/Edge/Brave companion extension intercepting browser downloads, context-menu links, media, and .torrent files",
-            "Localhost HTTP bridge (127.0.0.1:17890–17899) with popup status & port scanner so the extension pairs instantly with Wisp",
+            "Native BitTorrent & magnet link downloads powered by librqbit directly inside Wisp alongside HTTP and video queues",
+            "Midnight Mode (deep plum dark theme) toggle in the titlebar and Settings for late-night hoarding",
+            "Windows system tray icon with close-to-tray background running and a Start with Windows autostart toggle in Settings",
+            "Chrome/Edge/Brave & Firefox companion extensions (v0.2.1) with automatic download interception, floating video download button, .torrent/magnet capture, and localhost bridge (127.0.0.1:17890–17899)",
+            "Live media sniffing stack in the UI and public GitHub repository + Windows NSIS installer release (Wisp_0.2.0_x64-setup.exe)",
           ],
           changed: [
-            "Added direct cookie & referrer forwarding for gated downloads queued from the extension",
+            "Fixed video downloader reliability with direct cookie, Netscape cookie jar, User-Agent, and Referer forwarding from the browser extension into Wisp & yt-dlp",
+            "Added min-size, ignored-domain, and auto-focus controls in the extension popup for cleaner auto-intercept",
           ],
         },
         {

@@ -453,6 +453,7 @@
      ============================================================ */
   const projectDialog = $("#projectDialog");
   const lightbox = $("#lightbox");
+  const kurizuGateDialog = $("#kurizuGateDialog");
 
   function openDialog(dialog) {
     if (!dialog || typeof dialog.showModal !== "function") return false;
@@ -463,7 +464,7 @@
     return true;
   }
 
-  [projectDialog, lightbox].forEach((dialog) => {
+  [projectDialog, lightbox, kurizuGateDialog].forEach((dialog) => {
     if (!dialog) return;
     dialog.addEventListener("close", unlockScroll);
     dialog.addEventListener("click", (event) => {
@@ -587,7 +588,7 @@
         ${project.extensionInstallNote && links ? `<div class="case__playbar case__downloadbar">
           <div class="case__playbar-text">
             <strong>grab ${esc(project.title)} + browser extension</strong>
-            <span>Windows desktop app + direct Chrome/Edge extension .zip</span>
+            <span>Windows desktop app + Chrome/Edge &amp; Firefox extension .zips</span>
           </div>
           <div class="case__downloadbar-actions">${links}</div>
         </div>` : ""}
@@ -632,6 +633,13 @@
               <span class="case-reviews__picked-text" id="caseStarText">click a star</span>
             </div>
             <div class="case-reviews__inputs">
+              <div class="review-admin-identity" id="caseReviewAdminIdentity" hidden>
+                <img src="assets/sprites/avatar-still.webp" alt="kurizu" width="34" height="34">
+                <div>
+                  <strong>kurizu<span>.exe</span> <span class="review-badge--op">★ admin</span></strong>
+                  <span>commenting as kurizu</span>
+                </div>
+              </div>
               <input type="text" id="caseReviewName" class="case-reviews__input" placeholder="your name (optional)" maxlength="24" autocomplete="nickname">
               <textarea id="caseReviewText" class="case-reviews__textarea" placeholder="leave a comment or feedback on ${esc(project.title)}..." maxlength="400" rows="3"></textarea>
             </div>
@@ -641,6 +649,20 @@
               <button type="submit" class="btn btn--small btn--primary" id="caseReviewSubmit">post review ★</button>
             </div>
           </form>
+          <div class="case-reviews__toolbar">
+            <span class="case-reviews__toolbar-info" id="caseCommentsToolbarInfo">comments</span>
+            <label class="case-reviews__sort">
+              <span>sort</span>
+              <select id="caseReviewSort" class="case-reviews__sort-select" aria-label="Sort comments">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="highest">Highest rated</option>
+                <option value="lowest">Lowest rated</option>
+                <option value="most_replies">Most replies</option>
+                <option value="status">Fixed / Not Fixed first</option>
+              </select>
+            </label>
+          </div>
           <div class="case-reviews__list" id="caseCommentsList">
             <p class="case-reviews__empty">loading comments…</p>
           </div>
@@ -830,6 +852,269 @@
   let galleryItems = config.gallery;
   let lightboxItems = config.gallery;
   let lightboxIndex = 0;
+
+  const AUTO_ART_CATEGORIES = ["digital", "traditional"];
+  const ART_IMAGE_RE = /\.(webp|png|jpe?g|gif|avif)$/i;
+  const ART_FULL_SUFFIX_RE = /-full$/i;
+
+  function encodeArtPath(category, filename) {
+    return `assets/arts/${category}/${encodeURIComponent(filename)}`;
+  }
+
+  function decodeBasename(pathStr) {
+    const clean = String(pathStr || "").split(/[?#]/)[0];
+    const raw = clean.split("/").pop() || "";
+    try {
+      return decodeURIComponent(raw);
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  function fileKeyFromPath(pathStr) {
+    return decodeBasename(pathStr).toLowerCase();
+  }
+
+  function stemKeyFromPath(pathStr) {
+    return fileKeyFromPath(pathStr)
+      .replace(/\.[^.]+$/, "")
+      .replace(ART_FULL_SUFFIX_RE, "");
+  }
+
+  function formatArtTitle(filename) {
+    const clean = decodeBasename(filename)
+      .replace(/\.[^.]+$/, "")
+      .replace(ART_FULL_SUFFIX_RE, "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return clean || "untitled piece";
+  }
+
+  function groupRawArtFilenames(filenames) {
+    const groups = new Map();
+    for (const rawName of filenames) {
+      const name = decodeBasename(rawName).trim();
+      if (!name || name.startsWith(".") || !ART_IMAGE_RE.test(name)) continue;
+      const stem = stemKeyFromPath(name);
+      let group = groups.get(stem);
+      if (!group) {
+        group = { thumb: null, full: null };
+        groups.set(stem, group);
+      }
+      const isFull = ART_FULL_SUFFIX_RE.test(name.replace(/\.[^.]+$/, ""));
+      if (isFull) {
+        if (!group.full) group.full = name;
+      } else if (!group.thumb) {
+        group.thumb = name;
+      }
+    }
+
+    const entries = [];
+    for (const group of groups.values()) {
+      const file = group.thumb || group.full;
+      if (!file) continue;
+      entries.push({
+        file,
+        full: group.full && group.full !== file ? group.full : null,
+        animated: /\.gif$/i.test(file),
+      });
+    }
+    return entries;
+  }
+
+  function mergeAutoGalleryEntries(categoryData, options = {}) {
+    if (!categoryData || typeof categoryData !== "object") return false;
+    const pruneMissing = Boolean(options.pruneMissing);
+    const current = Array.isArray(config.gallery) ? config.gallery : [];
+
+    const existingByCat = new Map();
+    const otherItems = [];
+    for (const item of current) {
+      const cat = item.category || "digital";
+      if (AUTO_ART_CATEGORIES.includes(cat)) {
+        if (!existingByCat.has(cat)) existingByCat.set(cat, []);
+        existingByCat.get(cat).push(item);
+      } else {
+        otherItems.push(item);
+      }
+    }
+
+    let changed = false;
+    const rebuiltByCat = new Map();
+
+    for (const cat of AUTO_ART_CATEGORIES) {
+      const existingList = existingByCat.get(cat) || [];
+      const incoming = Array.isArray(categoryData[cat]) ? categoryData[cat] : null;
+      if (!incoming) {
+        rebuiltByCat.set(cat, existingList);
+        continue;
+      }
+
+      const incomingFileKeys = new Set();
+      const incomingStemKeys = new Set();
+      const incomingByKey = new Map();
+      for (const entry of incoming) {
+        if (!entry || !entry.file) continue;
+        const fKey = fileKeyFromPath(entry.file);
+        const sKey = stemKeyFromPath(entry.file);
+        incomingFileKeys.add(fKey);
+        incomingStemKeys.add(sKey);
+        if (!incomingByKey.has(fKey)) incomingByKey.set(fKey, entry);
+      }
+
+      const seenExistingFiles = new Set();
+      const seenExistingStems = new Set();
+      const keptExisting = [];
+      for (const item of existingList) {
+        const fKey = fileKeyFromPath(item.image);
+        const sKey = stemKeyFromPath(item.image);
+        if (pruneMissing && incoming.length > 0 && !incomingFileKeys.has(fKey) && !incomingStemKeys.has(sKey)) {
+          changed = true;
+          continue;
+        }
+        seenExistingFiles.add(fKey);
+        seenExistingStems.add(sKey);
+        keptExisting.push(item);
+      }
+
+      const newItems = [];
+      for (const entry of incoming) {
+        if (!entry || !entry.file) continue;
+        const fKey = fileKeyFromPath(entry.file);
+        const sKey = stemKeyFromPath(entry.file);
+        if (seenExistingFiles.has(fKey) || seenExistingStems.has(sKey)) continue;
+
+        seenExistingFiles.add(fKey);
+        seenExistingStems.add(sKey);
+        const title = formatArtTitle(entry.file);
+        const imagePath = encodeArtPath(cat, entry.file);
+        const fullPath = entry.full ? encodeArtPath(cat, entry.full) : imagePath;
+        const isTrad = cat === "traditional";
+        newItems.push({
+          image: imagePath,
+          full: fullPath,
+          title,
+          meta: isTrad ? "traditional · sketchbook" : "digital art",
+          alt: `${title} — ${isTrad ? "pencil drawing from the sketchbook" : "digital artwork"}`,
+          category: cat,
+          animated: Boolean(entry.animated || /\.gif$/i.test(entry.file)),
+        });
+      }
+
+      if (newItems.length > 0) changed = true;
+      rebuiltByCat.set(cat, [...newItems, ...keptExisting]);
+    }
+
+    if (!changed) return false;
+
+    config.gallery = [
+      ...(rebuiltByCat.get("digital") || []),
+      ...(rebuiltByCat.get("traditional") || []),
+      ...otherItems,
+    ];
+    renderGalleryFilters();
+    renderGallery();
+    return true;
+  }
+
+  async function scanLocalDirectoryArt(category) {
+    const res = await fetch(`assets/arts/${category}/`, { cache: "no-cache" });
+    if (!res.ok) return null;
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("text/html")) return null;
+    const html = await res.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const links = Array.from(doc.querySelectorAll("a[href]"));
+    const filenames = [];
+    for (const a of links) {
+      const href = a.getAttribute("href") || "";
+      if (!href || href.startsWith("?") || href.startsWith("#") || href === "../" || href.endsWith("/")) continue;
+      const base = decodeBasename(href);
+      if (ART_IMAGE_RE.test(base)) filenames.push(base);
+    }
+    if (!filenames.length) return null;
+    return groupRawArtFilenames(filenames);
+  }
+
+  async function fetchGitHubArtFallback() {
+    const CACHE_KEY = "kurizu.art.gh.v1";
+    const CACHE_TTL = 5 * 60 * 1000;
+    try {
+      const raw = window.sessionStorage?.getItem(CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Date.now() - parsed.ts < CACHE_TTL && parsed.data) {
+          return parsed.data;
+        }
+      }
+    } catch (_) {}
+
+    const result = {};
+    for (const cat of AUTO_ART_CATEGORIES) {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/kurizzuuuu-code/portfolio/contents/assets/arts/${cat}`,
+          { headers: { Accept: "application/vnd.github+json" } }
+        );
+        if (!res.ok) continue;
+        const list = await res.json();
+        if (!Array.isArray(list)) continue;
+        const names = list
+          .filter((item) => item && item.type === "file" && ART_IMAGE_RE.test(item.name || ""))
+          .map((item) => item.name);
+        if (names.length) result[cat] = groupRawArtFilenames(names);
+      } catch (_) {}
+    }
+
+    if (result.digital || result.traditional) {
+      try {
+        window.sessionStorage?.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: result }));
+      } catch (_) {}
+    }
+    return result;
+  }
+
+  async function syncAutoGallery() {
+    if (window.location.protocol === "file:") return;
+
+    let manifestLoaded = false;
+    try {
+      const res = await fetch("assets/arts/manifest.json", { cache: "no-cache" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (Array.isArray(data.digital) || Array.isArray(data.traditional))) {
+          manifestLoaded = true;
+          mergeAutoGalleryEntries(data, { pruneMissing: true });
+        }
+      }
+    } catch (_) {}
+
+    const host = window.location.hostname;
+    const isLocalHost = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+    if (isLocalHost) {
+      try {
+        const localData = {};
+        const results = await Promise.all(AUTO_ART_CATEGORIES.map((cat) => scanLocalDirectoryArt(cat)));
+        AUTO_ART_CATEGORIES.forEach((cat, idx) => {
+          if (results[idx]) localData[cat] = results[idx];
+        });
+        if (localData.digital || localData.traditional) {
+          mergeAutoGalleryEntries(localData, { pruneMissing: true });
+        }
+      } catch (_) {}
+      return;
+    }
+
+    if (window.location.protocol.startsWith("http")) {
+      try {
+        const ghData = await fetchGitHubArtFallback();
+        if (ghData && (ghData.digital || ghData.traditional)) {
+          mergeAutoGalleryEntries(ghData, { pruneMissing: !manifestLoaded });
+        }
+      } catch (_) {}
+    }
+  }
 
   function filteredGallery() {
     return galleryState.filter === "all"
@@ -2457,6 +2742,7 @@
   renderVideoLinks();
   renderGalleryFilters();
   renderGallery();
+  syncAutoGallery();
   wireProjectOpeners();
   buildReel();
   wireCopy();
@@ -4686,8 +4972,8 @@
     wisp: {
       id: "wisp",
       title: "Wisp",
-      subtitle: "Purple pixel download manager + extension",
-      desc: "Wisp is Kurizu's purple pixel Windows download manager built with Tauri 2 + Rust! It splits downloads across up to 16 parallel workers, survives crashes cleanly, supports YouTube via yt-dlp, and pairs with a Chrome/Edge browser extension.\n\n✨ Download both Wisp and the extension .zip right from wisp.exe!",
+      subtitle: "Purple pixel download manager, BitTorrent + extension",
+      desc: "Wisp is Kurizu's open-source purple pixel Windows download manager built with Tauri 2 + Rust! It splits downloads across up to 16 parallel workers, supports native BitTorrent & magnet links, downloads YouTube + 1,000+ sites via yt-dlp, runs in Midnight dark mode & the system tray, and pairs with auto-intercept Chrome/Edge/Brave & Firefox extensions.\n\n✨ Grab the Windows installer, Chrome/Edge or Firefox extension .zip, or GitHub source right from wisp.exe!",
     },
     aipet: {
       id: "aipet",
@@ -5226,12 +5512,357 @@
   if (petRoot) initPet();
 
   /* ============================================================
-     PROJECT STAR RATINGS & COMMENTS (live Render backend + local cache)
+     PROJECT STAR RATINGS, COMMENTS, REPLIES, SORTING & KURIZU OPERATOR GATE
      ============================================================ */
-  const REVIEWS_API = "https://kurizu-game-server.onrender.com/api/reviews";
+  const REVIEWS_API = window.KURIZU_REVIEWS_API || "https://kurizu-game-server.onrender.com/api/reviews";
+  const ADMIN_API_BASE = REVIEWS_API.replace(/\/api\/reviews\/?$/, "/api/admin");
   const REVIEWS_CACHE_KEY = "kurizu_reviews_cache_v1";
   const REVIEWER_NAME_KEY = "kurizu_reviewer_name";
   const REVIEWER_CID_KEY = "kurizu_client_id";
+  const OP_SESSION_KEY = "kurizu_op_session_v1";
+  const OP_LOCK_KEY = "kurizu_op_lock_v1";
+  const OPERATOR_HASH_SPEC =
+    "pbkdf2_sha256$310000$55a8f83169ae893b5dad6f03fa246b58$7cbc55208c357e1fdf0d17e5684115aefae903d5f683fdded84ff02fa56a2d11";
+  const OP_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+  const OP_LOCK_MAX_FAILS = 5;
+  const OP_LOCK_DURATION_MS = 15 * 60 * 1000;
+
+  let activeReviewRefresh = null;
+
+  function loadOpSession() {
+    try {
+      const raw = window.sessionStorage?.getItem(OP_SESSION_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !parsed.expiresAt || parsed.expiresAt <= Date.now()) {
+        window.sessionStorage?.removeItem(OP_SESSION_KEY);
+        return null;
+      }
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveOpSession(session) {
+    try {
+      window.sessionStorage?.setItem(OP_SESSION_KEY, JSON.stringify(session));
+    } catch (_) {}
+  }
+
+  function clearOpSession() {
+    try {
+      window.sessionStorage?.removeItem(OP_SESSION_KEY);
+    } catch (_) {}
+  }
+
+  function isOperatorLoggedIn() {
+    return Boolean(loadOpSession());
+  }
+
+  function getOpAuthHeaders() {
+    const sess = loadOpSession();
+    if (!sess || !sess.token || sess.mode !== "server") return {};
+    return { Authorization: `Bearer ${sess.token}` };
+  }
+
+  function loadOpLockState() {
+    try {
+      const raw = window.localStorage?.getItem(OP_LOCK_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return {
+        fails: Number(parsed?.fails || 0),
+        lockedUntil: Number(parsed?.lockedUntil || 0),
+      };
+    } catch (_) {
+      return { fails: 0, lockedUntil: 0 };
+    }
+  }
+
+  function saveOpLockState(state) {
+    try {
+      window.localStorage?.setItem(OP_LOCK_KEY, JSON.stringify(state));
+    } catch (_) {}
+  }
+
+  function clearOpLockState() {
+    try {
+      window.localStorage?.removeItem(OP_LOCK_KEY);
+    } catch (_) {}
+  }
+
+  function recordOpFailure(retryAfterSec = 0) {
+    const now = Date.now();
+    const cur = loadOpLockState();
+    const fails = cur.fails + 1;
+    let lockedUntil = cur.lockedUntil;
+    if (retryAfterSec > 0) {
+      lockedUntil = Math.max(lockedUntil, now + retryAfterSec * 1000);
+    } else if (fails >= OP_LOCK_MAX_FAILS) {
+      lockedUntil = now + OP_LOCK_DURATION_MS;
+    }
+    saveOpLockState({ fails, lockedUntil });
+    return { fails, lockedUntil, remaining: Math.max(0, OP_LOCK_MAX_FAILS - fails) };
+  }
+
+  async function verifyPasswordLocalPBKDF2(password) {
+    if (typeof password !== "string" || !password || !window.crypto?.subtle) return false;
+    const parts = OPERATOR_HASH_SPEC.split("$");
+    if (parts.length !== 4 || parts[0] !== "pbkdf2_sha256") return false;
+    const iterations = Number(parts[1]);
+    const salt = parts[2];
+    const expectedHex = parts[3];
+    const enc = new TextEncoder();
+    const keyMat = await window.crypto.subtle.importKey(
+      "raw",
+      enc.encode(password),
+      { name: "PBKDF2" },
+      false,
+      ["deriveBits"]
+    );
+    const derivedBuf = await window.crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt: enc.encode(salt), iterations, hash: "SHA-256" },
+      keyMat,
+      (expectedHex.length / 2) * 8
+    );
+    const actual = new Uint8Array(derivedBuf);
+    const expected = new Uint8Array(expectedHex.length / 2);
+    for (let i = 0; i < expected.length; i++) {
+      expected[i] = parseInt(expectedHex.slice(i * 2, i * 2 + 2), 16);
+    }
+    if (actual.length !== expected.length) return false;
+    let diff = 0;
+    for (let i = 0; i < actual.length; i++) diff |= actual[i] ^ expected[i];
+    return diff === 0;
+  }
+
+  async function attemptOperatorLogin(password) {
+    const now = Date.now();
+    const lock = loadOpLockState();
+    if (lock.lockedUntil > now) {
+      const waitSec = Math.max(1, Math.ceil((lock.lockedUntil - now) / 1000));
+      return { ok: false, locked: true, error: `too many tries! wait ${Math.ceil(waitSec / 60)}m before retrying.` };
+    }
+
+    let serverResponded = false;
+    try {
+      const res = await fetch(`${ADMIN_API_BASE}/login`, {
+        method: "POST",
+        mode: "cors",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (res.status !== 404) {
+        serverResponded = true;
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data && data.ok && data.token) {
+          clearOpLockState();
+          saveOpSession({
+            token: data.token,
+            mode: "server",
+            expiresAt: Number(data.expiresAt || Date.now() + OP_SESSION_TTL_MS),
+          });
+          applyOperatorUiState();
+          return { ok: true, mode: "server" };
+        }
+        const failInfo = recordOpFailure(Number(data?.retryAfterSec || 0));
+        if (res.status === 429) {
+          return { ok: false, locked: true, error: data?.error || "Too many attempts. Locked temporarily." };
+        }
+        return {
+          ok: false,
+          error: failInfo.remaining > 0
+            ? `wrong passphrase! (${failInfo.remaining} tries left)`
+            : "too many failed tries — locked for 15 minutes.",
+        };
+      }
+    } catch (_) {
+      serverResponded = false;
+    }
+
+    if (!serverResponded) {
+      const ok = await verifyPasswordLocalPBKDF2(password);
+      if (ok) {
+        clearOpLockState();
+        saveOpSession({
+          token: "local",
+          mode: "local",
+          expiresAt: Date.now() + OP_SESSION_TTL_MS,
+        });
+        applyOperatorUiState();
+        return { ok: true, mode: "local" };
+      }
+      const failInfo = recordOpFailure(0);
+      return {
+        ok: false,
+        error: failInfo.remaining > 0
+          ? `wrong passphrase! (${failInfo.remaining} tries left)`
+          : "too many failed tries — locked for 15 minutes.",
+      };
+    }
+
+    return { ok: false, error: "could not verify passphrase." };
+  }
+
+  async function logoutOperator() {
+    const sess = loadOpSession();
+    if (sess && sess.mode === "server" && sess.token) {
+      try {
+        await fetch(`${ADMIN_API_BASE}/logout`, {
+          method: "POST",
+          mode: "cors",
+          headers: { Authorization: `Bearer ${sess.token}` },
+        });
+      } catch (_) {}
+    }
+    clearOpSession();
+    applyOperatorUiState();
+  }
+
+  function applyOperatorUiState() {
+    const sess = loadOpSession();
+    const active = Boolean(sess);
+    document.body.classList.toggle("is-kurizu-operator", active);
+    const badge = $("#startOpBadge");
+    if (badge) badge.hidden = !active;
+    const profileBadge = $("#profileAdminBadge");
+    if (profileBadge) profileBadge.hidden = !active;
+
+    const authView = $("#kurizuGateAuthView");
+    const sessView = $("#kurizuGateSessionView");
+    const modeEl = $("#kurizuGateMode");
+    if (authView) authView.hidden = active;
+    if (sessView) sessView.hidden = !active;
+    if (modeEl && sess) {
+      modeEl.textContent = sess.mode === "server"
+        ? "verified operator session · synced with server"
+        : "local operator session · offline/cache mode";
+    }
+
+    if (typeof activeReviewRefresh === "function") {
+      activeReviewRefresh();
+    }
+  }
+
+  function verifyStoredOperatorSession() {
+    const sess = loadOpSession();
+    if (!sess) {
+      applyOperatorUiState();
+      return;
+    }
+    applyOperatorUiState();
+    if (sess.mode === "server" && sess.token) {
+      fetch(`${ADMIN_API_BASE}/verify`, {
+        mode: "cors",
+        headers: { Authorization: `Bearer ${sess.token}` },
+      })
+        .then((res) => {
+          if (res.status === 401) {
+            clearOpSession();
+            applyOperatorUiState();
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  function initKurizuGate() {
+    const trigger = $("#startSecretLoginTrigger");
+    const gate = $("#kurizuGateDialog");
+    const form = $("#kurizuGateForm");
+    const pwdInput = $("#kurizuGatePassword");
+    const eyeBtn = $("#kurizuGateEye");
+    const errorEl = $("#kurizuGateError");
+    const submitBtn = $("#kurizuGateSubmit");
+    const logoutBtn = $("#kurizuLogoutBtn");
+    const spriteEl = $("#kurizuGateSprite");
+    const speechEl = $("#kurizuGateSpeech");
+    const subEl = $("#kurizuGateSub");
+
+    const SPRITE_ASK = "assets/Pet/idle animation/Idea.webp";
+    const SPRITE_DENY = "assets/Pet/poke animation/SampleCharacter7_Hurt_2026-11-17-16-32-43.webp";
+
+    function resetPromptText() {
+      if (spriteEl) spriteEl.src = SPRITE_ASK;
+      if (speechEl) speechEl.textContent = "are you kurizu?";
+      if (subEl) subEl.textContent = "prove it to unlock operator controls ♡";
+      if (errorEl) errorEl.textContent = "";
+      if (pwdInput) {
+        pwdInput.value = "";
+        pwdInput.type = "password";
+      }
+      if (eyeBtn) {
+        eyeBtn.textContent = "show";
+        eyeBtn.setAttribute("aria-pressed", "false");
+      }
+    }
+
+    trigger?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setStartMenu(false);
+      resetPromptText();
+      applyOperatorUiState();
+      openDialog(gate);
+      playSfx("pop");
+      if (!isOperatorLoggedIn()) {
+        window.setTimeout(() => pwdInput?.focus(), 60);
+      }
+    });
+
+    gate?.addEventListener("close", () => {
+      resetPromptText();
+    });
+
+    eyeBtn?.addEventListener("click", () => {
+      if (!pwdInput) return;
+      const reveal = pwdInput.type === "password";
+      pwdInput.type = reveal ? "text" : "password";
+      eyeBtn.textContent = reveal ? "hide" : "show";
+      eyeBtn.setAttribute("aria-pressed", String(reveal));
+      pwdInput.focus();
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!pwdInput) return;
+      const candidate = pwdInput.value;
+      pwdInput.value = "";
+      if (!candidate) {
+        if (errorEl) errorEl.textContent = "type the passphrase first ♡";
+        return;
+      }
+
+      if (submitBtn) submitBtn.disabled = true;
+      if (errorEl) errorEl.textContent = "checking…";
+
+      const result = await attemptOperatorLogin(candidate);
+      if (submitBtn) submitBtn.disabled = false;
+
+      if (result.ok) {
+        playSfx("powerup");
+        toast("welcome back, kurizu! operator tools unlocked ★");
+        gate?.close();
+      } else {
+        playSfx("error");
+        if (spriteEl) spriteEl.src = SPRITE_DENY;
+        if (speechEl) speechEl.textContent = "hmm... you're not kurizu!!";
+        if (errorEl) errorEl.textContent = result.error || "wrong passphrase.";
+        pwdInput.focus();
+      }
+    });
+
+    logoutBtn?.addEventListener("click", async () => {
+      await logoutOperator();
+      playSfx("pop");
+      toast("logged out of operator mode");
+      gate?.close();
+    });
+
+    verifyStoredOperatorSession();
+  }
+
+  initKurizuGate();
 
   function getClientId() {
     try {
@@ -5294,24 +5925,78 @@
     }
   }
 
+  function normalizeCommentTag(tag) {
+    return tag === "fixed" || tag === "not_fixed" ? tag : null;
+  }
+
+  function mergeReplies(srvReplies, locReplies, deletedReplySet) {
+    const byKey = new Map();
+    const seenIds = new Set();
+    const list = [...(Array.isArray(srvReplies) ? srvReplies : []), ...(Array.isArray(locReplies) ? locReplies : [])];
+    for (const r of list) {
+      if (!r || !r.text) continue;
+      if (r.id && deletedReplySet.has(r.id)) continue;
+      const k = `${(r.name || "anonymous").trim().toLowerCase()}::${(r.text || "").trim().toLowerCase()}`;
+      if (r.id && seenIds.has(r.id)) continue;
+      if (byKey.has(k)) continue;
+      if (r.id) seenIds.add(r.id);
+      byKey.set(k, {
+        id: r.id || "rep_" + Math.random().toString(36).slice(2, 8),
+        name: r.name || "anonymous",
+        text: r.text,
+        ts: Number(r.ts || 0),
+        isOperator: Boolean(r.isOperator),
+      });
+    }
+    return Array.from(byKey.values()).sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+  }
+
   function mergeProjectReviews(localEntry, serverEntry) {
     const loc = localEntry || {};
     const srv = serverEntry || {};
     const locComments = Array.isArray(loc.comments) ? loc.comments : [];
     const srvComments = Array.isArray(srv.comments) ? srv.comments : [];
 
+    const deletedSet = new Set([...(Array.isArray(srv.deletedIds) ? srv.deletedIds : []), ...(Array.isArray(loc.deletedIds) ? loc.deletedIds : [])]);
+    const deletedReplySet = new Set([...(Array.isArray(srv.deletedReplyIds) ? srv.deletedReplyIds : []), ...(Array.isArray(loc.deletedReplyIds) ? loc.deletedReplyIds : [])]);
+
     // Deduplicate comments by id or (name + text) so local comments never vanish when Render restarts
     const byKey = new Map();
+    const byId = new Map();
     const makeKey = (c) => `${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`;
-    const seenIds = new Set();
 
-    [...srvComments, ...locComments].forEach((c) => {
+    srvComments.forEach((c) => {
       if (!c || !c.text) return;
+      if (c.id && deletedSet.has(c.id)) return;
       const k = makeKey(c);
-      if (c.id && seenIds.has(c.id)) return;
-      if (byKey.has(k)) return;
-      if (c.id) seenIds.add(c.id);
-      byKey.set(k, c);
+      const item = {
+        ...c,
+        tag: normalizeCommentTag(c.tag),
+        isOperator: Boolean(c.isOperator),
+        replies: mergeReplies(c.replies, [], deletedReplySet),
+      };
+      if (c.id) byId.set(c.id, item);
+      byKey.set(k, item);
+    });
+
+    locComments.forEach((c) => {
+      if (!c || !c.text) return;
+      if (c.id && deletedSet.has(c.id)) return;
+      const k = makeKey(c);
+      const existing = (c.id && byId.get(c.id)) || byKey.get(k);
+      if (existing) {
+        if (existing.tag == null && c.tag) existing.tag = normalizeCommentTag(c.tag);
+        existing.replies = mergeReplies(existing.replies, c.replies, deletedReplySet);
+        return;
+      }
+      const item = {
+        ...c,
+        tag: normalizeCommentTag(c.tag),
+        isOperator: Boolean(c.isOperator),
+        replies: mergeReplies([], c.replies, deletedReplySet),
+      };
+      if (c.id) byId.set(c.id, item);
+      byKey.set(k, item);
     });
 
     const mergedComments = Array.from(byKey.values()).sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
@@ -5328,11 +6013,7 @@
       avg = +(ratedComments.reduce((sum, c) => sum + Number(c.rating), 0) / count).toFixed(1);
     }
 
-    const commentsCount = Math.max(
-      mergedComments.length,
-      Number(srv.commentsCount || 0),
-      Number(loc.commentsCount || 0)
-    );
+    const commentsCount = mergedComments.length;
 
     return {
       avg,
@@ -5340,19 +6021,26 @@
       comments: mergedComments,
       commentsCount,
       myRating: Number(loc.myRating || srv.myRating || 0),
+      deletedIds: Array.from(deletedSet).slice(0, 500),
+      deletedReplyIds: Array.from(deletedReplySet).slice(0, 500),
     };
   }
 
   function resyncMissingReviewsToServer(projectId, localEntry, serverEntry) {
     const loc = localEntry || {};
     const srv = serverEntry || {};
+    const deletedSet = new Set(Array.isArray(srv.deletedIds) ? srv.deletedIds : []);
     const locComments = Array.isArray(loc.comments) ? loc.comments : [];
     const srvComments = Array.isArray(srv.comments) ? srv.comments : [];
     const srvKeys = new Set(
       srvComments.map((c) => `${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`)
     );
     const missingComments = locComments.filter(
-      (c) => c && c.text && !srvKeys.has(`${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`)
+      (c) =>
+        c &&
+        c.text &&
+        !(c.id && deletedSet.has(c.id)) &&
+        !srvKeys.has(`${(c.name || "anonymous").trim().toLowerCase()}::${(c.text || "").trim().toLowerCase()}`)
     );
     const hasMissingRating = Number(loc.myRating || 0) > 0 && Number(srv.count || 0) === 0;
 
@@ -5398,6 +6086,36 @@
       .catch(() => { /* offline or server waking up — local cache is already shown */ });
   }
 
+  function sortComments(comments, sortKey = "newest") {
+    const list = Array.isArray(comments) ? [...comments] : [];
+    const tagRank = (tag) => (tag === "fixed" ? 2 : tag === "not_fixed" ? 1 : 0);
+    list.sort((a, b) => {
+      if (sortKey === "oldest") {
+        return Number(a.ts || 0) - Number(b.ts || 0);
+      }
+      if (sortKey === "highest") {
+        const diff = (Number(b.rating) || 0) - (Number(a.rating) || 0);
+        return diff !== 0 ? diff : Number(b.ts || 0) - Number(a.ts || 0);
+      }
+      if (sortKey === "lowest") {
+        const ra = Number(a.rating) > 0 ? Number(a.rating) : 99;
+        const rb = Number(b.rating) > 0 ? Number(b.rating) : 99;
+        const diff = ra - rb;
+        return diff !== 0 ? diff : Number(b.ts || 0) - Number(a.ts || 0);
+      }
+      if (sortKey === "most_replies") {
+        const diff = (Array.isArray(b.replies) ? b.replies.length : 0) - (Array.isArray(a.replies) ? a.replies.length : 0);
+        return diff !== 0 ? diff : Number(b.ts || 0) - Number(a.ts || 0);
+      }
+      if (sortKey === "status") {
+        const diff = tagRank(b.tag) - tagRank(a.tag);
+        return diff !== 0 ? diff : Number(b.ts || 0) - Number(a.ts || 0);
+      }
+      return Number(b.ts || 0) - Number(a.ts || 0);
+    });
+    return list;
+  }
+
   function initCaseReviews(projectId) {
     const root = $("#caseReviews");
     if (!root) return;
@@ -5415,14 +6133,27 @@
     const statusEl = $("#caseReviewStatus", root);
     const submitBtn = $("#caseReviewSubmit", root);
     const listEl = $("#caseCommentsList", root);
+    const sortSelect = $("#caseReviewSort", root);
+    const toolbarInfoEl = $("#caseCommentsToolbarInfo", root);
+    const adminIdentityEl = $("#caseReviewAdminIdentity", root);
 
     const STAR_LABELS = ["click a star", "1 / 5 · needs work", "2 / 5 · okay", "3 / 5 · pretty cool", "4 / 5 · love it!", "5 / 5 · masterpiece ★"];
     let selectedStar = 0;
+    let currentSort = sortSelect?.value || "newest";
+    let openReplyForId = null;
+    const pendingDeletes = new Map(); // confirmKey -> timerId
+
+    function syncReviewFormIdentity() {
+      const isOp = isOperatorLoggedIn();
+      if (adminIdentityEl) adminIdentityEl.hidden = !isOp;
+      if (nameInput) nameInput.hidden = isOp;
+    }
 
     try {
       const savedName = localStorage.getItem(REVIEWER_NAME_KEY);
       if (savedName && nameInput) nameInput.value = savedName;
     } catch (_) {}
+    syncReviewFormIdentity();
 
     function paintStars(val) {
       starBtns.forEach((btn) => {
@@ -5453,10 +6184,18 @@
       });
     }
 
+    function getCurrentProjectData() {
+      const c = loadReviewCache();
+      return c[projectId] || { avg: 0, count: 0, comments: [], deletedIds: [], deletedReplyIds: [] };
+    }
+
     function renderData(data) {
+      syncReviewFormIdentity();
       const count = Number(data?.count || 0);
       const avg = Number(data?.avg || 0);
-      const comments = Array.isArray(data?.comments) ? data.comments : [];
+      const rawComments = Array.isArray(data?.comments) ? data.comments : [];
+      const comments = sortComments(rawComments, currentSort);
+      const isOp = isOperatorLoggedIn();
 
       if (avgEl) avgEl.textContent = count > 0 ? avg.toFixed(1) : "—";
       if (starsDisp) starsDisp.textContent = formatStarsStr(avg);
@@ -5464,6 +6203,12 @@
         countEl.textContent = count > 0
           ? `${count} rating${count === 1 ? "" : "s"} · ${comments.length} comment${comments.length === 1 ? "" : "s"}`
           : (comments.length ? `${comments.length} comment${comments.length === 1 ? "" : "s"} · be the first to rate ♡` : "be the first to rate or comment ♡");
+      }
+      if (toolbarInfoEl) {
+        const totalReplies = comments.reduce((acc, c) => acc + (Array.isArray(c.replies) ? c.replies.length : 0), 0);
+        toolbarInfoEl.textContent = comments.length
+          ? `${comments.length} comment${comments.length === 1 ? "" : "s"}${totalReplies ? ` · ${totalReplies} repl${totalReplies === 1 ? "y" : "ies"}` : ""}`
+          : "comments";
       }
 
       updateCardRatingBadge(projectId, { avg, count, commentsCount: comments.length });
@@ -5474,22 +6219,316 @@
         return;
       }
 
+      let defaultReplyName = "";
+      try {
+        defaultReplyName = localStorage.getItem(REVIEWER_NAME_KEY) || "";
+      } catch (_) {}
+      if (!defaultReplyName && isOp) defaultReplyName = "kurizu";
+
       listEl.innerHTML = comments.map((c) => {
-        const initial = (String(c.name || "A").trim()[0] || "A").toUpperCase();
+        const displayName = c.isOperator ? "kurizu" : (c.name || "anonymous");
+        const initial = (String(displayName).trim()[0] || "A").toUpperCase();
+        const avatarHtml = c.isOperator
+          ? `<img class="review-item__avatar review-item__avatar--kurizu" src="assets/sprites/avatar-still.webp" alt="kurizu" width="32" height="32">`
+          : `<span class="review-item__avatar" aria-hidden="true">${esc(initial)}</span>`;
         const rStars = c.rating >= 1 && c.rating <= 5
           ? `<span class="review-item__stars" aria-label="Rated ${c.rating} out of 5">${formatStarsStr(c.rating)}</span>`
           : "";
-        return `<article class="review-item">
+        const opAuthorBadge = c.isOperator ? `<span class="review-badge--op">★ admin</span>` : "";
+        const statusBadge = c.tag === "fixed"
+          ? `<span class="review-tag review-tag--fixed">✓ fixed</span>`
+          : c.tag === "not_fixed"
+            ? `<span class="review-tag review-tag--not-fixed">✕ not fixed</span>`
+            : "";
+
+        const replies = Array.isArray(c.replies) ? c.replies : [];
+        const repliesHtml = replies.length
+          ? `<div class="review-replies">
+              ${replies.map((r) => {
+                const rName = r.isOperator ? "kurizu" : (r.name || "anonymous");
+                const rAvatar = r.isOperator
+                  ? `<img class="review-reply__avatar review-item__avatar--kurizu" src="assets/sprites/avatar-still.webp" alt="kurizu" width="22" height="22">`
+                  : "";
+                const rOpBadge = r.isOperator ? `<span class="review-badge--op">★ admin</span>` : "";
+                const rDelKey = `rep:${c.id}:${r.id}`;
+                const rConfirm = pendingDeletes.has(rDelKey);
+                const rDelBtn = isOp
+                  ? `<button type="button" class="review-op-btn review-op-btn--del${rConfirm ? " is-confirm" : ""}" data-op-delete-reply="${esc(r.id)}" data-comment-id="${esc(c.id)}">${rConfirm ? "confirm?" : "delete"}</button>`
+                  : "";
+                return `<div class="review-reply" data-reply-id="${esc(r.id)}">
+                  <div class="review-reply__head">
+                    ${rAvatar}
+                    <strong>${esc(rName)}</strong>
+                    ${rOpBadge}
+                    <span class="review-reply__time">${esc(formatTimeAgo(r.ts))}</span>
+                    ${rDelBtn}
+                  </div>
+                  <p class="review-reply__text">${esc(r.text || "")}</p>
+                </div>`;
+              }).join("")}
+            </div>`
+          : "";
+
+        const cDelKey = `com:${c.id}`;
+        const cConfirm = pendingDeletes.has(cDelKey);
+        const opControls = isOp
+          ? `<div class="review-op-tools">
+              <button type="button" class="review-op-btn review-op-btn--fixed${c.tag === "fixed" ? " is-active" : ""}" data-op-tag="fixed" data-comment-id="${esc(c.id)}" aria-pressed="${c.tag === "fixed"}">✓ fixed</button>
+              <button type="button" class="review-op-btn review-op-btn--not-fixed${c.tag === "not_fixed" ? " is-active" : ""}" data-op-tag="not_fixed" data-comment-id="${esc(c.id)}" aria-pressed="${c.tag === "not_fixed"}">✕ not fixed</button>
+              <button type="button" class="review-op-btn review-op-btn--del${cConfirm ? " is-confirm" : ""}" data-op-delete-comment="${esc(c.id)}">${cConfirm ? "confirm delete?" : "delete"}</button>
+            </div>`
+          : "";
+
+        const replyNameSlot = isOp
+          ? `<div class="review-admin-identity review-admin-identity--compact">
+              <img src="assets/sprites/avatar-still.webp" alt="kurizu" width="26" height="26">
+              <div><strong>kurizu<span>.exe</span> <span class="review-badge--op">★ admin</span></strong></div>
+            </div>`
+          : `<input type="text" class="review-reply-form__input" data-reply-name placeholder="your name (optional)" maxlength="24" value="${esc(defaultReplyName)}">`;
+
+        const replyFormHtml = openReplyForId === c.id
+          ? `<form class="review-reply-form" data-reply-form="${esc(c.id)}" novalidate>
+              ${replyNameSlot}
+              <textarea class="review-reply-form__textarea" data-reply-text placeholder="write a reply..." maxlength="300" rows="2"></textarea>
+              <div class="review-reply-form__actions">
+                <span class="review-reply-form__status" data-reply-status aria-live="polite"></span>
+                <button type="button" class="btn btn--small" data-reply-cancel>cancel</button>
+                <button type="submit" class="btn btn--small btn--primary">post reply</button>
+              </div>
+            </form>`
+          : "";
+
+        return `<article class="review-item" data-comment-id="${esc(c.id)}">
           <div class="review-item__head">
-            <span class="review-item__avatar" aria-hidden="true">${esc(initial)}</span>
-            <strong class="review-item__name">${esc(c.name || "anonymous")}</strong>
+            ${avatarHtml}
+            <strong class="review-item__name">${esc(displayName)}</strong>
+            ${opAuthorBadge}
+            ${statusBadge}
             ${rStars}
             <span class="review-item__time">${esc(formatTimeAgo(c.ts))}</span>
           </div>
           <p class="review-item__text">${esc(c.text || "")}</p>
+          <div class="review-item__foot">
+            <button type="button" class="review-reply-btn" data-reply-toggle="${esc(c.id)}">↩ reply${replies.length ? ` (${replies.length})` : ""}</button>
+            ${opControls}
+          </div>
+          ${replyFormHtml}
+          ${repliesHtml}
         </article>`;
       }).join("");
     }
+
+    activeReviewRefresh = () => renderData(getCurrentProjectData());
+
+    sortSelect?.addEventListener("change", () => {
+      currentSort = sortSelect.value || "newest";
+      renderData(getCurrentProjectData());
+    });
+
+    async function handleOperatorTag(commentId, clickedTag) {
+      if (!isOperatorLoggedIn()) return;
+      const cache = loadReviewCache();
+      const entry = cache[projectId] || { avg: 0, count: 0, comments: [], deletedIds: [], deletedReplyIds: [] };
+      const target = (entry.comments || []).find((c) => c.id === commentId);
+      if (!target) return;
+      const nextTag = target.tag === clickedTag ? null : clickedTag;
+      target.tag = nextTag;
+      cache[projectId] = entry;
+      saveReviewCache(cache);
+      renderData(entry);
+      playSfx("pop");
+
+      const sess = loadOpSession();
+      if (sess && sess.mode === "server") {
+        try {
+          const res = await fetch(REVIEWS_API, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "application/json", ...getOpAuthHeaders() },
+            body: JSON.stringify({ action: "tag", project: projectId, commentId, tag: nextTag }),
+          });
+          if (res.status === 401) {
+            clearOpSession();
+            applyOperatorUiState();
+            toast("operator session expired — please log in again");
+            return;
+          }
+          const data = await res.json().catch(() => null);
+          if (res.ok && data) {
+            const c = loadReviewCache();
+            c[projectId] = mergeProjectReviews(c[projectId], data);
+            saveReviewCache(c);
+            renderData(c[projectId]);
+          }
+        } catch (_) {}
+      }
+      toast(nextTag === "fixed" ? "tagged as Fixed ✓" : nextTag === "not_fixed" ? "tagged as Not Fixed ✕" : "status tag cleared");
+    }
+
+    async function handleOperatorDelete(commentId, replyId = null) {
+      if (!isOperatorLoggedIn()) return;
+      const confirmKey = replyId ? `rep:${commentId}:${replyId}` : `com:${commentId}`;
+      if (!pendingDeletes.has(confirmKey)) {
+        const timer = window.setTimeout(() => {
+          pendingDeletes.delete(confirmKey);
+          renderData(getCurrentProjectData());
+        }, 4000);
+        pendingDeletes.set(confirmKey, timer);
+        renderData(getCurrentProjectData());
+        return;
+      }
+
+      window.clearTimeout(pendingDeletes.get(confirmKey));
+      pendingDeletes.delete(confirmKey);
+
+      const cache = loadReviewCache();
+      const entry = cache[projectId] || { avg: 0, count: 0, comments: [], deletedIds: [], deletedReplyIds: [] };
+      if (!Array.isArray(entry.deletedIds)) entry.deletedIds = [];
+      if (!Array.isArray(entry.deletedReplyIds)) entry.deletedReplyIds = [];
+
+      if (replyId) {
+        const target = (entry.comments || []).find((c) => c.id === commentId);
+        if (target && Array.isArray(target.replies)) {
+          target.replies = target.replies.filter((r) => r.id !== replyId);
+        }
+        if (!entry.deletedReplyIds.includes(replyId)) entry.deletedReplyIds.unshift(replyId);
+      } else {
+        entry.comments = (entry.comments || []).filter((c) => c.id !== commentId);
+        entry.commentsCount = entry.comments.length;
+        if (!entry.deletedIds.includes(commentId)) entry.deletedIds.unshift(commentId);
+      }
+      cache[projectId] = entry;
+      saveReviewCache(cache);
+      renderData(entry);
+      playSfx("pop");
+
+      const sess = loadOpSession();
+      if (sess && sess.mode === "server") {
+        try {
+          const res = await fetch(REVIEWS_API, {
+            method: "POST",
+            mode: "cors",
+            headers: { "Content-Type": "application/json", ...getOpAuthHeaders() },
+            body: JSON.stringify({ action: "delete", project: projectId, commentId, replyId: replyId || undefined }),
+          });
+          if (res.status === 401) {
+            clearOpSession();
+            applyOperatorUiState();
+            toast("operator session expired — please log in again");
+            return;
+          }
+          const data = await res.json().catch(() => null);
+          if (res.ok && data) {
+            const c = loadReviewCache();
+            c[projectId] = mergeProjectReviews(c[projectId], data);
+            saveReviewCache(c);
+            renderData(c[projectId]);
+          }
+        } catch (_) {}
+      }
+      toast(replyId ? "reply deleted" : "comment deleted");
+    }
+
+    listEl?.addEventListener("click", (event) => {
+      const replyToggle = event.target.closest("[data-reply-toggle]");
+      if (replyToggle) {
+        const cid = replyToggle.dataset.replyToggle;
+        openReplyForId = openReplyForId === cid ? null : cid;
+        renderData(getCurrentProjectData());
+        if (openReplyForId) {
+          listEl.querySelector(`[data-reply-form="${CSS.escape(openReplyForId)}"] [data-reply-text]`)?.focus();
+        }
+        return;
+      }
+
+      if (event.target.closest("[data-reply-cancel]")) {
+        openReplyForId = null;
+        renderData(getCurrentProjectData());
+        return;
+      }
+
+      const tagBtn = event.target.closest("[data-op-tag]");
+      if (tagBtn) {
+        handleOperatorTag(tagBtn.dataset.commentId, tagBtn.dataset.opTag);
+        return;
+      }
+
+      const delCommentBtn = event.target.closest("[data-op-delete-comment]");
+      if (delCommentBtn) {
+        handleOperatorDelete(delCommentBtn.dataset.opDeleteComment, null);
+        return;
+      }
+
+      const delReplyBtn = event.target.closest("[data-op-delete-reply]");
+      if (delReplyBtn) {
+        handleOperatorDelete(delReplyBtn.dataset.commentId, delReplyBtn.dataset.opDeleteReply);
+      }
+    });
+
+    listEl?.addEventListener("submit", async (event) => {
+      const rForm = event.target.closest("[data-reply-form]");
+      if (!rForm) return;
+      event.preventDefault();
+
+      const cid = rForm.dataset.replyForm;
+      const rNameEl = rForm.querySelector("[data-reply-name]");
+      const rTextEl = rForm.querySelector("[data-reply-text]");
+      const rStatusEl = rForm.querySelector("[data-reply-status]");
+      const isOp = isOperatorLoggedIn();
+      const rawName = (rNameEl?.value || "").trim().slice(0, 24);
+      const name = isOp ? "kurizu" : (rawName || "anonymous");
+      const text = (rTextEl?.value || "").trim().slice(0, 300);
+
+      if (!text) {
+        if (rStatusEl) rStatusEl.textContent = "type a reply first ♡";
+        return;
+      }
+
+      try {
+        if (rawName && !isOp) localStorage.setItem(REVIEWER_NAME_KEY, rawName);
+      } catch (_) {}
+
+      const replyId = "rep_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      const nowTs = Date.now();
+
+      const cLocal = loadReviewCache();
+      const curLocal = cLocal[projectId] || { avg: 0, count: 0, comments: [], deletedIds: [], deletedReplyIds: [] };
+      const target = (curLocal.comments || []).find((c) => c.id === cid);
+      if (target) {
+        if (!Array.isArray(target.replies)) target.replies = [];
+        target.replies.push({ id: replyId, name, text, ts: nowTs, isOperator: isOp });
+        cLocal[projectId] = curLocal;
+        saveReviewCache(cLocal);
+      }
+      openReplyForId = null;
+      renderData(curLocal);
+      playSfx("pop");
+
+      try {
+        const res = await fetch(REVIEWS_API, {
+          method: "POST",
+          mode: "cors",
+          headers: { "Content-Type": "application/json", ...getOpAuthHeaders() },
+          body: JSON.stringify({
+            action: "reply",
+            project: projectId,
+            commentId: cid,
+            replyId,
+            name,
+            text,
+            clientId: getClientId(),
+          }),
+        });
+        const data = await res.json().catch(() => null);
+        if (res.ok && data) {
+          const c = loadReviewCache();
+          c[projectId] = mergeProjectReviews(c[projectId], data);
+          saveReviewCache(c);
+          renderData(c[projectId]);
+        }
+      } catch (_) {}
+      toast("reply posted ♡");
+    });
 
     // 1. Render cached data immediately
     const cache = loadReviewCache();
@@ -5513,6 +6552,8 @@
           count: data.count,
           comments: data.comments || [],
           commentsCount: (data.comments || []).length,
+          deletedIds: data.deletedIds || [],
+          deletedReplyIds: data.deletedReplyIds || [],
         });
         saveReviewCache(c);
         renderData(c[projectId]);
@@ -5528,14 +6569,16 @@
     if (form) {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
-        const name = (nameInput?.value || "").trim().slice(0, 24) || "anonymous";
+        const isOp = isOperatorLoggedIn();
+        const rawName = (nameInput?.value || "").trim().slice(0, 24);
+        const name = isOp ? "kurizu" : (rawName || "anonymous");
         const text = (textInput?.value || "").trim().slice(0, 400);
         if (!selectedStar && !text) {
           if (statusEl) statusEl.textContent = "pick a star or type a comment first ♡";
           return;
         }
         try {
-          if (nameInput?.value.trim()) localStorage.setItem(REVIEWER_NAME_KEY, name);
+          if (rawName && !isOp) localStorage.setItem(REVIEWER_NAME_KEY, rawName);
         } catch (_) {}
 
         if (submitBtn) submitBtn.disabled = true;
@@ -5546,9 +6589,12 @@
 
         // Save optimistically to local cache first so comments/ratings never disappear even if the tab closes or server sleeps
         const cLocal = loadReviewCache();
-        const curLocal = cLocal[projectId] || { avg: 0, count: 0, comments: [], myRating: 0 };
+        const curLocal = cLocal[projectId] || { avg: 0, count: 0, comments: [], myRating: 0, deletedIds: [], deletedReplyIds: [] };
         if (text) {
-          curLocal.comments = [{ id: commentId, name, rating: selectedStar, text, ts: nowTs }, ...(curLocal.comments || [])];
+          curLocal.comments = [
+            { id: commentId, name, rating: selectedStar, text, ts: nowTs, tag: null, isOperator: isOp, replies: [] },
+            ...(curLocal.comments || []),
+          ];
         }
         if (selectedStar) {
           const prevMyRating = Number(curLocal.myRating || 0);
@@ -5571,7 +6617,7 @@
           const res = await fetch(REVIEWS_API, {
             method: "POST",
             mode: "cors",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...getOpAuthHeaders() },
             body: JSON.stringify({
               id: commentId,
               project: projectId,
@@ -5589,6 +6635,8 @@
             count: data.count,
             comments: data.comments || [],
             commentsCount: (data.comments || []).length,
+            deletedIds: data.deletedIds || [],
+            deletedReplyIds: data.deletedReplyIds || [],
             myRating: selectedStar || c[projectId]?.myRating || 0,
           });
           saveReviewCache(c);

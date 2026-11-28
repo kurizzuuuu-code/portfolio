@@ -1,4 +1,5 @@
 [build]
+  command = "node scripts/sync-art.mjs"
   publish = "."
 
 [[headers]]
